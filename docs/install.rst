@@ -19,3 +19,5 @@ Then, to build and install GQE-Python, run
 .. code-block:: bash
 
     pip install <gqe-python-project-root>
+
+Note that since the GQE repo is internal, we have to set up a valid SSH key on Gitlab to authenticate.

@@ -19,8 +19,8 @@ project(gqe-python LANGUAGES CXX CUDA)
 include(cmake/CPM.cmake)
 CPMAddPackage(
   NAME libgqe
-  GIT_REPOSITORY https://gitlab-master.nvidia.com/haog/gqe
-  GIT_TAG enable-downstream-projects
+  GIT_REPOSITORY ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git
+  GIT_TAG main
   # We could also use the local GQE copy for development
   # SOURCE_DIR <path-to-GQE-repo>
 )
