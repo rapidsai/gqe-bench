@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights
- * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -19,11 +19,13 @@
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/logical/aggregate.hpp>
+#include <gqe/logical/fetch.hpp>
 #include <gqe/logical/filter.hpp>
 #include <gqe/logical/join.hpp>
 #include <gqe/logical/project.hpp>
 #include <gqe/logical/read.hpp>
 #include <gqe/logical/relation.hpp>
+#include <gqe/logical/sort.hpp>
 #include <gqe/logical/write.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/types.hpp>
@@ -116,6 +118,32 @@ std::shared_ptr<gqe::logical::relation> project(
     std::move(input),
     std::vector<std::shared_ptr<gqe::logical::relation>>(),
     std::move(cloned_expressions));
+}
+
+std::shared_ptr<gqe::logical::relation> sort(
+  std::shared_ptr<gqe::logical::relation> input,
+  std::vector<cudf::order> column_orders,
+  std::vector<cudf::null_order> null_precedences,
+  std::vector<std::shared_ptr<gqe::expression>> expressions)
+{
+  std::vector<std::unique_ptr<gqe::expression>> cloned_expressions;
+  for (auto const& expr : expressions) {
+    cloned_expressions.push_back(expr->clone());
+  }
+
+  return std::make_shared<gqe::logical::sort_relation>(
+    std::move(input),
+    std::vector<std::shared_ptr<gqe::logical::relation>>(),
+    std::move(column_orders),
+    std::move(null_precedences),
+    std::move(cloned_expressions));
+}
+
+std::shared_ptr<gqe::logical::relation> fetch(std::shared_ptr<gqe::logical::relation> input,
+                                              int64_t offset,
+                                              int64_t count)
+{
+  return std::make_shared<gqe::logical::fetch_relation>(std::move(input), offset, count);
 }
 
 // Specifing `output_result=true` while `relation` does not produce an output has undefined
@@ -214,6 +242,14 @@ PYBIND11_MODULE(lib, py_module)
     .value("sum", cudf::aggregation::SUM)
     .value("avg", cudf::aggregation::MEAN);
 
+  py::enum_<cudf::order>(py_module, "Order")
+    .value("ascending", cudf::order::ASCENDING)
+    .value("descending", cudf::order::DESCENDING);
+
+  py::enum_<cudf::null_order>(py_module, "NullOrder")
+    .value("after", cudf::null_order::AFTER)
+    .value("before", cudf::null_order::BEFORE);
+
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
   py_module.def("register_tpch_parquet", &lib::register_tpch_parquet);
@@ -228,6 +264,8 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("join", &lib::join);
   py_module.def("aggregate", &lib::aggregate);
   py_module.def("project", &lib::project);
+  py_module.def("sort", &lib::sort);
+  py_module.def("fetch", &lib::fetch);
 
   // Expressions
   py::class_<gqe::expression, std::shared_ptr<gqe::expression>> expr_cls(py_module, "Expression");

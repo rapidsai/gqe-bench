@@ -92,6 +92,29 @@ class Relation(ABC):
         """
         return ProjectRelation(self, out_exprs)
 
+    def sort(self, keys: list[tuple[Expression, str, str]]) -> Relation:
+        """
+        Reorder the table according to a set of keys.
+
+        :param keys: A list of tuples `(key, column_order, null_precedence)`, from the most
+            significant to the least significant, where `key` is evaluated on the input table,
+            `column_order` can be "ascending" or "descending", and `null_precedence` can be "after"
+            or "before".
+        """
+        return SortRelation(self, keys)
+
+    def fetch(self, offset, count) -> Relation:
+        """
+        Select a rows within the start offset and the end offset.
+
+        Note that if `offset + count` goes past the end of the table, this relation would output
+        rows from `offset` to the end of the table.
+
+        :param offset: Start offset to output.
+        :param count: Number of rows to output.
+        """
+        return FetchRelation(self, offset, count)
+
 
 class ReadRelation(Relation):
     """
@@ -177,11 +200,18 @@ class AggregateRelation(Relation):
     def __init__(self, input: Relation, keys: list[Expression],
                  measures: list[tuple[str, Expression]]):
         self.input = input
+
+        for key in keys:
+            if not isinstance(key, Expression):
+                raise TypeError("Aggregate keys are not expressions")
+
         self.keys = keys
 
-        for (kind, _) in measures:
+        for (kind, expr) in measures:
             if kind not in _aggregation_kind_to_cpp:
                 raise ValueError(f"Unknown aggregation kind: {kind}")
+            if not isinstance(expr, Expression):
+                raise TypeError("Aggregate reductions are not expressions")
 
         self.measures = measures
 
@@ -204,3 +234,58 @@ class ProjectRelation(Relation):
         return gqe.lib.project(
             self.input._cpp,
             [expr._cpp for expr in self.out_exprs])
+
+
+_order_to_cpp: dict[str, gqe.lib.Order] = {
+    "ascending": gqe.lib.Order.ascending,
+    "descending": gqe.lib.Order.descending
+}
+
+_null_order_to_cpp: dict[str, gqe.lib.NullOrder] = {
+    "after": gqe.lib.NullOrder.after,
+    "before": gqe.lib.NullOrder.before
+}
+
+
+class SortRelation(Relation):
+    """
+    A sort relation reorders the rows of the input table according to a set of keys.
+    """
+    def __init__(self, input: Relation, keys: list[tuple[Expression, str, str]]):
+        self.input = input
+
+        for (expr, order, null_order) in keys:
+            if not isinstance(expr, Expression):
+                raise TypeError("Sort keys are not expressions")
+            if order not in _order_to_cpp:
+                raise ValueError(f"Unknown sort column order: {order}")
+            if null_order not in _null_order_to_cpp:
+                raise ValueError(f"Unknown sort null precedence: {null_order}")
+
+        self.keys = keys
+
+    def _to_cpp(self) -> gqe.lib.Relation:
+        exprs = []
+        orders = []
+        null_orders = []
+
+        for (expr, order, null_order) in self.keys:
+            exprs.append(expr)
+            orders.append(_order_to_cpp[order])
+            null_orders.append(_null_order_to_cpp[null_order])
+
+        return gqe.lib.sort(
+            self.input._cpp, orders, null_orders, [expr._cpp for expr in exprs])
+
+
+class FetchRelation(Relation):
+    """
+    A fetch relation outputs rows within the start offset and the end offset.
+    """
+    def __init__(self, input: Relation, offset: int, count: int):
+        self.input = input
+        self.offset = offset
+        self.count = count
+
+    def _to_cpp(self) -> gqe.lib.Relation:
+        return gqe.lib.fetch(self.input._cpp, self.offset, self.count)

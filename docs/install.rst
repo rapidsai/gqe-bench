@@ -21,3 +21,9 @@ Then, to build and install GQE-Python, run
     pip install <gqe-python-project-root>
 
 Note that since the GQE repo is internal, we have to set up a valid SSH key on Gitlab to authenticate.
+
+If we want to build the documentation, we need to install the additional dependencies.
+
+.. code-block:: bash
+
+    conda install -c conda-forge sphinx sphinx-copybutton furo

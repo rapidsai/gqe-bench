@@ -43,6 +43,8 @@ API references
 .. autoclass:: gqe.relation.JoinRelation
 .. autoclass:: gqe.relation.AggregateRelation
 .. autoclass:: gqe.relation.ProjectRelation
+.. autoclass:: gqe.relation.SortRelation
+.. autoclass:: gqe.relation.FetchRelation
 
 .. autofunction:: gqe.relation.read
 
