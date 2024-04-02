@@ -12,22 +12,22 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
-#include <gqe/executor/query_context.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/literal.hpp>
-#include <gqe/logical/aggregate.hpp>
-#include <gqe/logical/fetch.hpp>
-#include <gqe/logical/filter.hpp>
-#include <gqe/logical/join.hpp>
-#include <gqe/logical/project.hpp>
-#include <gqe/logical/read.hpp>
-#include <gqe/logical/relation.hpp>
-#include <gqe/logical/sort.hpp>
-#include <gqe/logical/write.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
+#include <gqe/physical/aggregate.hpp>
+#include <gqe/physical/fetch.hpp>
+#include <gqe/physical/filter.hpp>
+#include <gqe/physical/join.hpp>
+#include <gqe/physical/project.hpp>
+#include <gqe/physical/read.hpp>
+#include <gqe/physical/relation.hpp>
+#include <gqe/physical/sort.hpp>
+#include <gqe/physical/write.hpp>
+#include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/tpch.hpp>
@@ -41,50 +41,44 @@ namespace py = pybind11;
 
 namespace lib {
 
-std::shared_ptr<gqe::logical::relation> read(gqe::catalog* catalog,
-                                             std::string table_name,
-                                             std::vector<std::string> column_names)
+std::shared_ptr<gqe::physical::relation> read(std::string table_name,
+                                              std::vector<std::string> column_names)
 {
-  std::vector<cudf::data_type> column_types;
-  column_types.reserve(column_names.size());
-  for (auto const& column_name : column_names) {
-    column_types.push_back(catalog->column_type(table_name, column_name));
-  }
-
-  return std::make_shared<gqe::logical::read_relation>(
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),
+  return std::make_shared<gqe::physical::read_relation>(
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(column_names),
-    std::move(column_types),
     std::move(table_name),
     nullptr);
 }
 
 // The following relation factories create a copy for the expression because Python cannot give up
 // ownership of an object to C++, but the relation constructors accept a unique_ptr as argument.
-std::shared_ptr<gqe::logical::relation> filter(std::shared_ptr<gqe::logical::relation> input,
-                                               gqe::expression const* condition)
+std::shared_ptr<gqe::physical::relation> filter(std::shared_ptr<gqe::physical::relation> input,
+                                                gqe::expression const* condition)
 {
-  return std::make_shared<gqe::logical::filter_relation>(
-    std::move(input), std::vector<std::shared_ptr<gqe::logical::relation>>(), condition->clone());
+  return std::make_shared<gqe::physical::filter_relation>(
+    std::move(input), std::vector<std::shared_ptr<gqe::physical::relation>>(), condition->clone());
 }
 
-std::shared_ptr<gqe::logical::relation> join(std::shared_ptr<gqe::logical::relation> left,
-                                             std::shared_ptr<gqe::logical::relation> right,
-                                             std::shared_ptr<gqe::expression> condition,
-                                             gqe::join_type_type join_type,
-                                             std::vector<cudf::size_type> projection_indices)
+std::shared_ptr<gqe::physical::relation> broadcast_join(
+  std::shared_ptr<gqe::physical::relation> probe_table,
+  std::shared_ptr<gqe::physical::relation> broadcast_table,
+  gqe::expression const* condition,  // is this okay?
+  gqe::join_type_type join_type,
+  std::vector<cudf::size_type> projection_indices)
 {
-  return std::make_shared<gqe::logical::join_relation>(
-    std::move(left),
-    std::move(right),
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),
-    condition->clone(),
+  return std::make_shared<gqe::physical::broadcast_join_relation>(
+    std::move(probe_table),
+    std::move(broadcast_table),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
     join_type,
-    std::move(projection_indices));
+    condition->clone(),
+    std::move(projection_indices),
+    gqe::physical::broadcast_policy::right);
 }
 
-std::shared_ptr<gqe::logical::relation> aggregate(
-  std::shared_ptr<gqe::logical::relation> input,
+std::shared_ptr<gqe::physical::relation> aggregate(
+  std::shared_ptr<gqe::physical::relation> input,
   std::vector<std::shared_ptr<gqe::expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::shared_ptr<gqe::expression>>> measures)
 {
@@ -98,15 +92,15 @@ std::shared_ptr<gqe::logical::relation> aggregate(
     cloned_measures.emplace_back(kind, expr->clone());
   }
 
-  return std::make_shared<gqe::logical::aggregate_relation>(
+  return std::make_shared<gqe::physical::concatenate_aggregate_relation>(
     std::move(input),
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(cloned_keys),
     std::move(cloned_measures));
 }
 
-std::shared_ptr<gqe::logical::relation> project(
-  std::shared_ptr<gqe::logical::relation> input,
+std::shared_ptr<gqe::physical::relation> project(
+  std::shared_ptr<gqe::physical::relation> input,
   std::vector<std::shared_ptr<gqe::expression>> output_expressions)
 {
   std::vector<std::unique_ptr<gqe::expression>> cloned_expressions;
@@ -114,14 +108,14 @@ std::shared_ptr<gqe::logical::relation> project(
     cloned_expressions.push_back(expr->clone());
   }
 
-  return std::make_shared<gqe::logical::project_relation>(
+  return std::make_shared<gqe::physical::project_relation>(
     std::move(input),
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(cloned_expressions));
 }
 
-std::shared_ptr<gqe::logical::relation> sort(
-  std::shared_ptr<gqe::logical::relation> input,
+std::shared_ptr<gqe::physical::relation> sort(
+  std::shared_ptr<gqe::physical::relation> input,
   std::vector<cudf::order> column_orders,
   std::vector<cudf::null_order> null_precedences,
   std::vector<std::shared_ptr<gqe::expression>> expressions)
@@ -131,35 +125,32 @@ std::shared_ptr<gqe::logical::relation> sort(
     cloned_expressions.push_back(expr->clone());
   }
 
-  return std::make_shared<gqe::logical::sort_relation>(
+  return std::make_shared<gqe::physical::concatenate_sort_relation>(
     std::move(input),
-    std::vector<std::shared_ptr<gqe::logical::relation>>(),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
+    std::move(cloned_expressions),
     std::move(column_orders),
-    std::move(null_precedences),
-    std::move(cloned_expressions));
+    std::move(null_precedences));
 }
 
-std::shared_ptr<gqe::logical::relation> fetch(std::shared_ptr<gqe::logical::relation> input,
-                                              int64_t offset,
-                                              int64_t count)
+std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::relation> input,
+                                               int64_t offset,
+                                               int64_t count)
 {
-  return std::make_shared<gqe::logical::fetch_relation>(std::move(input), offset, count);
+  return std::make_shared<gqe::physical::fetch_relation>(std::move(input), offset, count);
 }
 
 // Specifing `output_result=true` while `relation` does not produce an output has undefined
 // behavior.
 void execute(gqe::catalog* catalog,
-             std::shared_ptr<gqe::logical::relation> relation,
+             std::shared_ptr<gqe::physical::relation> relation,
              bool output_result = true,
              bool log_time      = true)
 {
-  gqe::physical_plan_builder plan_builder(catalog);
-  auto physical_plan = plan_builder.build(relation.get());
-
   gqe::query_context qctx(gqe::optimization_parameters{});
 
   gqe::task_graph_builder graph_builder(&qctx, catalog);
-  auto task_graph = graph_builder.build(physical_plan.get());
+  auto task_graph = graph_builder.build(relation.get());
 
   if (log_time) {
     gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
@@ -210,15 +201,14 @@ void register_tpch_in_memory(gqe::catalog* catalog, std::string dataset_location
       column_types.push_back(type);
     }
 
-    auto read_table = std::make_shared<gqe::logical::read_relation>(
-      std::vector<std::shared_ptr<gqe::logical::relation>>(),
+    auto read_table = std::make_shared<gqe::physical::read_relation>(
+      std::vector<std::shared_ptr<gqe::physical::relation>>(),
       column_names,
-      column_types,
       name + "_parquet",
       nullptr);
 
     auto write_table =
-      std::make_shared<gqe::logical::write_relation>(read_table, column_names, column_types, name);
+      std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
     execute(catalog, write_table, false, false);
   }
@@ -256,12 +246,12 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("register_tpch_in_memory", &lib::register_tpch_in_memory);
 
   // Relations
-  py::class_<gqe::logical::relation, std::shared_ptr<gqe::logical::relation>> relation_cls(
+  py::class_<gqe::physical::relation, std::shared_ptr<gqe::physical::relation>> relation_cls(
     py_module, "Relation");
 
   py_module.def("read", &lib::read);
   py_module.def("filter", &lib::filter);
-  py_module.def("join", &lib::join);
+  py_module.def("broadcast_join", &lib::broadcast_join);
   py_module.def("aggregate", &lib::aggregate);
   py_module.def("project", &lib::project);
   py_module.def("sort", &lib::sort);

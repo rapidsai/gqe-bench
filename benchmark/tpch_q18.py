@@ -23,20 +23,20 @@ def main():
     catalog.register_tpch(args.location, "memory")
 
     # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
-    lineitem = read(catalog, "lineitem", ["l_orderkey", "l_quantity"]) \
+    lineitem = read("lineitem", ["l_orderkey", "l_quantity"]) \
                 .aggregate([CR(0)], [("sum", CR(1))]) \
                 .filter(CR(1) > Literal(300.0))
 
-    customer = read(catalog, "customer", ["c_custkey", "c_name"])
+    customer = read("customer", ["c_custkey", "c_name"])
 
     # After this operation, `orders` contains
     # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
-    orders = read(catalog, "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]) \
-                .join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
+    orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]) \
+                .broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
 
     # After this operation, `orders` contains
     # [o_orderkey, c_custkey, o_orderdate, o_totalprice, sum(l_quantity), c_name]
-    orders = orders.join(customer, CR(1) == CR(5), [0, 1, 2, 3, 4, 6])
+    orders = orders.broadcast_join(customer, CR(1) == CR(5), [0, 1, 2, 3, 4, 6])
 
     # After this operation, `orders` contains
     # [c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum(l_quantity)]

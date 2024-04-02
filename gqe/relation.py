@@ -10,9 +10,10 @@
 
 """
 In GQE, a **relation** takes zero or more input tables and evaluates to a single table. For example,
-:class:`join <gqe.relation.JoinRelation>` is a relation that takes two input tables, namely the
-left table and the right table, and evaluates to a table, the join result. Other relations includes
-:class:`filter <gqe.relation.FilterRelation>`, :class:`aggregate <gqe.relation.AggregateRelation>`,
+:class:`broadcast join <gqe.relation.BroadcastJoinRelation>` is a relation that takes two input
+tables, namely the left table and the right table, and evaluates to a table, the join result. Other
+relations includes :class:`filter <gqe.relation.FilterRelation>`,
+:class:`aggregate <gqe.relation.AggregateRelation>`,
 :class:`project <gqe.relation.ProjectRelation>`, etc. A relation is represented by an object of the
 :class:`Relation <gqe.relation.Relation>` class.
 """
@@ -50,12 +51,12 @@ class Relation(ABC):
         """
         return FilterRelation(self, condition)
 
-    def join(self, other: Relation, condition: Expression, projection_indices: list[int],
-             type: str = "inner") -> Relation:
+    def broadcast_join(self, broadcast_table: Relation, condition: Expression,
+                       projection_indices: list[int], type: str = "inner") -> Relation:
         """
-        Join with another table.
+        Join with another table by broadcasting
 
-        :param other: The other table to be joined with the current table.
+        :param broadcast_table: The other table to be joined by broadcasting.
         :param condition: `condition` determines when a left row matches a right row. Note that the
             column index of `other` starts after `self`, so if `self` has `n` column, the `i`-th
             column of `other` is referred as `ColumnReference(n+i)`.
@@ -64,7 +65,7 @@ class Relation(ABC):
         :param type: Type of the join. Acceptable values are `"inner"`, `"left"`, `"left_semi"`,
             `"left_anti"` and `"full"`.
         """
-        return JoinRelation(self, other, condition, projection_indices, type)
+        return BroadcastJoinRelation(self, broadcast_table, condition, projection_indices, type)
 
     def aggregate(self, keys: list[Expression], measures: list[tuple[str, Expression]]) -> Relation:
         """
@@ -120,24 +121,22 @@ class ReadRelation(Relation):
     """
     A read relation reads a table from the catalog. It does not take any input tables.
     """
-    def __init__(self, catalog: Catalog, table: str, columns: list[str]):
+    def __init__(self, table: str, columns: list[str]):
         self.table = table
         self.columns = columns
-        self.catalog = catalog
 
     def _to_cpp(self):
-        return gqe.lib.read(self.catalog._catalog, self.table, self.columns)
+        return gqe.lib.read(self.table, self.columns)
 
 
-def read(catalog: Catalog, table: str, columns: list[str]) -> Relation:
+def read(table: str, columns: list[str]) -> Relation:
     """
     Factory for constructing a read relation.
 
-    :param catalog: Catalog to read the table from.
     :param table: Name of the table to load.
     :param columns: Name of the columns to load.
     """
-    return ReadRelation(catalog, table, columns)
+    return ReadRelation(table, columns)
 
 
 class FilterRelation(Relation):
@@ -161,16 +160,16 @@ _join_type_to_cpp: dict[str, gqe.lib.JoinType] = {
 }
 
 
-class JoinRelation(Relation):
+class BroadcastJoinRelation(Relation):
     """
     A join relation performs a join operation on the two input tables in relational algebra, and
     output the join result.
     """
-    def __init__(self, left: Relation, right: Relation, condition: Expression,
+    def __init__(self, probe_table: Relation, broadcast_table: Relation, condition: Expression,
                  projection_indices: list[int],
                  type: str = "inner"):
-        self.left = left
-        self.right = right
+        self.probe_table = probe_table
+        self.broadcast_table = broadcast_table
         self.condition = condition
         self.projection_indices = projection_indices
 
@@ -180,8 +179,8 @@ class JoinRelation(Relation):
             self.type = type
 
     def _to_cpp(self):
-        return gqe.lib.join(
-            self.left._cpp, self.right._cpp, self.condition._cpp,
+        return gqe.lib.broadcast_join(
+            self.probe_table._cpp, self.broadcast_table._cpp, self.condition._cpp,
             _join_type_to_cpp[self.type],
             self.projection_indices)
 

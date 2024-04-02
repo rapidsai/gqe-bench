@@ -43,16 +43,16 @@ def main():
     catalog = Catalog()
     catalog.register_tpch(args.location, "memory")
 
-    part = read(catalog, "part", ["p_partkey", "p_brand", "p_container"])
+    part = read("part", ["p_partkey", "p_brand", "p_container"])
 
     # Filter the part table
     part = part.filter((CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")))
 
-    lineitem = read(catalog, "lineitem", ["l_partkey", "l_quantity", "l_extendedprice"])
+    lineitem = read("lineitem", ["l_partkey", "l_quantity", "l_extendedprice"])
 
     # Join the lineitem with the part table
     # After this operation, `lineitem` has columns ["l_partkey", "l_quantity", "l_extendedprice"]
-    lineitem = lineitem.join(part, CR(0) == CR(3), [0, 1, 2])
+    lineitem = lineitem.broadcast_join(part, CR(0) == CR(3), [0, 1, 2])
 
     # Calculate avg(l_quantity) for each `l_partkey`
     # `avg_l_quantity` has columns ["l_partkey", avg(l_quantity)]
@@ -60,7 +60,7 @@ def main():
 
     # Calculate l_quantity < 0.2 * avg(l_quantity)
     # After this operation, `lineitem` has column ["l_extendedprice"]
-    lineitem = lineitem.join(
+    lineitem = lineitem.broadcast_join(
         avg_l_quantity, (CR(0) == CR(3)) & (CR(1) < Literal(0.2) * CR(4)), [2])
 
     # Calculate sum(l_extendedprice) / 7.0

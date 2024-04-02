@@ -16,10 +16,10 @@ import gqe.lib
 def execute(
         catalog: Catalog, relation: Relation, output_result: bool, log_time: bool = True) -> None:
     """
-    Execute the logical plan.
+    Execute the query plan.
 
-    :param catalog: Catalog to execute the logical plan on.
-    :param relation: Root relation for the logical plan.
+    :param catalog: Catalog to execute the query plan on.
+    :param relation: Root relation for the query plan.
     :param output_result: Whether to write the output of `relation` to a Parquet file
         `output.parquet`.
     :param log_time: Whether to log the execution time.
