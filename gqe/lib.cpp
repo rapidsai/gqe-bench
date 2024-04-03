@@ -230,7 +230,11 @@ PYBIND11_MODULE(lib, py_module)
 
   py::enum_<cudf::aggregation::Kind>(py_module, "AggregationKind")
     .value("sum", cudf::aggregation::SUM)
-    .value("avg", cudf::aggregation::MEAN);
+    .value("avg", cudf::aggregation::MEAN)
+    .value("count_all", cudf::aggregation::COUNT_ALL)
+    .value("count_valid", cudf::aggregation::COUNT_VALID)
+    .value("min", cudf::aggregation::MIN)
+    .value("max", cudf::aggregation::MAX);
 
   py::enum_<cudf::order>(py_module, "Order")
     .value("ascending", cudf::order::ASCENDING)
@@ -267,12 +271,26 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::equal_expression, std::shared_ptr<gqe::equal_expression>>(
     py_module, "Equal", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
-  py::class_<gqe::logical_and_expression, std::shared_ptr<gqe::logical_and_expression>>(
-    py_module, "And", expr_cls)
+  py::class_<gqe::not_equal_expression, std::shared_ptr<gqe::not_equal_expression>>(
+    py_module, "NotEqual", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
   py::class_<gqe::less_expression, std::shared_ptr<gqe::less_expression>>(
     py_module, "Less", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+  py::class_<gqe::greater_expression, std::shared_ptr<gqe::greater_expression>>(
+    py_module, "Greater", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+  py::class_<gqe::less_equal_expression, std::shared_ptr<gqe::less_equal_expression>>(
+    py_module, "LessEqual", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+  py::class_<gqe::greater_equal_expression, std::shared_ptr<gqe::greater_equal_expression>>(
+    py_module, "GreaterEqual", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+
+  py::class_<gqe::logical_and_expression, std::shared_ptr<gqe::logical_and_expression>>(
+    py_module, "And", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+
   py::class_<gqe::multiply_expression, std::shared_ptr<gqe::multiply_expression>>(
     py_module, "Multiply", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());

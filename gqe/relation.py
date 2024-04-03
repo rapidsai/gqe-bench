@@ -21,7 +21,6 @@ relations includes :class:`filter <gqe.relation.FilterRelation>`,
 from __future__ import annotations  # Enable forward references for type annotations
 
 from gqe.expression import Expression
-from gqe.catalog import Catalog
 import gqe.lib
 from abc import ABC, abstractmethod
 from functools import cached_property
@@ -188,6 +187,10 @@ class BroadcastJoinRelation(Relation):
 _aggregation_kind_to_cpp: dict[str, gqe.lib.AggregationKind] = {
     "sum": gqe.lib.AggregationKind.sum,
     "avg": gqe.lib.AggregationKind.avg,
+    "count_all": gqe.lib.AggregationKind.count_all,
+    "count_valid": gqe.lib.AggregationKind.count_valid,
+    "min": gqe.lib.AggregationKind.min,
+    "max": gqe.lib.AggregationKind.max,
 }
 
 

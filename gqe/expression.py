@@ -43,9 +43,33 @@ class Expression(ABC):
         else:
             return NotImplemented
 
+    def __ne__(self, other):
+        if isinstance(other, Expression):
+            return NotEqualExpr(self, other)
+        else:
+            return NotImplemented
+
     def __lt__(self, other):
         if isinstance(other, Expression):
             return LessExpr(self, other)
+        else:
+            return NotImplemented
+
+    def __le__(self, other):
+        if isinstance(other, Expression):
+            return LessEqualExpr(self, other)
+        else:
+            return NotImplemented
+
+    def __gt__(self, other):
+        if isinstance(other, Expression):
+            return GreaterExpr(self, other)
+        else:
+            return NotImplemented
+
+    def __ge__(self, other):
+        if isinstance(other, Expression):
+            return GreaterEqualExpr(self, other)
         else:
             return NotImplemented
 
@@ -104,9 +128,29 @@ class EqualExpr(BinaryOpExpression):
         return gqe.lib.Equal(self.lhs._cpp, self.rhs._cpp)
 
 
+class NotEqualExpr(BinaryOpExpression):
+    def _to_cpp(self):
+        return gqe.lib.NotEqual(self.lhs._cpp, self.rhs._cpp)
+
+
 class LessExpr(BinaryOpExpression):
     def _to_cpp(self):
         return gqe.lib.Less(self.lhs._cpp, self.rhs._cpp)
+
+
+class GreaterExpr(BinaryOpExpression):
+    def _to_cpp(self):
+        return gqe.lib.Greater(self.lhs._cpp, self.rhs._cpp)
+
+
+class LessEqualExpr(BinaryOpExpression):
+    def _to_cpp(self):
+        return gqe.lib.LessEqual(self.lhs._cpp, self.rhs._cpp)
+
+
+class GreaterEqualExpr(BinaryOpExpression):
+    def _to_cpp(self):
+        return gqe.lib.GreaterEqual(self.lhs._cpp, self.rhs._cpp)
 
 
 class MultiplyExpr(BinaryOpExpression):

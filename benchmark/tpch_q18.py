@@ -24,15 +24,15 @@ def main():
 
     # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
     lineitem = read("lineitem", ["l_orderkey", "l_quantity"]) \
-                .aggregate([CR(0)], [("sum", CR(1))]) \
-                .filter(CR(1) > Literal(300.0))
+        .aggregate([CR(0)], [("sum", CR(1))]) \
+        .filter(CR(1) > Literal(300.0))
 
     customer = read("customer", ["c_custkey", "c_name"])
 
     # After this operation, `orders` contains
     # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
     orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]) \
-                .broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
+        .broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
 
     # After this operation, `orders` contains
     # [o_orderkey, c_custkey, o_orderdate, o_totalprice, sum(l_quantity), c_name]
