@@ -20,6 +20,7 @@ import gqe.lib
 from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import Union  # Use | after migrating to Python>=3.10
+import datetime
 
 
 class Expression(ABC):
@@ -179,3 +180,17 @@ class Literal(Expression):
             return gqe.lib.LiteralDouble(self.value, False)
         else:
             raise NotImplementedError
+
+
+class DateLiteral(Expression):
+    def __init__(self, date_string: str):
+        """
+        Construct a date literal.
+
+        :param date_string: Date in ISO 8601 format, e.g., '1995-03-15'.
+        """
+        self.date_string = date_string
+
+    def _to_cpp(self):
+        date = datetime.date.fromisoformat(self.date_string)
+        return gqe.lib.date_from_days((date - datetime.date(1970, 1, 1)).days)

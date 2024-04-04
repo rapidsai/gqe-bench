@@ -33,6 +33,7 @@
 #include <gqe/utility/tpch.hpp>
 
 #include <cudf/io/parquet.hpp>
+#include <cudf/wrappers/durations.hpp>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -214,6 +215,12 @@ void register_tpch_in_memory(gqe::catalog* catalog, std::string dataset_location
   }
 }
 
+// Construct a date object from an integer representing days since the unix epoch
+gqe::literal_expression<cudf::timestamp_D> date_from_days(cudf::timestamp_D::rep days)
+{
+  return gqe::literal_expression<cudf::timestamp_D>(cudf::timestamp_D(cudf::duration_D(days)));
+}
+
 }  // namespace lib
 
 PYBIND11_MODULE(lib, py_module)
@@ -306,6 +313,11 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::literal_expression<double>, std::shared_ptr<gqe::literal_expression<double>>>(
     py_module, "LiteralDouble", expr_cls)
     .def(py::init<double, bool>());
+  py::class_<gqe::literal_expression<cudf::timestamp_D>,
+             std::shared_ptr<gqe::literal_expression<cudf::timestamp_D>>>(
+    py_module, "LiteralTimestampD", expr_cls);
+
+  py_module.def("date_from_days", &lib::date_from_days);
 
   // Execution
   py_module.def("execute", &lib::execute);

@@ -50,5 +50,8 @@ API references
 .. autoclass:: gqe.expression.Literal
     :special-members: __init__
 
+.. autoclass:: gqe.expression.DateLiteral
+    :special-members: __init__
+
 .. autoclass:: gqe.expression.BinaryOpExpression
     :special-members: __init__
