@@ -22,6 +22,8 @@ Operator          Shorthand
 AndExpr          `expr1 & expr2`
 EqualExpr        `expr1 = expr2`
 LessExpr         `expr1 < expr2`
+AddExpr          `expr1 + expr2`
+SubtractExpr     `expr1 - expr2`
 MultiplyExpr     `expr1 * expr2`
 DivideExpr       `expr1 / expr2`
 ==============  ===================

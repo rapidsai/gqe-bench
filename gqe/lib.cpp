@@ -304,6 +304,11 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::divide_expression, std::shared_ptr<gqe::divide_expression>>(
     py_module, "Divide", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+  py::class_<gqe::add_expression, std::shared_ptr<gqe::add_expression>>(py_module, "Add", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+  py::class_<gqe::subtract_expression, std::shared_ptr<gqe::subtract_expression>>(
+    py_module, "Subtract", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
 
   // Literals
   py::class_<gqe::literal_expression<std::string>,
