@@ -141,12 +141,11 @@ std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::re
   return std::make_shared<gqe::physical::fetch_relation>(std::move(input), offset, count);
 }
 
-// Specifing `output_result=true` while `relation` does not produce an output has undefined
-// behavior.
+// Specifing `output_path` while `relation` does not produce an output has undefined behavior.
 void execute(gqe::catalog* catalog,
              std::shared_ptr<gqe::physical::relation> relation,
-             bool output_result = true,
-             bool log_time      = true)
+             std::optional<std::string> output_path = std::nullopt,
+             bool log_time                          = true)
 {
   gqe::query_context qctx(gqe::optimization_parameters{});
 
@@ -160,8 +159,8 @@ void execute(gqe::catalog* catalog,
   }
 
   // Output the result to disk
-  if (output_result) {
-    auto destination = cudf::io::sink_info("output.parquet");
+  if (output_path) {
+    auto destination = cudf::io::sink_info(output_path.value());
     auto options     = cudf::io::parquet_writer_options::builder(
       destination, task_graph->root_tasks[0]->result().value());
     cudf::io::write_parquet(options);
@@ -211,7 +210,7 @@ void register_tpch_in_memory(gqe::catalog* catalog, std::string dataset_location
     auto write_table =
       std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
-    execute(catalog, write_table, false, false);
+    execute(catalog, write_table, std::nullopt, false);
   }
 }
 

@@ -8,11 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import Catalog, read, execute
+from gqe import read
 from gqe.expression import Literal, DateLiteral
 from gqe.expression import ColumnReference as CR
-import argparse
-
+from gqe.benchmark.query import Query
 
 '''
 with revenue (supplier_no, total_revenue) as (
@@ -49,31 +48,19 @@ order by
 '''
 
 
-def main():
-    arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("location", help="TPC-H dataset location")
-    args = arg_parser.parse_args()
+class tpch_q15(Query):
+    def root_relation(self):
+        lineitem = read("lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]) \
+            .filter((CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")))
 
-    catalog = Catalog()
-    catalog.register_tpch(args.location, "memory")
+        revenue = lineitem.aggregate([CR(0)], [("sum",  CR(2) * (Literal(1.0) - CR(3)))])
 
-    lineitem = read("lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]) \
-                .filter( (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")))
+        max_revenue = revenue.aggregate([], [("max", CR(1))])
 
-    revenue = lineitem.aggregate([CR(0)], [("sum",  CR(2) * ( Literal(1.0) -  CR(3)))])
+        l_max_revenue = revenue.broadcast_join(max_revenue, (CR(1) == CR(2)), [0, 1])
 
-    max_revenue = revenue.aggregate([], [("max", CR(1))]);
+        supplier = read("supplier", ["s_suppkey", "s_name", "s_address", "s_phone"])
 
-    l_max_revenue = revenue.broadcast_join(max_revenue, (CR(1) == CR(2)), [0, 1])
+        unsorted_output = supplier.broadcast_join(l_max_revenue, (CR(0) == CR(4)), [0, 1, 2, 3, 5])
 
-    supplier = read("supplier", ["s_suppkey", "s_name" , "s_address" , "s_phone"])
-
-    unsorted_output = supplier.broadcast_join(l_max_revenue, (CR(0)==CR(4)), [0, 1, 2, 3, 5])
-
-    sorted_output = unsorted_output.sort([(CR(0), "ascending", "before")]) 
-
-    execute(catalog, sorted_output, output_result=True)
-
-
-if __name__ == "__main__":
-    main()
+        return unsorted_output.sort([(CR(0), "ascending", "before")])

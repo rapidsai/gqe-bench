@@ -91,7 +91,7 @@ class Expression(ABC):
             return DivideExpr(self, other)
         else:
             return NotImplemented
-    
+
     def __add__(self, other):
         if isinstance(other, Expression):
             return AddExpr(self, other)
@@ -175,13 +175,16 @@ class DivideExpr(BinaryOpExpression):
     def _to_cpp(self):
         return gqe.lib.Divide(self.lhs._cpp, self.rhs._cpp)
 
+
 class AddExpr(BinaryOpExpression):
     def _to_cpp(self):
         return gqe.lib.Add(self.lhs._cpp, self.rhs._cpp)
 
+
 class SubtractExpr(BinaryOpExpression):
     def _to_cpp(self):
         return gqe.lib.Subtract(self.lhs._cpp, self.rhs._cpp)
+
 
 class Literal(Expression):
     def __init__(self, value: Union[str, float]):

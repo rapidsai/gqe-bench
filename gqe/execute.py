@@ -11,17 +11,20 @@
 from gqe.relation import Relation
 from gqe import Catalog
 import gqe.lib
+from typing import Optional  # Not needed with Python>=3.10
 
 
 def execute(
-        catalog: Catalog, relation: Relation, output_result: bool, log_time: bool = True) -> None:
+        catalog: Catalog, relation: Relation,
+        output_path: Optional[str], log_time: bool = True) -> None:
     """
     Execute the query plan.
 
     :param catalog: Catalog to execute the query plan on.
     :param relation: Root relation for the query plan.
-    :param output_result: Whether to write the output of `relation` to a Parquet file
-        `output.parquet`.
+    :param output_path: Path to write the output of `relation` to a Parquet file if this argument
+        is valid `str`. If this argument is `None`, the output is not written. Note that the
+        behavior is undefined if `output_path` is valid but `relation` does not produce an output.
     :param log_time: Whether to log the execution time.
     """
-    gqe.lib.execute(catalog._catalog, relation._to_cpp(), output_result, log_time)
+    gqe.lib.execute(catalog._catalog, relation._to_cpp(), output_path, log_time)
