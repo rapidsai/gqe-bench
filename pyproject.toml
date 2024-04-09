@@ -7,6 +7,9 @@ name = "gqe"
 version = "0.0.1"
 description = "GPU Query Executor (GQE)"
 requires-python = ">=3.9"
+dependencies = [
+    "pynvml",
+]
 
 [tool.scikit-build]
 cmake.source-dir = "."
