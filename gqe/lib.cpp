@@ -145,9 +145,17 @@ std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::re
 void execute(gqe::catalog* catalog,
              std::shared_ptr<gqe::physical::relation> relation,
              std::optional<std::string> output_path = std::nullopt,
-             bool log_time                          = true)
+             bool log_time                          = false,
+             int32_t max_num_workers                = 1,
+             int32_t max_num_partitions             = 8,
+             bool read_zero_copy_enable             = false)
 {
-  gqe::query_context qctx(gqe::optimization_parameters{});
+  gqe::optimization_parameters parameters;
+  parameters.max_num_workers       = max_num_workers;
+  parameters.max_num_partitions    = max_num_partitions;
+  parameters.read_zero_copy_enable = read_zero_copy_enable;
+
+  gqe::query_context qctx(parameters);
 
   gqe::task_graph_builder graph_builder(&qctx, catalog);
   auto task_graph = graph_builder.build(relation.get());
@@ -180,7 +188,9 @@ void register_tpch_parquet(gqe::catalog* catalog, std::string dataset_location)
   }
 }
 
-void register_tpch_in_memory(gqe::catalog* catalog, std::string dataset_location)
+void register_tpch_in_memory(gqe::catalog* catalog,
+                             std::string dataset_location,
+                             int32_t num_row_groups)
 {
   auto const& table_definitions = gqe::utility::tpch::table_definitions();
   for (auto const& [name, definition] : table_definitions) {
@@ -210,7 +220,7 @@ void register_tpch_in_memory(gqe::catalog* catalog, std::string dataset_location
     auto write_table =
       std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
-    execute(catalog, write_table, std::nullopt, false);
+    execute(catalog, write_table, std::nullopt, false, 1, num_row_groups);
   }
 }
 

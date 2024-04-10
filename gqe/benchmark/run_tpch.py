@@ -17,6 +17,7 @@ import pynvml
 import platform
 import os
 import time
+import itertools
 
 
 def main():
@@ -29,6 +30,7 @@ def main():
         "create_experiment_db.sql")
     scale_factor = 100  # FIXME: add data set paths here to make SF configurable
     repeat = 6
+    num_row_groups = 8
 
     out_file = f'gqe_tpch_{ socket.gethostname() }.db3'
     out_conn = sqlite3.connect(out_file)
@@ -42,49 +44,68 @@ def main():
 
     hw_info_id = insert_hw_info(out_cursor)
 
-    parameters_id = insert_parameters(
-        out_cursor,
-        {
-            "num_workers": os.getenv("MAX_NUM_WORKERS", 1),
-            "num_partitions": os.getenv("MAX_NUM_PARTITIONS", 8),
-            "join_use_hash_map_cache": os.getenv("GQE_JOIN_USE_HASH_MAP_CACHE", False),
-            "read_use_zero_copy": os.getenv("GQE_READ_USE_ZERO_COPY", True),
-        })
-
     catalog = Catalog()
-    catalog.register_tpch(args.location, "memory")
+    catalog.register_tpch(args.location, "memory", num_row_groups)
 
     query_identifiers = ["tpch_q6", "tpch_q15", "tpch_q17", "tpch_q18", "tpch_q21"]
 
-    for query_identifier in query_identifiers:
-        print(f"Running {query_identifier}...")
-        module = importlib.import_module(query_identifier)
-        query = getattr(module, query_identifier)()
+    for num_partitions, read_use_zero_copy in itertools.product(
+            [1, 2, 4, 8], [False, True]):
+        if read_use_zero_copy and (num_partitions != num_row_groups):
+            continue
 
-        experiment_id = insert_experiment(
+        print(f"Running with parameters num_partitions={num_partitions}, "
+              f"read_use_zero_copy={read_use_zero_copy}")
+
+        max_num_workers = int(os.getenv("MAX_NUM_WORKERS", 1))
+        join_use_hash_map_cache = bool(os.getenv("GQE_JOIN_USE_HASH_MAP_CACHE", False))
+
+        parameters_id = insert_parameters(
             out_cursor,
             {
-                "parameters_id": parameters_id,
-                "hw_info_id": hw_info_id,
-                "build_info_id": None,
-                "name": query_identifier_to_name(query_identifier),
-                "suite": "TPC-H",
-                "scale_factor": scale_factor,
+                "num_workers": max_num_workers,
+                "num_partitions": num_partitions,
+                "join_use_hash_map_cache": join_use_hash_map_cache,
+                "read_use_zero_copy": read_use_zero_copy,
             })
 
-        for count in range(repeat):
-            start_time = time.time()
-            execute(catalog, query.root_relation(), f"{query_identifier}_out.parquet")
-            elapsed_time = time.time() - start_time
+        for query_identifier in query_identifiers:
+            print(f"Running {query_identifier}...")
+            module = importlib.import_module(query_identifier)
+            query = getattr(module, query_identifier)()
 
-            insert_run(
+            experiment_id = insert_experiment(
                 out_cursor,
                 {
-                    "experiment_id": experiment_id,
-                    "number": count,
-                    "nvtx_marker": None,
-                    "duration_s": elapsed_time,
+                    "parameters_id": parameters_id,
+                    "hw_info_id": hw_info_id,
+                    "build_info_id": None,
+                    "name": query_identifier_to_name(query_identifier),
+                    "suite": "TPC-H",
+                    "scale_factor": scale_factor,
                 })
+
+            for count in range(repeat):
+                start_time = time.time()
+
+                execute(
+                    catalog, query.root_relation(),
+                    f"{query_identifier}_out.parquet",
+                    True,
+                    max_num_workers=max_num_workers,
+                    max_num_partitions=num_partitions,
+                    read_zero_copy_enable=read_use_zero_copy)
+
+                elapsed_time = time.time() - start_time
+
+                insert_run(
+                    out_cursor,
+                    {
+                        "experiment_id": experiment_id,
+                        "number": count,
+                        "nvtx_marker": None,
+                        "duration_s": elapsed_time,
+                    })
 
     out_conn.commit()
     print(f"Finished SQLite file at {out_file}")

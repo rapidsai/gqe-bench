@@ -15,8 +15,13 @@ from typing import Optional  # Not needed with Python>=3.10
 
 
 def execute(
-        catalog: Catalog, relation: Relation,
-        output_path: Optional[str], log_time: bool = True) -> None:
+        catalog: Catalog,
+        relation: Relation,
+        output_path: Optional[str],
+        log_time: bool = True,
+        max_num_workers: int = 1,
+        max_num_partitions: int = 8,
+        read_zero_copy_enable: bool = False) -> None:
     """
     Execute the query plan.
 
@@ -27,4 +32,6 @@ def execute(
         behavior is undefined if `output_path` is valid but `relation` does not produce an output.
     :param log_time: Whether to log the execution time.
     """
-    gqe.lib.execute(catalog._catalog, relation._to_cpp(), output_path, log_time)
+    gqe.lib.execute(
+        catalog._catalog, relation._to_cpp(), output_path, log_time,
+        max_num_workers, max_num_partitions, read_zero_copy_enable)
