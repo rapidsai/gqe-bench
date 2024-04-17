@@ -10,39 +10,38 @@
 
 from gqe import Catalog
 from gqe.benchmark.run import run_tpc, QueryInfo, Parameter
+
 import argparse
-import importlib
 import socket
 import os
 import itertools
 
 
-def query_identifier_to_name(identifier):
-    # Convert "tpch_q6" -> "Q6"
-    return identifier[5:].upper()
-
-
 def main():
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("location", help="TPC-H dataset location")
+    arg_parser.add_argument("dataset", help="TPC-H dataset location")
+    arg_parser.add_argument("plan", help="Substrait query plan location")
     arg_parser.add_argument("solution", help="Reference results location")
     args = arg_parser.parse_args()
 
     num_row_groups = 8
-    perf_db_file = f'gqe_tpch_{ socket.gethostname() }.db3'
+    perf_db_file = f'gqe_tpch_{ socket.gethostname() }_e2e.db3'
 
     catalog = Catalog()
-    catalog.register_tpch(args.location, "memory", num_row_groups)
+    catalog.register_tpch(args.dataset, "memory", num_row_groups)
 
-    query_identifiers = ["tpch_q6", "tpch_q15", "tpch_q17", "tpch_q18", "tpch_q21"]
     queries = []
-    for query_identifier in query_identifiers:
-        module = importlib.import_module(query_identifier)
-        root_relation = getattr(module, query_identifier)().root_relation()
-        reference_file = os.path.join(args.solution, f"q{query_identifier[6:]}.parquet")
+    for query_idx in range(1, 23):
+        if query_idx == 15 or query_idx == 18 or query_idx == 21:
+            continue
+
+        reference_file = os.path.join(args.solution, f"q{query_idx}.parquet")
+
+        substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
+        root_relation = catalog.load_substrait(substrait_file)
 
         queries.append(
-            QueryInfo(query_identifier_to_name(query_identifier), root_relation, reference_file))
+            QueryInfo(f"Q{query_idx}", root_relation, reference_file))
 
     parameters = []
     for num_partitions, read_use_zero_copy, max_num_workers in itertools.product(

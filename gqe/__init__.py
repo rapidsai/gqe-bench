@@ -10,4 +10,4 @@
 
 from .relation import read
 from .catalog import Catalog
-from .execute import execute
+from .execute import Context

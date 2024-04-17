@@ -41,3 +41,6 @@ class Catalog:
             gqe.lib.register_tpch_in_memory(self._catalog, dataset, num_row_groups)
         else:
             raise ValueError(f"Unrecognized storage: {storage}")
+
+    def load_substrait(self, substrait_file: str) -> gqe.lib.Relation:
+        return gqe.lib.load_substrait(self._catalog, substrait_file)

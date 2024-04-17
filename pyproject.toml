@@ -9,6 +9,8 @@ description = "GPU Query Executor (GQE)"
 requires-python = ">=3.9"
 dependencies = [
     "pynvml",
+    "pandas",
+    "pyarrow",
 ]
 
 [tool.scikit-build]

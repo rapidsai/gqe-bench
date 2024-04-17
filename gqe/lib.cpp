@@ -17,6 +17,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/logical/from_substrait.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
@@ -29,14 +30,22 @@
 #include <gqe/physical/write.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/types.hpp>
+#include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/tpch.hpp>
 
 #include <cudf/io/parquet.hpp>
 #include <cudf/wrappers/durations.hpp>
 
+#include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+
+#include <chrono>
+#include <stdexcept>
 
 namespace py = pybind11;
 
@@ -64,7 +73,7 @@ std::shared_ptr<gqe::physical::relation> filter(std::shared_ptr<gqe::physical::r
 std::shared_ptr<gqe::physical::relation> broadcast_join(
   std::shared_ptr<gqe::physical::relation> probe_table,
   std::shared_ptr<gqe::physical::relation> broadcast_table,
-  gqe::expression const* condition,  // is this okay?
+  gqe::expression const* condition,
   gqe::join_type_type join_type,
   std::vector<cudf::size_type> projection_indices)
 {
@@ -141,39 +150,71 @@ std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::re
   return std::make_shared<gqe::physical::fetch_relation>(std::move(input), offset, count);
 }
 
-// Specifing `output_path` while `relation` does not produce an output has undefined behavior.
-void execute(gqe::catalog* catalog,
-             std::shared_ptr<gqe::physical::relation> relation,
-             std::optional<std::string> output_path = std::nullopt,
-             bool log_time                          = false,
-             int32_t max_num_workers                = 1,
-             int32_t max_num_partitions             = 8,
-             bool read_zero_copy_enable             = false)
+std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
+                                                        std::string substrait_file)
 {
-  gqe::optimization_parameters parameters;
-  parameters.max_num_workers       = max_num_workers;
-  parameters.max_num_partitions    = max_num_partitions;
-  parameters.read_zero_copy_enable = read_zero_copy_enable;
+  gqe::substrait_parser parser(catalog);
+  auto logical_plan = parser.from_file(substrait_file);
 
-  gqe::query_context qctx(parameters);
+  if (logical_plan.size() > 1)
+    throw std::logic_error("gqe-python only supports substrait plan with one root");
 
-  gqe::task_graph_builder graph_builder(&qctx, catalog);
-  auto task_graph = graph_builder.build(relation.get());
-
-  if (log_time) {
-    gqe::utility::time_function(gqe::execute_task_graph_single_gpu, &qctx, task_graph.get());
-  } else {
-    execute_task_graph_single_gpu(&qctx, task_graph.get());
-  }
-
-  // Output the result to disk
-  if (output_path) {
-    auto destination = cudf::io::sink_info(output_path.value());
-    auto options     = cudf::io::parquet_writer_options::builder(
-      destination, task_graph->root_tasks[0]->result().value());
-    cudf::io::write_parquet(options);
-  }
+  gqe::physical_plan_builder plan_builder(catalog);
+  return plan_builder.build(logical_plan[0].get());
 }
+
+struct context {
+  context(int32_t max_num_workers    = 1,
+          int32_t max_num_partitions = 8,
+          bool read_zero_copy_enable = false)
+  {
+    // RMM requires the memory location to be aligned to 256B. So here, we set the memory pool size
+    // to ~90% to the total memory and a multiple of 256.
+    std::size_t free_memory, total_memory;
+    GQE_CUDA_TRY(cudaMemGetInfo(&free_memory, &total_memory));
+    auto const pool_size = total_memory / 284 * 256;
+
+    _pool_mr = std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
+      &_cuda_mr, pool_size, pool_size);
+    rmm::mr::set_current_device_resource(_pool_mr.get());
+
+    gqe::optimization_parameters parameters;
+    parameters.max_num_workers       = max_num_workers;
+    parameters.max_num_partitions    = max_num_partitions;
+    parameters.read_zero_copy_enable = read_zero_copy_enable;
+
+    _qctx = std::make_unique<gqe::query_context>(parameters);
+  }
+
+  // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
+  // Return execution time in ms.
+  float execute(gqe::catalog* catalog,
+                std::shared_ptr<gqe::physical::relation> relation,
+                std::optional<std::string> output_path = std::nullopt)
+  {
+    gqe::task_graph_builder graph_builder(_qctx.get(), catalog);
+    auto task_graph = graph_builder.build(relation.get());
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    execute_task_graph_single_gpu(_qctx.get(), task_graph.get());
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float, std::milli> elapsed_time_ms = end_time - start_time;
+
+    // Output the result to disk
+    if (output_path) {
+      auto destination = cudf::io::sink_info(output_path.value());
+      auto options     = cudf::io::parquet_writer_options::builder(
+        destination, task_graph->root_tasks[0]->result().value());
+      cudf::io::write_parquet(options);
+    }
+
+    return elapsed_time_ms.count();
+  }
+
+  std::unique_ptr<gqe::query_context> _qctx;
+  rmm::mr::cuda_memory_resource _cuda_mr;
+  std::unique_ptr<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>> _pool_mr;
+};
 
 void register_tpch_parquet(gqe::catalog* catalog, std::string dataset_location)
 {
@@ -220,7 +261,8 @@ void register_tpch_in_memory(gqe::catalog* catalog,
     auto write_table =
       std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
-    execute(catalog, write_table, std::nullopt, false, 1, num_row_groups);
+    context ctx(1, num_row_groups);
+    ctx.execute(catalog, write_table, std::nullopt);
   }
 }
 
@@ -276,6 +318,7 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("project", &lib::project);
   py_module.def("sort", &lib::sort);
   py_module.def("fetch", &lib::fetch);
+  py_module.def("load_substrait", &lib::load_substrait);
 
   // Expressions
   py::class_<gqe::expression, std::shared_ptr<gqe::expression>> expr_cls(py_module, "Expression");
@@ -334,5 +377,7 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("date_from_days", &lib::date_from_days);
 
   // Execution
-  py_module.def("execute", &lib::execute);
+  py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
+    .def(py::init<int32_t, int32_t, bool>())
+    .def("execute", &lib::context::execute);
 }
