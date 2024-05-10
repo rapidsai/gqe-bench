@@ -41,14 +41,14 @@ class Relation(ABC):
     def _to_cpp(self) -> gqe.lib.Relation:
         pass
 
-    def filter(self, condition: Expression) -> Relation:
+    def filter(self, condition: Expression, projection_indices: list[int]) -> Relation:
         """
         Select a subset of rows based on the condition.
 
         :param condition: A row will be included in the output table if and only if the condition
             evaluates to `True`.
         """
-        return FilterRelation(self, condition)
+        return FilterRelation(self, condition, projection_indices)
 
     def broadcast_join(self, broadcast_table: Relation, condition: Expression,
                        projection_indices: list[int], type: str = "inner") -> Relation:
@@ -142,12 +142,13 @@ class FilterRelation(Relation):
     """
     A filter relation selects a subset of rows from the input table based on the filter condition.
     """
-    def __init__(self, input: Relation, condition: Expression):
+    def __init__(self, input: Relation, condition: Expression, projection_indices: list[int]):
         self.input = input
         self.condition = condition
+        self.projection_indices = projection_indices
 
     def _to_cpp(self):
-        return gqe.lib.filter(self.input._cpp, self.condition._cpp)
+        return gqe.lib.filter(self.input._cpp, self.condition._cpp, self.projection_indices)
 
 
 _join_type_to_cpp: dict[str, gqe.lib.JoinType] = {

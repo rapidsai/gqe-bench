@@ -39,7 +39,7 @@ class tpch_q17(Query):
         part = read("part", ["p_partkey", "p_brand", "p_container"])
 
         # Filter the part table
-        part = part.filter((CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")))
+        part = part.filter((CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")), [0])
 
         lineitem = read("lineitem", ["l_partkey", "l_quantity", "l_extendedprice"])
 

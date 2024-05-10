@@ -40,7 +40,7 @@ class tpch_q6(Query):
             (CR(0) < DateLiteral("1995-01-01")) &
             (CR(1) >= Literal(0.05)) &
             (CR(1) <= Literal(0.07)) &
-            (CR(2) < Literal(24.0)))
+            (CR(2) < Literal(24.0)), [1, 3])
 
         # sum(l_extendedprice * l_discount) as revenue
-        return lineitem.aggregate([], [("sum", CR(3) * CR(1))])
+        return lineitem.aggregate([], [("sum", CR(1) * CR(0))])

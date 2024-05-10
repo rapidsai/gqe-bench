@@ -56,7 +56,7 @@ class tpch_q18(Query):
         # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
         lineitem = read("lineitem", ["l_orderkey", "l_quantity"]) \
             .aggregate([CR(0)], [("sum", CR(1))]) \
-            .filter(CR(1) > Literal(300.0))
+            .filter(CR(1) > Literal(300.0), [0, 1])
 
         customer = read("customer", ["c_custkey", "c_name"])
 

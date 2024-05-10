@@ -64,10 +64,14 @@ std::shared_ptr<gqe::physical::relation> read(std::string table_name,
 // The following relation factories create a copy for the expression because Python cannot give up
 // ownership of an object to C++, but the relation constructors accept a unique_ptr as argument.
 std::shared_ptr<gqe::physical::relation> filter(std::shared_ptr<gqe::physical::relation> input,
-                                                gqe::expression const* condition)
+                                                gqe::expression const* condition,
+                                                std::vector<cudf::size_type> projection_indices)
 {
   return std::make_shared<gqe::physical::filter_relation>(
-    std::move(input), std::vector<std::shared_ptr<gqe::physical::relation>>(), condition->clone());
+    std::move(input),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
+    condition->clone(),
+    projection_indices);
 }
 
 std::shared_ptr<gqe::physical::relation> broadcast_join(
