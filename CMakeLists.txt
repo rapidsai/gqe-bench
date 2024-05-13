@@ -23,6 +23,7 @@ CPMAddPackage(
   GIT_TAG main
   # We could also use the local GQE copy for development
   # SOURCE_DIR <path-to-GQE-repo>
+  OPTIONS "CMAKE_POSITION_INDEPENDENT_CODE ON"
 )
 
 rapids_find_package(pybind11 REQUIRED)

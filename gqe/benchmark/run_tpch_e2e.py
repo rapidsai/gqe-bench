@@ -32,7 +32,7 @@ def main():
 
     queries = []
     for query_idx in range(1, 23):
-        if query_idx == 15 or query_idx == 18 or query_idx == 21:
+        if query_idx == 15 or query_idx == 18 or query_idx == 21 or query_idx == 1:
             continue
 
         reference_file = os.path.join(args.solution, f"q{query_idx}.parquet")

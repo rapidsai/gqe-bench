@@ -18,6 +18,7 @@ import sqlite3
 import pynvml
 import socket
 import platform
+import nvtx
 from dataclasses import dataclass
 from typing import Union  # Not needed with Python>=3.10
 
@@ -95,11 +96,12 @@ def run_tpc(perf_db_file: str, catalog, queries: list[QueryInfo], parameters: li
             for count in range(repeat):
                 out_file = f"{query.identifier}_out.parquet"
 
-                try:
-                    elapsed_time = context.execute(catalog, query.root_relation, out_file)
-                except Exception as error:
-                    print(error)
-                    break
+                with nvtx.annotate(f"Run {query.identifier}"):
+                    try:
+                        elapsed_time = context.execute(catalog, query.root_relation, out_file)
+                    except Exception as error:
+                        print(error)
+                        break
 
                 try:
                     verify_parquet(out_file, query.reference_solution)
