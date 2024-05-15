@@ -31,9 +31,10 @@ class Context:
 
         :param catalog: Catalog to execute the query plan on.
         :param relation: Root relation for the query plan.
-        :param output_path: Path to write the output of `relation` to a Parquet file if this argument
-            is valid `str`. If this argument is `None`, the output is not written. Note that the
-            behavior is undefined if `output_path` is valid but `relation` does not produce an output.
+        :param output_path: Path to write the output of `relation` to a Parquet file if this
+            argument is valid `str`. If this argument is `None`, the output is not written. Note
+            that the behavior is undefined if `output_path` is valid but `relation` does not produce
+            an output.
 
         :return: The execution time in ms.
         """

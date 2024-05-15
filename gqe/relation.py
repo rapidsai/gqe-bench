@@ -78,7 +78,7 @@ class Relation(ABC):
             reduction results of all rows in the input table. If the list is not empty, the
             aggregate relation behaves like a groupby.
         :param measures: A list of (op, expression) pairs, representing the reduction operations
-            within the groups. `op` can be `"sum"` or `"avg"`.
+            within the groups.
         """
         return AggregateRelation(self, keys, measures)
 

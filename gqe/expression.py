@@ -186,12 +186,32 @@ class SubtractExpr(BinaryOpExpression):
         return gqe.lib.Subtract(self.lhs._cpp, self.rhs._cpp)
 
 
+class LikeExpr(Expression):
+    def __init__(self, input: Expression, pattern: str,
+                 escape_character: str = ""):
+        """
+        Construct a like expression.
+
+        :param input: Input strings to be filtered.
+        :param patter: Like pattern to match within each string.
+        :param escape_character: Optional character specifies the escape prefix. Could be an empty
+            string for no escape character.
+        """
+        self.input = input
+        self.pattern = pattern
+        self.escape_character = escape_character
+
+    def _to_cpp(self):
+        return gqe.lib.Like(self.input._cpp, self.pattern, self.escape_character, False)
+
+
 class Literal(Expression):
-    def __init__(self, value: Union[str, float]):
+    def __init__(self, value: Union[int, str, float]):
         """
         Construct a literal expression.
 
-        :param value: Value of the literal. Currently, only strings and floats are supported.
+        :param value: Value of the literal. Currently, only integers, strings and floats are
+            supported.
         """
         self.value = value
 
@@ -200,6 +220,8 @@ class Literal(Expression):
             return gqe.lib.LiteralString(self.value, False)
         elif isinstance(self.value, float):
             return gqe.lib.LiteralDouble(self.value, False)
+        elif isinstance(self.value, int):
+            return gqe.lib.LiteralInt64(self.value, False)
         else:
             raise NotImplementedError
 

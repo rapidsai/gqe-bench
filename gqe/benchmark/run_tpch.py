@@ -12,7 +12,6 @@ from gqe import Catalog
 from gqe.benchmark.run import run_tpc, QueryInfo, Parameter
 import argparse
 import importlib
-import socket
 import os
 import itertools
 
@@ -29,7 +28,12 @@ def main():
     args = arg_parser.parse_args()
 
     num_row_groups = 8
-    perf_db_file = f'gqe_tpch_{ socket.gethostname() }.db3'
+    perf_db_file = "gqe_tpch.db3"
+
+    suffix = 1
+    while os.path.isfile(perf_db_file):
+        perf_db_file = f"gqe_tpch_{suffix}.db3"
+        suffix += 1
 
     catalog = Catalog()
     catalog.register_tpch(args.location, "memory", num_row_groups)

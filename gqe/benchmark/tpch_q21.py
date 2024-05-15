@@ -68,7 +68,8 @@ class tpch_q21(Query):
 
         # `supplier` has columns ["s_suppkey", "s_name"] which satisfies
         # s_nationkey = n_nationkey and n_name = 'SAUDI ARABIA'
-        nation = read("nation", ["n_nationkey", "n_name"]).filter(CR(1) == Literal("SAUDI ARABIA"), [0])
+        nation = read(
+            "nation", ["n_nationkey", "n_name"]).filter(CR(1) == Literal("SAUDI ARABIA"), [0])
         supplier = read("supplier", ["s_suppkey", "s_name", "s_nationkey"]) \
             .broadcast_join(nation, CR(2) == CR(3), [0, 1])
 

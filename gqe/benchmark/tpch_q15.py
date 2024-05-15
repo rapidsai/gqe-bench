@@ -50,8 +50,11 @@ order by
 
 class tpch_q15(Query):
     def root_relation(self):
-        lineitem = read("lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]) \
-            .filter((CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")), [0, 2, 3])
+        lineitem = read(
+            "lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]) \
+            .filter(
+                (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")),
+                [0, 2, 3])
 
         revenue = lineitem.aggregate([CR(0)], [("sum",  CR(1) * (Literal(1.0) - CR(2)))])
 

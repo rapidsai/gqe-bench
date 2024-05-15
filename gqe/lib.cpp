@@ -17,6 +17,7 @@
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/literal.hpp>
+#include <gqe/expression/scalar_function.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
@@ -366,6 +367,11 @@ PYBIND11_MODULE(lib, py_module)
     py_module, "Subtract", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
 
+  // Scalar functions
+  py::class_<gqe::like_expression, std::shared_ptr<gqe::like_expression>>(
+    py_module, "Like", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::string, std::string, bool>());
+
   // Literals
   py::class_<gqe::literal_expression<std::string>,
              std::shared_ptr<gqe::literal_expression<std::string>>>(
@@ -374,6 +380,9 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::literal_expression<double>, std::shared_ptr<gqe::literal_expression<double>>>(
     py_module, "LiteralDouble", expr_cls)
     .def(py::init<double, bool>());
+  py::class_<gqe::literal_expression<int64_t>, std::shared_ptr<gqe::literal_expression<int64_t>>>(
+    py_module, "LiteralInt64", expr_cls)
+    .def(py::init<int64_t, bool>());
   py::class_<gqe::literal_expression<cudf::timestamp_D>,
              std::shared_ptr<gqe::literal_expression<cudf::timestamp_D>>>(
     py_module, "LiteralTimestampD", expr_cls);
