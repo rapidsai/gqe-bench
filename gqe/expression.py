@@ -17,6 +17,7 @@ by an object of the :class:`Expression <gqe.expression.Expression>` class.
 """
 
 import gqe.lib
+import gqe.type
 from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import Union  # Use | after migrating to Python>=3.10
@@ -238,3 +239,12 @@ class DateLiteral(Expression):
     def _to_cpp(self):
         date = datetime.date.fromisoformat(self.date_string)
         return gqe.lib.date_from_days((date - datetime.date(1970, 1, 1)).days)
+
+
+class Cast(Expression):
+    def __init__(self, input: Expression, target_type: gqe.type.DataType):
+        self.input = input
+        self.target_type = target_type
+
+    def _to_cpp(self):
+        return gqe.lib.Cast(self.input._cpp, self.target_type._to_cpp())

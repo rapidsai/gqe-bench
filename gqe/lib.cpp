@@ -14,6 +14,7 @@
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
+#include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
 #include <gqe/expression/literal.hpp>
@@ -36,6 +37,7 @@
 #include <gqe/utility/tpch.hpp>
 
 #include <cudf/io/parquet.hpp>
+#include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
@@ -307,6 +309,14 @@ PYBIND11_MODULE(lib, py_module)
     .value("after", cudf::null_order::AFTER)
     .value("before", cudf::null_order::BEFORE);
 
+  py::enum_<cudf::type_id>(py_module, "TypeId")
+    .value("int64", cudf::type_id::INT64)
+    .value("float64", cudf::type_id::FLOAT64);
+
+  py::class_<cudf::data_type>(py_module, "DataType")
+    .def(py::init<cudf::type_id>())
+    .def(py::init<cudf::type_id, int32_t>());
+
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
   py_module.def("register_tpch_parquet", &lib::register_tpch_parquet);
@@ -330,6 +340,9 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::column_reference_expression, std::shared_ptr<gqe::column_reference_expression>>(
     py_module, "ColumnReference", expr_cls)
     .def(py::init<cudf::size_type>());
+  py::class_<gqe::cast_expression, std::shared_ptr<gqe::cast_expression>>(
+    py_module, "Cast", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, cudf::data_type>());
 
   // Binary expressions
   py::class_<gqe::equal_expression, std::shared_ptr<gqe::equal_expression>>(

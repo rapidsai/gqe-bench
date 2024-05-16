@@ -39,7 +39,8 @@ def main():
     catalog.register_tpch(args.location, "memory", num_row_groups)
 
     query_identifiers = [
-        "tpch_q1", "tpch_q2", "tpch_q6", "tpch_q11", "tpch_q15", "tpch_q17", "tpch_q18", "tpch_q21"]
+        "tpch_q1", "tpch_q2", "tpch_q6", "tpch_q11", "tpch_q15",
+        "tpch_q17", "tpch_q18", "tpch_q20", "tpch_q21"]
     queries = []
     for query_identifier in query_identifiers:
         module = importlib.import_module(query_identifier)
