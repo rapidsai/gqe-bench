@@ -36,6 +36,8 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/tpch.hpp>
 
+#include <gqe/optimizer/logical_optimization.hpp>
+
 #include <cudf/io/parquet.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
@@ -158,16 +160,26 @@ std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::re
 }
 
 std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
-                                                        std::string substrait_file)
+                                                        std::string substrait_file,
+                                                        bool optimize = true)
 {
   gqe::substrait_parser parser(catalog);
-  auto logical_plan = parser.from_file(substrait_file);
+  auto logical_plan_vector = parser.from_file(substrait_file);
 
-  if (logical_plan.size() > 1)
+  if (logical_plan_vector.size() > 1)
     throw std::logic_error("gqe-python only supports substrait plan with one root");
 
+  std::shared_ptr<gqe::logical::relation> logical_plan = logical_plan_vector[0];
+
+  if (optimize) {
+    gqe::optimizer::optimization_configuration logical_rule_config(
+      {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
+    auto optimizer =
+      std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, catalog);
+    logical_plan = optimizer->optimize(logical_plan);
+  }
   gqe::physical_plan_builder plan_builder(catalog);
-  return plan_builder.build(logical_plan[0].get());
+  return plan_builder.build(logical_plan.get());
 }
 
 struct context {

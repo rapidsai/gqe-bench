@@ -42,5 +42,5 @@ class Catalog:
         else:
             raise ValueError(f"Unrecognized storage: {storage}")
 
-    def load_substrait(self, substrait_file: str) -> gqe.lib.Relation:
-        return gqe.lib.load_substrait(self._catalog, substrait_file)
+    def load_substrait(self, substrait_file: str, optimized: bool = False) -> gqe.lib.Relation:
+        return gqe.lib.load_substrait(self._catalog, substrait_file, optimized)
