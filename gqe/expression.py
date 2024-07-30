@@ -80,6 +80,12 @@ class Expression(ABC):
             return AndExpr(self, other)
         else:
             return NotImplemented
+        
+    def __or__(self, other):
+        if isinstance(other, Expression):
+            return OrExpr(self, other)
+        else:
+            return NotImplemented
 
     def __mul__(self, other):
         if isinstance(other, Expression):
@@ -135,6 +141,10 @@ class BinaryOpExpression(Expression):
 class AndExpr(BinaryOpExpression):
     def _to_cpp(self):
         return gqe.lib.And(self.lhs._cpp, self.rhs._cpp)
+
+class OrExpr(BinaryOpExpression):
+    def _to_cpp(self):
+        return gqe.lib.Or(self.lhs._cpp, self.rhs._cpp)
 
 
 class EqualExpr(BinaryOpExpression):
@@ -204,6 +214,22 @@ class LikeExpr(Expression):
 
     def _to_cpp(self):
         return gqe.lib.Like(self.input._cpp, self.pattern, self.escape_character, False)
+
+class IfThenElseExpr(Expression):
+    def __init__(self, if_expr: Expression, then_expr: Expression, else_expr: Expression):
+        """
+        Construct a if then else expression.
+
+        :param if_expr: If expression
+        :param then_expr: Then expression
+        :pram else_expr: Else expression
+        """
+        self.if_expr = if_expr
+        self.then_expr = then_expr
+        self.else_expr = else_expr
+    
+    def _to_cpp(self):
+        return gqe.lib.IfThenElse(self.if_expr._cpp, self.then_expr._cpp, self.else_expr._cpp)
 
 
 class Literal(Expression):

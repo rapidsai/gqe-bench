@@ -20,6 +20,7 @@ expressions. The following table shows the supported operators.
 Operator          Shorthand
 ==============  ===================
 AndExpr          `expr1 & expr2`
+OrExpr           `expr1 | expr2`
 EqualExpr        `expr1 = expr2`
 LessExpr         `expr1 < expr2`
 AddExpr          `expr1 + expr2`

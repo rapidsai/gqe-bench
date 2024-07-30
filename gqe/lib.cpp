@@ -17,6 +17,7 @@
 #include <gqe/expression/cast.hpp>
 #include <gqe/expression/column_reference.hpp>
 #include <gqe/expression/expression.hpp>
+#include <gqe/expression/if_then_else.hpp>
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
 #include <gqe/logical/from_substrait.hpp>
@@ -380,6 +381,10 @@ PYBIND11_MODULE(lib, py_module)
     py_module, "And", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
 
+  py::class_<gqe::logical_or_expression, std::shared_ptr<gqe::logical_or_expression>>(
+    py_module, "Or", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
+
   py::class_<gqe::multiply_expression, std::shared_ptr<gqe::multiply_expression>>(
     py_module, "Multiply", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::shared_ptr<gqe::expression>>());
@@ -396,6 +401,13 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::like_expression, std::shared_ptr<gqe::like_expression>>(
     py_module, "Like", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::string, std::string, bool>());
+
+  // If-then-else expression
+  py::class_<gqe::if_then_else_expression, std::shared_ptr<gqe::if_then_else_expression>>(
+    py_module, "IfThenElse", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>,
+                  std::shared_ptr<gqe::expression>,
+                  std::shared_ptr<gqe::expression>>());
 
   // Literals
   py::class_<gqe::literal_expression<std::string>,
