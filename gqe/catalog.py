@@ -26,7 +26,12 @@ class Catalog:
         self._catalog = gqe.lib.Catalog()
 
     def register_tpch(
-            self, dataset: str, storage: str = "parquet", num_row_groups: int = 8) -> None:
+        self,
+        dataset: str,
+        storage: str = "parquet",
+        num_row_groups: int = 8,
+        load_data_of_query: int = 0,
+    ) -> None:
         """
         Register TPC-H dataset in the catalog.
 
@@ -34,13 +39,21 @@ class Catalog:
         :arg storage: Can be either `"parquet"` for loading from Parquet files during execution, or
             `"memory"` for pre-copying dataset into CPU memory during registration time.
         :arg num_row_groups: Number of row groups for in-memory storage.
+        :arg load_data_of_query: For in-memory storage,
+            if `load_data_of_query = 0` loads entire dataset,
+            else if `0 < load_data_of_query <= 22` loads table and columns required for the
+            specific query
         """
         if storage == "parquet":
             gqe.lib.register_tpch_parquet(self._catalog, dataset)
         elif storage == "memory":
-            gqe.lib.register_tpch_in_memory(self._catalog, dataset, num_row_groups)
+            gqe.lib.register_tpch_in_memory(
+                self._catalog, dataset, num_row_groups, load_data_of_query
+            )
         else:
             raise ValueError(f"Unrecognized storage: {storage}")
 
-    def load_substrait(self, substrait_file: str, optimized: bool = False) -> gqe.lib.Relation:
+    def load_substrait(
+        self, substrait_file: str, optimized: bool = False
+    ) -> gqe.lib.Relation:
         return gqe.lib.load_substrait(self._catalog, substrait_file, optimized)

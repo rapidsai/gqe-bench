@@ -14,7 +14,7 @@ from gqe.expression import Literal, LikeExpr
 from gqe.benchmark.query import Query
 
 
-'''
+"""
 select
         s_acctbal,
         s_name,
@@ -60,7 +60,7 @@ order by
         p_partkey
 limit
         100
-'''
+"""
 
 
 class tpch_q2(Query):
@@ -80,9 +80,21 @@ class tpch_q2(Query):
 
         # After these operations, `supplier` contains columns
         # ["s_suppkey", "s_acctbal", "s_name", "s_address", "s_phone", "s_comment", "n_name"]
-        supplier = read("supplier", [
-            "s_suppkey", "s_nationkey", "s_acctbal", "s_name", "s_address", "s_phone", "s_comment"])
-        supplier = supplier.broadcast_join(nation, CR(1) == CR(7), [0, 2, 3, 4, 5, 6, 8])
+        supplier = read(
+            "supplier",
+            [
+                "s_suppkey",
+                "s_nationkey",
+                "s_acctbal",
+                "s_name",
+                "s_address",
+                "s_phone",
+                "s_comment",
+            ],
+        )
+        supplier = supplier.broadcast_join(
+            nation, CR(1) == CR(7), [0, 2, 3, 4, 5, 6, 8]
+        )
 
         # Because p_partkey is a primary key, we can push the filter into the subquery
         # After these operations, `partsupp` contains columns
@@ -93,7 +105,9 @@ class tpch_q2(Query):
         # After this operation, `partsupp` contains columns
         # ["ps_partkey", "ps_supplycost", "p_mfgr", "s_acctbal",
         #  "s_name", "s_address", "s_phone", "s_comment", "n_name"]
-        partsupp = partsupp.broadcast_join(supplier, CR(1) == CR(4), [0, 2, 3, 5, 6, 7, 8, 9, 10])
+        partsupp = partsupp.broadcast_join(
+            supplier, CR(1) == CR(4), [0, 2, 3, 5, 6, 7, 8, 9, 10]
+        )
 
         # After these operations, `agg_result` contains columns ["ps_partkey", min(ps_supplycost)]
         agg_result = partsupp.aggregate([CR(0)], [("min", CR(1))])
@@ -102,13 +116,17 @@ class tpch_q2(Query):
         # ["s_acctbal", "s_name", "n_name", "p_partkey",
         #  "p_mfgr", "s_address", "s_phone", "s_comment"]
         partsupp = partsupp.broadcast_join(
-            agg_result, (CR(0) == CR(9)) & (CR(1) == CR(10)), [3, 4, 8, 0, 2, 5, 6, 7])
+            agg_result, (CR(0) == CR(9)) & (CR(1) == CR(10)), [3, 4, 8, 0, 2, 5, 6, 7]
+        )
 
         # order by s_acctbal desc, n_name, s_name, p_partkey
-        partsupp = partsupp.sort([
-            (CR(0), "descending", "before"),
-            (CR(2), "ascending", "before"),
-            (CR(1), "ascending", "before"),
-            (CR(3), "ascending", "before")]).fetch(0, 100)
+        partsupp = partsupp.sort(
+            [
+                (CR(0), "descending", "before"),
+                (CR(2), "ascending", "before"),
+                (CR(1), "ascending", "before"),
+                (CR(3), "ascending", "before"),
+            ]
+        ).fetch(0, 100)
 
         return partsupp

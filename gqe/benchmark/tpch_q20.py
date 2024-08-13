@@ -15,7 +15,7 @@ from gqe.type import Float64
 from gqe.benchmark.query import Query
 
 
-'''
+"""
 select
         s_name,
         s_address
@@ -53,7 +53,8 @@ where
         and n_name = 'CANADA'
 order by
         s_name
-'''
+"""
+
 
 class tpch_q20(Query):
     def root_relation(self):
@@ -65,14 +66,20 @@ class tpch_q20(Query):
 
         # l_shipdate >= date '1994-01-01' and l_shipdate < date '1994-01-01' + interval '1' year
         # The selectivity of this filter and join is ~0.1%
-        # After these operations, `lineitem` contains columns ["l_partkey", "l_suppkey", "l_quantity"]
-        lineitem = read("lineitem", ["l_partkey", "l_suppkey", "l_shipdate", "l_quantity"])
+        # After these operations,
+        # `lineitem` contains columns ["l_partkey", "l_suppkey", "l_quantity"]
+        lineitem = read(
+            "lineitem", ["l_partkey", "l_suppkey", "l_shipdate", "l_quantity"]
+        )
         lineitem = lineitem.filter(
-            (CR(2) >= DateLiteral("1994-01-01")) & (CR(2) < DateLiteral("1995-01-01")), [0, 1, 3])
+            (CR(2) >= DateLiteral("1994-01-01")) & (CR(2) < DateLiteral("1995-01-01")),
+            [0, 1, 3],
+        )
         lineitem = lineitem.broadcast_join(part, CR(0) == CR(3), [0, 1, 2], "left_semi")
 
         # sum(l_quantity) group by (l_partkey, l_suppkey)
-        # After these operations, `lineitem` contains columns ["l_partkey", "l_suppkey", sum(l_quantity)]
+        # After these operations,
+        # `lineitem` contains columns ["l_partkey", "l_suppkey", sum(l_quantity)]
         lineitem = lineitem.aggregate([CR(0), CR(1)], [("sum", CR(2))])
 
         # ps_partkey in (subquery) and ps_availqty > (subquery)
@@ -81,9 +88,12 @@ class tpch_q20(Query):
         partsupp = partsupp.broadcast_join(part, CR(0) == CR(3), [0, 1, 2], "left_semi")
         partsupp = partsupp.broadcast_join(
             lineitem,
-            (CR(0) == CR(3)) & (CR(1) == CR(4)) & (Cast(CR(2), Float64()) > Literal(0.5) * CR(5)),
+            (CR(0) == CR(3))
+            & (CR(1) == CR(4))
+            & (Cast(CR(2), Float64()) > Literal(0.5) * CR(5)),
             [1],
-            "left_semi")
+            "left_semi",
+        )
 
         # n_name = 'CANADA'
         # After these operations, `nation` contains columns ["n_nationkey"]
@@ -97,7 +107,9 @@ class tpch_q20(Query):
 
         # s_suppkey in (subquery)
         # After this operation, `supplier` contains columns ["s_name", "s_address"]
-        supplier = supplier.broadcast_join(partsupp, CR(0) == CR(3), [1, 2], "left_semi")
+        supplier = supplier.broadcast_join(
+            partsupp, CR(0) == CR(3), [1, 2], "left_semi"
+        )
 
         # order by s_name
         supplier = supplier.sort([(CR(0), "ascending", "before")])

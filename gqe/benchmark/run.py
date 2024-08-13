@@ -37,25 +37,34 @@ class Parameter:
     max_num_workers: int
 
 
-def run_tpc(perf_db_file: str, catalog, queries: list[QueryInfo], parameters: list[Parameter]):
-    repeat = 6
-
+def connect_db(perf_db_file: str):
     out_conn = sqlite3.connect(perf_db_file)
     out_cursor = out_conn.cursor()
 
     print(f"Writing SQLite file to {perf_db_file}")
 
     measurements_schema = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),
-        "create_experiment_db.sql")
+        os.path.dirname(os.path.realpath(__file__)), "create_experiment_db.sql"
+    )
 
-    with open(measurements_schema, 'r') as m_schema_handle:
+    with open(measurements_schema, "r") as m_schema_handle:
         m_schema_sql = m_schema_handle.read()
         out_cursor.executescript(m_schema_sql)
 
     hw_info_id = insert_hw_info(out_cursor)
 
-    errors = []
+    return out_cursor, out_conn, hw_info_id
+
+
+def run_tpc(
+    catalog,
+    query: QueryInfo,
+    parameters: list[Parameter],
+    out_cursor: sqlite3.Cursor,
+    hw_info_id: int,
+    errors: list,
+):
+    repeat = 6
 
     for parameter in parameters:
         num_partitions = parameter.num_partitions
@@ -63,9 +72,11 @@ def run_tpc(perf_db_file: str, catalog, queries: list[QueryInfo], parameters: li
         max_num_workers = parameter.max_num_workers
         join_use_hash_map_cache = bool(os.getenv("GQE_JOIN_USE_HASH_MAP_CACHE", False))
 
-        print(f"Running with parameters num_partitions={num_partitions}, "
-              f"read_use_zero_copy={read_use_zero_copy}, "
-              f"num_workers={max_num_workers}")
+        print(
+            f"Running with parameters num_partitions={num_partitions}, "
+            f"read_use_zero_copy={read_use_zero_copy}, "
+            f"num_workers={max_num_workers}"
+        )
 
         parameters_id = insert_parameters(
             out_cursor,
@@ -74,58 +85,56 @@ def run_tpc(perf_db_file: str, catalog, queries: list[QueryInfo], parameters: li
                 "num_partitions": num_partitions,
                 "join_use_hash_map_cache": join_use_hash_map_cache,
                 "read_use_zero_copy": read_use_zero_copy,
-            })
+            },
+        )
 
         # TODO: use with statement instead?
         context = Context(max_num_workers, num_partitions, read_use_zero_copy)
 
-        for query in queries:
-            print(f"Running {query.identifier}...")
+        print(f"Running {query.identifier}...")
 
-            experiment_id = insert_experiment(
-                out_cursor,
-                {
-                    "parameters_id": parameters_id,
-                    "hw_info_id": hw_info_id,
-                    "build_info_id": None,
-                    "name": query.identifier,
-                    "suite": "TPC-H",
-                    "scale_factor": None,
-                })
+        experiment_id = insert_experiment(
+            out_cursor,
+            {
+                "parameters_id": parameters_id,
+                "hw_info_id": hw_info_id,
+                "build_info_id": None,
+                "name": query.identifier,
+                "suite": "TPC-H",
+                "scale_factor": None,
+            },
+        )
 
-            for count in range(repeat):
-                out_file = f"{query.identifier}_out.parquet"
+        for count in range(repeat):
+            out_file = f"{query.identifier}_out.parquet"
 
-                with nvtx.annotate(f"Run {query.identifier}"):
-                    try:
-                        elapsed_time = context.execute(catalog, query.root_relation, out_file)
-                    except Exception as error:
-                        print(error)
-                        break
-
+            with nvtx.annotate(f"Run {query.identifier}"):
                 try:
-                    verify_parquet(out_file, query.reference_solution)
-                except AssertionError as error:
+                    elapsed_time = context.execute(
+                        catalog, query.root_relation, out_file
+                    )
+                except Exception as error:
                     print(error)
-                    errors.append((query.identifier, parameter))
                     break
 
-                insert_run(
-                    out_cursor,
-                    {
-                        "experiment_id": experiment_id,
-                        "number": count,
-                        "nvtx_marker": None,
-                        "duration_s": elapsed_time / 1000,
-                    })
+            try:
+                verify_parquet(out_file, query.reference_solution)
+            except AssertionError as error:
+                print(error)
+                errors.append((query.identifier, parameter))
+                break
+
+            insert_run(
+                out_cursor,
+                {
+                    "experiment_id": experiment_id,
+                    "number": count,
+                    "nvtx_marker": None,
+                    "duration_s": elapsed_time / 1000,
+                },
+            )
 
         del context
-
-    print("The following configurations run successfully but produce incorrect results")
-    print(errors)
-
-    out_conn.commit()
-    print(f"Finished SQLite file at {perf_db_file}")
 
 
 class GpuInfo:
@@ -166,9 +175,15 @@ class GpuInfo:
         handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
         try:
             corrected = pynvml.nvmlDeviceGetTotalEccErrors(
-                handle, pynvml.NVML_MEMORY_ERROR_TYPE_CORRECTED, pynvml.NVML_AGGREGATE_ECC)
+                handle,
+                pynvml.NVML_MEMORY_ERROR_TYPE_CORRECTED,
+                pynvml.NVML_AGGREGATE_ECC,
+            )
             uncorrected = pynvml.nvmlDeviceGetTotalEccErrors(
-                handle, pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED, pynvml.NVML_AGGREGATE_ECC)
+                handle,
+                pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
+                pynvml.NVML_AGGREGATE_ECC,
+            )
             return corrected + uncorrected
         except pynvml.nvml.NVMLError_NotSupported:
             return None
@@ -188,7 +203,7 @@ def insert_hw_info(cursor):
         gpu_info.gpu_cores(gpu_id),
         gpu_info.max_sm_clock(gpu_id),
         gpu_info.max_memory_clock(gpu_id),
-        gpu_info.total_ecc_errors(gpu_id)
+        gpu_info.total_ecc_errors(gpu_id),
     )
     print(entry)
 
@@ -211,7 +226,7 @@ def insert_hw_info(cursor):
         ) \
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
         ",
-        entry
+        entry,
     )
 
     # Retrieve the primary key of the HW info row.
@@ -237,7 +252,7 @@ def insert_hw_info(cursor):
         AND NULL OR h_gpu_max_clock_memory_mhz = ? \
         AND NULL OR h_gpu_ecc_errors = ? \
         ",
-        entry
+        entry,
     )
 
     return cursor.fetchone()[0]
@@ -254,7 +269,7 @@ def insert_parameters(cursor, entry):
         ) \
         VALUES (:num_workers, :num_partitions, :join_use_hash_map_cache, :read_use_zero_copy) \
         ",
-        entry
+        entry,
     )
 
     cursor.execute(
@@ -266,7 +281,7 @@ def insert_parameters(cursor, entry):
         AND p_join_use_hash_map_cache = :join_use_hash_map_cache \
         AND p_read_use_zero_copy = :read_use_zero_copy \
         ",
-        entry
+        entry,
     )
 
     return cursor.fetchone()[0]
@@ -286,7 +301,7 @@ def insert_experiment(cursor, entry):
         VALUES (:parameters_id, :hw_info_id, :build_info_id, :name, :suite, :scale_factor) \
         RETURNING e_id \
         ",
-        entry
+        entry,
     )
 
     return cursor.fetchone()[0]
@@ -304,7 +319,7 @@ def insert_run(cursor, entry):
         VALUES (:experiment_id, :number, :nvtx_marker, :duration_s) \
         RETURNING r_id \
         ",
-        entry
+        entry,
     )
 
     return cursor.fetchone()[0]

@@ -13,7 +13,7 @@ from gqe.expression import Literal, DateLiteral
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 
-'''
+"""
 with revenue (supplier_no, total_revenue) as (
         select
                 l_suppkey,
@@ -45,18 +45,19 @@ where
 order by
         s_suppkey
 
-'''
+"""
 
 
 class tpch_q15(Query):
     def root_relation(self):
         lineitem = read(
-            "lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]) \
-            .filter(
-                (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")),
-                [0, 2, 3])
+            "lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
+        ).filter(
+            (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")),
+            [0, 2, 3],
+        )
 
-        revenue = lineitem.aggregate([CR(0)], [("sum",  CR(1) * (Literal(1.0) - CR(2)))])
+        revenue = lineitem.aggregate([CR(0)], [("sum", CR(1) * (Literal(1.0) - CR(2)))])
 
         max_revenue = revenue.aggregate([], [("max", CR(1))])
 
@@ -64,6 +65,8 @@ class tpch_q15(Query):
 
         supplier = read("supplier", ["s_suppkey", "s_name", "s_address", "s_phone"])
 
-        unsorted_output = supplier.broadcast_join(l_max_revenue, (CR(0) == CR(4)), [0, 1, 2, 3, 5])
+        unsorted_output = supplier.broadcast_join(
+            l_max_revenue, (CR(0) == CR(4)), [0, 1, 2, 3, 5]
+        )
 
         return unsorted_output.sort([(CR(0), "ascending", "before")])

@@ -13,7 +13,7 @@ from gqe.expression import Literal
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 
-'''
+"""
 select
         c_name,
         c_custkey,
@@ -48,22 +48,25 @@ order by
         o_orderdate
 limit
         100
-'''
+"""
 
 
 class tpch_q18(Query):
     def root_relation(self):
         # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
-        lineitem = read("lineitem", ["l_orderkey", "l_quantity"]) \
-            .aggregate([CR(0)], [("sum", CR(1))]) \
+        lineitem = (
+            read("lineitem", ["l_orderkey", "l_quantity"])
+            .aggregate([CR(0)], [("sum", CR(1))])
             .filter(CR(1) > Literal(300.0), [0, 1])
+        )
 
         customer = read("customer", ["c_custkey", "c_name"])
 
         # After this operation, `orders` contains
         # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
-        orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]) \
-            .broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
+        orders = read(
+            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]
+        ).broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
 
         # After this operation, `orders` contains
         # [o_orderkey, c_custkey, o_orderdate, o_totalprice, sum(l_quantity), c_name]
@@ -71,7 +74,10 @@ class tpch_q18(Query):
 
         # After this operation, `orders` contains
         # [c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum(l_quantity)]
-        orders = orders.aggregate([CR(5), CR(1), CR(0), CR(2), CR(3)], [("sum", CR(4))]).sort(
-            [(CR(4), "descending", "before"), (CR(3), "ascending", "before")]).fetch(0, 100)
+        orders = (
+            orders.aggregate([CR(5), CR(1), CR(0), CR(2), CR(3)], [("sum", CR(4))])
+            .sort([(CR(4), "descending", "before"), (CR(3), "ascending", "before")])
+            .fetch(0, 100)
+        )
 
         return orders

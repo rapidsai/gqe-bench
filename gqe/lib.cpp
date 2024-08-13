@@ -50,6 +50,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include "table_definitions.hpp"
 #include <chrono>
 #include <stdexcept>
 
@@ -249,40 +250,57 @@ void register_tpch_parquet(gqe::catalog* catalog, std::string dataset_location)
   }
 }
 
+void register_table_in_memory(
+  gqe::catalog* catalog,
+  int32_t num_row_groups,
+  std::string name,
+  std::vector<std::pair<std::string, cudf::data_type>> const& definition,
+  std::vector<std::string> const& file_paths)
+{
+  catalog->register_table(name + "_parquet",
+                          definition,
+                          gqe::storage_kind::parquet_file{file_paths},
+                          gqe::partitioning_schema_kind::automatic{});
+
+  catalog->register_table(
+    name, definition, gqe::storage_kind::pinned_memory{}, gqe::partitioning_schema_kind::none{});
+
+  std::vector<std::string> column_names;
+  std::vector<cudf::data_type> column_types;
+  for (auto const& [column_name, type] : definition) {
+    column_names.push_back(column_name);
+    column_types.push_back(type);
+  }
+
+  auto read_table = std::make_shared<gqe::physical::read_relation>(
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
+    column_names,
+    name + "_parquet",
+    nullptr);
+
+  auto write_table =
+    std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
+
+  context ctx(1, num_row_groups);
+  ctx.execute(catalog, write_table, std::nullopt);
+}
+
 void register_tpch_in_memory(gqe::catalog* catalog,
                              std::string dataset_location,
-                             int32_t num_row_groups)
+                             int32_t num_row_groups,
+                             int load_data_of_query = 0)
 {
-  auto const& table_definitions = gqe::utility::tpch::table_definitions();
+  std::unordered_map<std::string, std::vector<tpch::column_definition_type>> table_definitions;
+  if (!load_data_of_query) {
+    // Load all the tables
+    table_definitions = gqe::utility::tpch::table_definitions();
+  } else {
+    // Load only the required tables and columns
+    table_definitions = query_table_definitions(load_data_of_query);
+  }
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
-
-    catalog->register_table(name + "_parquet",
-                            definition,
-                            gqe::storage_kind::parquet_file{file_paths},
-                            gqe::partitioning_schema_kind::automatic{});
-
-    catalog->register_table(
-      name, definition, gqe::storage_kind::pinned_memory{}, gqe::partitioning_schema_kind::none{});
-
-    std::vector<std::string> column_names;
-    std::vector<cudf::data_type> column_types;
-    for (auto const& [column_name, type] : definition) {
-      column_names.push_back(column_name);
-      column_types.push_back(type);
-    }
-
-    auto read_table = std::make_shared<gqe::physical::read_relation>(
-      std::vector<std::shared_ptr<gqe::physical::relation>>(),
-      column_names,
-      name + "_parquet",
-      nullptr);
-
-    auto write_table =
-      std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
-
-    context ctx(1, num_row_groups);
-    ctx.execute(catalog, write_table, std::nullopt);
+    register_table_in_memory(catalog, num_row_groups, name, definition, file_paths);
   }
 }
 

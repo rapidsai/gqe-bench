@@ -13,7 +13,7 @@ from gqe.expression import Literal
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 
-'''
+"""
 select
         sum(l_extendedprice) / 7.0 as avg_yearly
 from
@@ -31,7 +31,7 @@ where
                 where
                         l_partkey = p_partkey
         )
-'''
+"""
 
 
 class tpch_q17(Query):
@@ -39,7 +39,9 @@ class tpch_q17(Query):
         part = read("part", ["p_partkey", "p_brand", "p_container"])
 
         # Filter the part table
-        part = part.filter((CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")), [0])
+        part = part.filter(
+            (CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")), [0]
+        )
 
         lineitem = read("lineitem", ["l_partkey", "l_quantity", "l_extendedprice"])
 
@@ -55,10 +57,12 @@ class tpch_q17(Query):
         # Calculate l_quantity < 0.2 * avg(l_quantity)
         # After this operation, `lineitem` has column ["l_extendedprice"]
         lineitem = lineitem.broadcast_join(
-                avg_l_quantity, (CR(0) == CR(3)) & (CR(1) < Literal(0.2) * CR(4)), [2])
+            avg_l_quantity, (CR(0) == CR(3)) & (CR(1) < Literal(0.2) * CR(4)), [2]
+        )
 
         # Calculate sum(l_extendedprice) / 7.0
-        sum_l_extendedprice = lineitem.aggregate(
-            [], [("sum", CR(0))]).project([CR(0) / Literal(7.0)])
+        sum_l_extendedprice = lineitem.aggregate([], [("sum", CR(0))]).project(
+            [CR(0) / Literal(7.0)]
+        )
 
         return sum_l_extendedprice

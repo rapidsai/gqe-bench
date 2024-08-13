@@ -14,7 +14,7 @@ from gqe.expression import Literal, DateLiteral, IfThenElseExpr
 from gqe.benchmark.query import Query
 
 
-'''
+"""
 -- TPC-H Query 12
 select
         l_shipmode,
@@ -45,38 +45,54 @@ group by
 order by
         l_shipmode
 
-'''
+"""
 
 
 class tpch_q12(Query):
     def root_relation(self):
         lineitem = read(
             "lineitem",
-            ["l_shipmode", "l_commitdate", "l_receiptdate", "l_shipdate", "l_orderkey"])
+            ["l_shipmode", "l_commitdate", "l_receiptdate", "l_shipdate", "l_orderkey"],
+        )
 
         # After these operations lineitem contains ["l_shipmode", "l_orderkey"]
-        # Filter has 1.27% selectivity 
+        # Filter has 1.27% selectivity
         lineitem = lineitem.filter(
-            ((CR(0) == Literal("MAIL")) | (CR(0) == Literal("SHIP"))) &
-             (CR(1) < CR(2)) &
-             (CR(3) < CR(1)) &
-             (CR(2) >= DateLiteral("1994-01-01")) &
-             (CR(2) <= DateLiteral("1994-12-31")), [0, 4])
-        
-        orders = read("orders", [ "o_orderkey", "o_orderpriority"])
+            ((CR(0) == Literal("MAIL")) | (CR(0) == Literal("SHIP")))
+            & (CR(1) < CR(2))
+            & (CR(3) < CR(1))
+            & (CR(2) >= DateLiteral("1994-01-01"))
+            & (CR(2) <= DateLiteral("1994-12-31")),
+            [0, 4],
+        )
+
+        orders = read("orders", ["o_orderkey", "o_orderpriority"])
 
         # After these operations join contains ["l_shipmode", "l_orderkey"]
         # Due to filter, orders table is bigger than lineitem table
         join_out = orders.broadcast_join(lineitem, CR(0) == CR(3), [1, 2])
 
-        agg_out = join_out.aggregate([CR(1)], [("sum", 
-                                        IfThenElseExpr((CR(0) == Literal("1-URGENT")) | (CR(0) == Literal("2-HIGH")) , 
-                                                       Literal(1), 
-                                                       Literal(0))),
-                                       ("sum",
-                                        IfThenElseExpr((CR(0) != Literal("1-URGENT")) & (CR(0) != Literal("2-HIGH")) , 
-                                                       Literal(1), 
-                                                       Literal(0)))])
+        agg_out = join_out.aggregate(
+            [CR(1)],
+            [
+                (
+                    "sum",
+                    IfThenElseExpr(
+                        (CR(0) == Literal("1-URGENT")) | (CR(0) == Literal("2-HIGH")),
+                        Literal(1),
+                        Literal(0),
+                    ),
+                ),
+                (
+                    "sum",
+                    IfThenElseExpr(
+                        (CR(0) != Literal("1-URGENT")) & (CR(0) != Literal("2-HIGH")),
+                        Literal(1),
+                        Literal(0),
+                    ),
+                ),
+            ],
+        )
 
         sort_out = agg_out.sort([(CR(0), "ascending", "before")])
 

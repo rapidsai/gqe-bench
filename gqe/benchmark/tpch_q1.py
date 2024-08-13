@@ -14,7 +14,7 @@ from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
 
 
-'''
+"""
 select
         l_returnflag,
         l_linestatus,
@@ -36,31 +36,45 @@ group by
 order by
         l_returnflag,
         l_linestatus
-'''
+"""
 
 
 class tpch_q1(Query):
     def root_relation(self):
         lineitem = read(
             "lineitem",
-            ["l_shipdate", "l_discount", "l_quantity", "l_extendedprice",
-             "l_returnflag", "l_linestatus", "l_tax"])
+            [
+                "l_shipdate",
+                "l_discount",
+                "l_quantity",
+                "l_extendedprice",
+                "l_returnflag",
+                "l_linestatus",
+                "l_tax",
+            ],
+        )
 
         # [ "l_discount", "l_quantity", "l_extendedprice", "l_returnflag", "l_linestatus", "l_tax"]
         lineitem = lineitem.filter(
-            (CR(0) <= DateLiteral("1998-09-02")), [1, 2, 3, 4, 5, 6])
+            (CR(0) <= DateLiteral("1998-09-02")), [1, 2, 3, 4, 5, 6]
+        )
 
         agg = lineitem.aggregate(
             [CR(3), CR(4)],
-            [("sum", CR(1)),
-             ("sum", CR(2)),
-             ("sum", CR(2) * (Literal(1.0) - CR(0))),
-             ("sum",  CR(2) * (Literal(1.0) - CR(0)) * (Literal(1.0) + CR(5))),
-             ("avg", CR(1)),
-             ("avg", CR(2)),
-             ("avg", CR(0)),
-             ("count_all", CR(0))])
+            [
+                ("sum", CR(1)),
+                ("sum", CR(2)),
+                ("sum", CR(2) * (Literal(1.0) - CR(0))),
+                ("sum", CR(2) * (Literal(1.0) - CR(0)) * (Literal(1.0) + CR(5))),
+                ("avg", CR(1)),
+                ("avg", CR(2)),
+                ("avg", CR(0)),
+                ("count_all", CR(0)),
+            ],
+        )
 
-        sorted_output = agg.sort([(CR(0), "ascending", "before"), (CR(1), "ascending", "before")])
+        sorted_output = agg.sort(
+            [(CR(0), "ascending", "before"), (CR(1), "ascending", "before")]
+        )
 
         return sorted_output

@@ -12,7 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR, Literal
 from gqe.benchmark.query import Query
 
-'''
+"""
 select
         s_name,
         count(*) as numwait
@@ -54,29 +54,34 @@ order by
         s_name
 limit
         100
-'''
+"""
 
 
 class tpch_q21(Query):
     def root_relation(self):
         # `lineitem` has columns ["l_suppkey", "l_orderkey", "l_receiptdate", "l_commitdate"]
         # which satisfies o_orderkey = l1.l_orderkey and o_orderstatus = 'F'
-        order = read("orders", ["o_orderkey", "o_orderstatus"]).filter(CR(1) == Literal("F"), [0])
+        order = read("orders", ["o_orderkey", "o_orderstatus"]).filter(
+            CR(1) == Literal("F"), [0]
+        )
         lineitem_base = read(
-            "lineitem", ["l_suppkey", "l_orderkey", "l_receiptdate", "l_commitdate"]) \
-            .broadcast_join(order, CR(1) == CR(4), [0, 1, 2, 3])
+            "lineitem", ["l_suppkey", "l_orderkey", "l_receiptdate", "l_commitdate"]
+        ).broadcast_join(order, CR(1) == CR(4), [0, 1, 2, 3])
 
         # `supplier` has columns ["s_suppkey", "s_name"] which satisfies
         # s_nationkey = n_nationkey and n_name = 'SAUDI ARABIA'
-        nation = read(
-            "nation", ["n_nationkey", "n_name"]).filter(CR(1) == Literal("SAUDI ARABIA"), [0])
-        supplier = read("supplier", ["s_suppkey", "s_name", "s_nationkey"]) \
-            .broadcast_join(nation, CR(2) == CR(3), [0, 1])
+        nation = read("nation", ["n_nationkey", "n_name"]).filter(
+            CR(1) == Literal("SAUDI ARABIA"), [0]
+        )
+        supplier = read(
+            "supplier", ["s_suppkey", "s_name", "s_nationkey"]
+        ).broadcast_join(nation, CR(2) == CR(3), [0, 1])
 
         # l1 has columns ["l_suppkey", "l_orderkey", "s_name"] which satisfies
         # l1.l_receiptdate > l1.l_commitdate and s_suppkey = l1.l_suppkey
         l1 = lineitem_base.filter(CR(2) > CR(3), [0, 1]).broadcast_join(
-                supplier, CR(0) == CR(2), [0, 1, 3])
+            supplier, CR(0) == CR(2), [0, 1, 3]
+        )
 
         # l1 has columns ["l_suppkey", "l_orderkey", "s_name"] which satisfies
         # exists (
@@ -86,8 +91,12 @@ class tpch_q21(Query):
         #         l2.l_orderkey = l1.l_orderkey
         #         and l2.l_suppkey <> l1.l_suppkey
         # )
-        l2 = lineitem_base.project([CR(0), CR(1)])  # Not needed if we have late materialization
-        l1 = l1.broadcast_join(l2, (CR(1) == CR(4)) & (CR(0) != CR(3)), [0, 1, 2], "left_semi")
+        l2 = lineitem_base.project(
+            [CR(0), CR(1)]
+        )  # Not needed if we have late materialization
+        l1 = l1.broadcast_join(
+            l2, (CR(1) == CR(4)) & (CR(0) != CR(3)), [0, 1, 2], "left_semi"
+        )
 
         # l1 has columns ["s_name"] which satisfies
         # not exists (
@@ -99,15 +108,19 @@ class tpch_q21(Query):
         #        and l3.l_receiptdate > l3.l_commitdate
         # )
         l3 = lineitem_base.filter(CR(2) > CR(3), [0, 1])
-        l1 = l1.broadcast_join(l3, (CR(1) == CR(4)) & (CR(0) != CR(3)), [2], "left_anti")
+        l1 = l1.broadcast_join(
+            l3, (CR(1) == CR(4)) & (CR(0) != CR(3)), [2], "left_anti"
+        )
 
         # group by
         #     s_name
         # order by
         #     numwait desc, s_name
         # limit 100
-        l1 = l1.aggregate([CR(0)], [("count_all", CR(0))]) \
-            .sort([(CR(1), "descending", "before"), (CR(0), "ascending", "before")]) \
+        l1 = (
+            l1.aggregate([CR(0)], [("count_all", CR(0))])
+            .sort([(CR(1), "descending", "before"), (CR(0), "ascending", "before")])
             .fetch(0, 100)
+        )
 
         return l1

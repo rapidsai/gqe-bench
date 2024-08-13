@@ -14,7 +14,7 @@ from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
 
 
-'''
+"""
 select
         sum(l_extendedprice * l_discount) as revenue
 from
@@ -24,23 +24,27 @@ where
         and l_shipdate < date '1994-01-01' + interval '1' year
         and l_discount between 0.06 - 0.01 and 0.06 + 0.01
         and l_quantity < 24
-'''
+"""
 
 
 class tpch_q6(Query):
     def root_relation(self):
-        lineitem = read("lineitem", ["l_shipdate", "l_discount", "l_quantity", "l_extendedprice"])
+        lineitem = read(
+            "lineitem", ["l_shipdate", "l_discount", "l_quantity", "l_extendedprice"]
+        )
 
         # l_shipdate >= date '1994-01-01'
         # and l_shipdate < date '1994-01-01' + interval '1' year
         # and l_discount between 0.06 - 0.01 and 0.06 + 0.01
         # and l_quantity < 24
         lineitem = lineitem.filter(
-            (CR(0) >= DateLiteral("1994-01-01")) &
-            (CR(0) < DateLiteral("1995-01-01")) &
-            (CR(1) >= Literal(0.05)) &
-            (CR(1) <= Literal(0.07)) &
-            (CR(2) < Literal(24.0)), [1, 3])
+            (CR(0) >= DateLiteral("1994-01-01"))
+            & (CR(0) < DateLiteral("1995-01-01"))
+            & (CR(1) >= Literal(0.05))
+            & (CR(1) <= Literal(0.07))
+            & (CR(2) < Literal(24.0)),
+            [1, 3],
+        )
 
         # sum(l_extendedprice * l_discount) as revenue
         return lineitem.aggregate([], [("sum", CR(1) * CR(0))])

@@ -15,17 +15,22 @@ from typing import Optional, Union  # Not needed with Python>=3.10
 
 
 class Context:
-    def __init__(self,
-                 max_num_workers: int = 1,
-                 max_num_partitions: int = 8,
-                 read_zero_copy_enable: bool = False):
-        self._context = gqe.lib.Context(max_num_workers, max_num_partitions, read_zero_copy_enable)
+    def __init__(
+        self,
+        max_num_workers: int = 1,
+        max_num_partitions: int = 8,
+        read_zero_copy_enable: bool = False,
+    ):
+        self._context = gqe.lib.Context(
+            max_num_workers, max_num_partitions, read_zero_copy_enable
+        )
 
     def execute(
-            self,
-            catalog: Catalog,
-            relation: Union[Relation, gqe.lib.Relation],
-            output_path: Optional[str]) -> float:
+        self,
+        catalog: Catalog,
+        relation: Union[Relation, gqe.lib.Relation],
+        output_path: Optional[str],
+    ) -> float:
         """
         Execute the query plan.
 

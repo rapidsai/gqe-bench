@@ -14,7 +14,7 @@ from gqe.expression import Literal
 from gqe.benchmark.query import Query
 
 
-'''
+"""
 select
         ps_partkey,
         sum(ps_supplycost * ps_availqty) as value
@@ -42,7 +42,7 @@ group by
                 )
 order by
         value desc
-'''
+"""
 
 
 class tpch_q11(Query):
@@ -60,7 +60,9 @@ class tpch_q11(Query):
         # ps_suppkey = s_suppkey
         # After these operations, `partsupp` contains columns
         # ["ps_partkey", "ps_supplycost", "ps_availqty"]
-        partsupp = read("partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"])
+        partsupp = read(
+            "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"]
+        )
         partsupp = partsupp.broadcast_join(supplier, CR(1) == CR(4), [0, 2, 3])
 
         # Calculate sum(ps_supplycost * ps_availqty) * 0.0001

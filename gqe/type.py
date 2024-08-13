@@ -15,14 +15,17 @@ This module defines the data type objects used in GQE.
 import gqe.lib
 from abc import ABC, abstractmethod
 
+
 class DataType(ABC):
     @abstractmethod
     def _to_cpp(self) -> gqe.lib.DataType:
         pass
 
+
 class Int64(DataType):
     def _to_cpp(self):
         return gqe.lib.DataType(gqe.lib.TypeId.int64)
+
 
 class Float64(DataType):
     def _to_cpp(self):

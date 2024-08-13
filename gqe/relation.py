@@ -50,8 +50,13 @@ class Relation(ABC):
         """
         return FilterRelation(self, condition, projection_indices)
 
-    def broadcast_join(self, broadcast_table: Relation, condition: Expression,
-                       projection_indices: list[int], type: str = "inner") -> Relation:
+    def broadcast_join(
+        self,
+        broadcast_table: Relation,
+        condition: Expression,
+        projection_indices: list[int],
+        type: str = "inner",
+    ) -> Relation:
         """
         Join with another table by broadcasting
 
@@ -64,9 +69,13 @@ class Relation(ABC):
         :param type: Type of the join. Acceptable values are `"inner"`, `"left"`, `"left_semi"`,
             `"left_anti"` and `"full"`.
         """
-        return BroadcastJoinRelation(self, broadcast_table, condition, projection_indices, type)
+        return BroadcastJoinRelation(
+            self, broadcast_table, condition, projection_indices, type
+        )
 
-    def aggregate(self, keys: list[Expression], measures: list[tuple[str, Expression]]) -> Relation:
+    def aggregate(
+        self, keys: list[Expression], measures: list[tuple[str, Expression]]
+    ) -> Relation:
         """
         Groups the table on zero or more sets of grouping keys and applies reduction within the
         groups.
@@ -120,6 +129,7 @@ class ReadRelation(Relation):
     """
     A read relation reads a table from the catalog. It does not take any input tables.
     """
+
     def __init__(self, table: str, columns: list[str]):
         self.table = table
         self.columns = columns
@@ -142,13 +152,18 @@ class FilterRelation(Relation):
     """
     A filter relation selects a subset of rows from the input table based on the filter condition.
     """
-    def __init__(self, input: Relation, condition: Expression, projection_indices: list[int]):
+
+    def __init__(
+        self, input: Relation, condition: Expression, projection_indices: list[int]
+    ):
         self.input = input
         self.condition = condition
         self.projection_indices = projection_indices
 
     def _to_cpp(self):
-        return gqe.lib.filter(self.input._cpp, self.condition._cpp, self.projection_indices)
+        return gqe.lib.filter(
+            self.input._cpp, self.condition._cpp, self.projection_indices
+        )
 
 
 _join_type_to_cpp: dict[str, gqe.lib.JoinType] = {
@@ -165,9 +180,15 @@ class BroadcastJoinRelation(Relation):
     A join relation performs a join operation on the two input tables in relational algebra, and
     output the join result.
     """
-    def __init__(self, probe_table: Relation, broadcast_table: Relation, condition: Expression,
-                 projection_indices: list[int],
-                 type: str = "inner"):
+
+    def __init__(
+        self,
+        probe_table: Relation,
+        broadcast_table: Relation,
+        condition: Expression,
+        projection_indices: list[int],
+        type: str = "inner",
+    ):
         self.probe_table = probe_table
         self.broadcast_table = broadcast_table
         self.condition = condition
@@ -180,9 +201,12 @@ class BroadcastJoinRelation(Relation):
 
     def _to_cpp(self):
         return gqe.lib.broadcast_join(
-            self.probe_table._cpp, self.broadcast_table._cpp, self.condition._cpp,
+            self.probe_table._cpp,
+            self.broadcast_table._cpp,
+            self.condition._cpp,
             _join_type_to_cpp[self.type],
-            self.projection_indices)
+            self.projection_indices,
+        )
 
 
 _aggregation_kind_to_cpp: dict[str, gqe.lib.AggregationKind] = {
@@ -200,8 +224,13 @@ class AggregateRelation(Relation):
     An aggregate relation groups the input table on zero or more sets of grouping keys and applies
     reduction within the groups.
     """
-    def __init__(self, input: Relation, keys: list[Expression],
-                 measures: list[tuple[str, Expression]]):
+
+    def __init__(
+        self,
+        input: Relation,
+        keys: list[Expression],
+        measures: list[tuple[str, Expression]],
+    ):
         self.input = input
 
         for key in keys:
@@ -210,7 +239,7 @@ class AggregateRelation(Relation):
 
         self.keys = keys
 
-        for (kind, expr) in measures:
+        for kind, expr in measures:
             if kind not in _aggregation_kind_to_cpp:
                 raise ValueError(f"Unknown aggregation kind: {kind}")
             if not isinstance(expr, Expression):
@@ -222,31 +251,34 @@ class AggregateRelation(Relation):
         return gqe.lib.aggregate(
             self.input._cpp,
             [key._cpp for key in self.keys],
-            [(_aggregation_kind_to_cpp[kind], expr._cpp) for (kind, expr) in self.measures])
+            [
+                (_aggregation_kind_to_cpp[kind], expr._cpp)
+                for (kind, expr) in self.measures
+            ],
+        )
 
 
 class ProjectRelation(Relation):
     """
     A project relation evaluates output expressions on the input table.
     """
+
     def __init__(self, input: Relation, out_exprs: list[Expression]):
         self.input = input
         self.out_exprs = out_exprs
 
     def _to_cpp(self):
-        return gqe.lib.project(
-            self.input._cpp,
-            [expr._cpp for expr in self.out_exprs])
+        return gqe.lib.project(self.input._cpp, [expr._cpp for expr in self.out_exprs])
 
 
 _order_to_cpp: dict[str, gqe.lib.Order] = {
     "ascending": gqe.lib.Order.ascending,
-    "descending": gqe.lib.Order.descending
+    "descending": gqe.lib.Order.descending,
 }
 
 _null_order_to_cpp: dict[str, gqe.lib.NullOrder] = {
     "after": gqe.lib.NullOrder.after,
-    "before": gqe.lib.NullOrder.before
+    "before": gqe.lib.NullOrder.before,
 }
 
 
@@ -254,10 +286,11 @@ class SortRelation(Relation):
     """
     A sort relation reorders the rows of the input table according to a set of keys.
     """
+
     def __init__(self, input: Relation, keys: list[tuple[Expression, str, str]]):
         self.input = input
 
-        for (expr, order, null_order) in keys:
+        for expr, order, null_order in keys:
             if not isinstance(expr, Expression):
                 raise TypeError("Sort keys are not expressions")
             if order not in _order_to_cpp:
@@ -272,19 +305,21 @@ class SortRelation(Relation):
         orders = []
         null_orders = []
 
-        for (expr, order, null_order) in self.keys:
+        for expr, order, null_order in self.keys:
             exprs.append(expr)
             orders.append(_order_to_cpp[order])
             null_orders.append(_null_order_to_cpp[null_order])
 
         return gqe.lib.sort(
-            self.input._cpp, orders, null_orders, [expr._cpp for expr in exprs])
+            self.input._cpp, orders, null_orders, [expr._cpp for expr in exprs]
+        )
 
 
 class FetchRelation(Relation):
     """
     A fetch relation outputs rows within the start offset and the end offset.
     """
+
     def __init__(self, input: Relation, offset: int, count: int):
         self.input = input
         self.offset = offset
