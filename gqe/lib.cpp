@@ -175,7 +175,7 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
 
   if (optimize) {
     gqe::optimizer::optimization_configuration logical_rule_config(
-      {gqe::optimizer::logical_optimization_rule_type::push_projection_to_filter}, {});
+      {gqe::optimizer::logical_optimization_rule_type::projection_pushdown}, {});
     auto optimizer =
       std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, catalog);
     logical_plan = optimizer->optimize(logical_plan);
