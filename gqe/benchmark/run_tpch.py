@@ -39,12 +39,14 @@ def main():
 
     out_cursor, out_conn, hw_info_id = connect_db(perf_db_file)
     errors = []
-    catalog = Catalog()
+    
     if load_all_data or (storage != "memory"):
+        catalog = Catalog()
         catalog.register_tpch(args.location, storage, num_row_groups)
 
     for query_idx in [1, 2, 6, 11, 12, 15, 17, 18, 20, 21]:
         if not load_all_data and (storage == "memory"):
+            catalog = Catalog()
             catalog.register_tpch(args.location, storage, num_row_groups, query_idx)
 
         query_identifier = "tpch_q" + str(query_idx)

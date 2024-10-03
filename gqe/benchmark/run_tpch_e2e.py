@@ -36,8 +36,9 @@ def main():
 
     out_cursor, out_conn, hw_info_id = connect_db(perf_db_file)
     errors = []
-    catalog = Catalog()
+
     if load_all_data or (storage != "memory"):
+        catalog = Catalog()
         catalog.register_tpch(args.dataset, storage, num_row_groups)
 
     for query_idx in range(1, 23):
@@ -46,6 +47,7 @@ def main():
             continue
 
         if not load_all_data and (storage == "memory"):
+            catalog = Catalog()
             catalog.register_tpch(args.dataset, storage, num_row_groups, query_idx)
 
         reference_file = args.solution.replace("%d", f"q{query_idx}")
