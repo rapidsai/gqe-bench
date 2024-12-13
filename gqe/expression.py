@@ -20,7 +20,6 @@ import gqe.lib
 import gqe.type
 from abc import ABC, abstractmethod
 from functools import cached_property
-from typing import Union  # Use | after migrating to Python>=3.10
 import datetime
 
 
@@ -238,7 +237,7 @@ class IfThenElseExpr(Expression):
 
 
 class Literal(Expression):
-    def __init__(self, value: Union[int, str, float]):
+    def __init__(self, value: int | str | float):
         """
         Construct a literal expression.
 

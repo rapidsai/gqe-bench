@@ -11,22 +11,29 @@
 from gqe import Context
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
+from gqe.benchmark.gqe_experiment import GqeParameters
 from gqe.relation import Relation
 
+from database_benchmarking_tools import experiment as exp
+
+import importlib.resources
 import os
-import sqlite3
-import pynvml
-import socket
-import platform
 import nvtx
+import re
 from dataclasses import dataclass
-from typing import Union  # Not needed with Python>=3.10
+
+
+@dataclass
+class EdbInfo:
+    sut_info_id: int
+    hw_info_id: int
+    query_source: str
 
 
 @dataclass
 class QueryInfo:
     identifier: str
-    root_relation: Union[Relation, gqe.lib.Relation]
+    root_relation: Relation | gqe.lib.Relation
     reference_solution: str
 
 
@@ -37,31 +44,40 @@ class Parameter:
     max_num_workers: int
 
 
-def connect_db(perf_db_file: str):
-    out_conn = sqlite3.connect(perf_db_file)
-    out_cursor = out_conn.cursor()
-
-    print(f"Writing SQLite file to {perf_db_file}")
-
-    measurements_schema = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), "create_experiment_db.sql"
+def setup_db(edb: exp.ExperimentDB, query_source: str) -> EdbInfo:
+    sut_creation_path = importlib.resources.files("gqe.benchmark").joinpath(
+        "system_under_test.sql"
     )
+    with importlib.resources.as_file(sut_creation_path) as script:
+        edb.execute_script(script)
 
-    with open(measurements_schema, "r") as m_schema_handle:
-        m_schema_sql = m_schema_handle.read()
-        out_cursor.executescript(m_schema_sql)
+    sut_info_id = edb.insert_sut_info(exp.SutInfo(name="gqe"))
+    hw_info_id = edb.insert_hw_info()
 
-    hw_info_id = insert_hw_info(out_cursor)
+    return EdbInfo(sut_info_id, hw_info_id, query_source)
 
-    return out_cursor, out_conn, hw_info_id
+
+def parse_scale_factor(path: str) -> int:
+    predicate = re.compile(".*(?:sf|SF)([0-9]+)([kK]?).*")
+    matches = predicate.match(path)
+
+    if matches is None:
+        return None
+
+    scale_factor = int(matches.group(1))
+    if matches.group(2):
+        scale_factor = scale_factor * 1000
+
+    return scale_factor
 
 
 def run_tpc(
     catalog,
     query: QueryInfo,
+    scale_factor: int,
     parameters: list[Parameter],
-    out_cursor: sqlite3.Cursor,
-    hw_info_id: int,
+    edb: exp.ExperimentDB,
+    edb_info: EdbInfo,
     errors: list,
 ):
     repeat = 6
@@ -78,14 +94,14 @@ def run_tpc(
             f"num_workers={max_num_workers}"
         )
 
-        parameters_id = insert_parameters(
-            out_cursor,
-            {
-                "num_workers": max_num_workers,
-                "num_partitions": num_partitions,
-                "join_use_hash_map_cache": join_use_hash_map_cache,
-                "read_use_zero_copy": read_use_zero_copy,
-            },
+        parameters_id = edb.insert_gqe_parameters(
+            GqeParameters(
+                sut_info_id=edb_info.sut_info_id,
+                num_workers=max_num_workers,
+                num_partitions=num_partitions,
+                join_use_hash_map_cache=join_use_hash_map_cache,
+                read_use_zero_copy=read_use_zero_copy,
+            )
         )
 
         # TODO: use with statement instead?
@@ -93,16 +109,17 @@ def run_tpc(
 
         print(f"Running {query.identifier}...")
 
-        experiment_id = insert_experiment(
-            out_cursor,
-            {
-                "parameters_id": parameters_id,
-                "hw_info_id": hw_info_id,
-                "build_info_id": None,
-                "name": query.identifier,
-                "suite": "TPC-H",
-                "scale_factor": None,
-            },
+        experiment_id = edb.insert_experiment(
+            exp.Experiment(
+                sut_info_id=edb_info.sut_info_id,
+                parameters_id=parameters_id,
+                hw_info_id=edb_info.hw_info_id,
+                build_info_id=None,
+                name=query.identifier,
+                suite="TPC-H",
+                scale_factor=scale_factor,
+                query_source=edb_info.query_source,
+            )
         )
 
         for count in range(repeat):
@@ -124,206 +141,13 @@ def run_tpc(
                 errors.append((query.identifier, parameter))
                 break
 
-            insert_run(
-                out_cursor,
-                {
-                    "experiment_id": experiment_id,
-                    "number": count,
-                    "nvtx_marker": None,
-                    "duration_s": elapsed_time / 1000,
-                },
+            edb.insert_run(
+                exp.Run(
+                    experiment_id=experiment_id,
+                    number=count,
+                    nvtx_marker=None,
+                    duration_s=elapsed_time / 1000,
+                )
             )
 
         del context
-
-
-class GpuInfo:
-    def __init__(self):
-        pynvml.nvmlInit()
-
-    def __del__(self):
-        pynvml.nvmlShutdown()
-
-    def cuda_driver_version(self):
-        version = pynvml.nvmlSystemGetCudaDriverVersion_v2()
-        return str(version // 1000) + "." + str((version // 10) % 10)
-
-    def device_product_name(self, gpu_id):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
-        return pynvml.nvmlDeviceGetName(handle)
-
-    def gpu_cores(self, gpu_id):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
-        return pynvml.nvmlDeviceGetNumGpuCores(handle)
-
-    def max_memory_clock(self, gpu_id):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
-        pynvml.nvmlDeviceGetMaxClockInfo(handle, pynvml.NVML_CLOCK_MEM)
-
-    def max_sm_clock(self, gpu_id):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
-        return pynvml.nvmlDeviceGetMaxClockInfo(handle, pynvml.NVML_CLOCK_SM)
-
-    def pcie_link_generation(self, gpu_id):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
-        return pynvml.nvmlDeviceGetCurrPcieLinkGeneration(handle)
-
-    def system_driver_version(self):
-        return pynvml.nvmlSystemGetDriverVersion()
-
-    def total_ecc_errors(self, gpu_id):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
-        try:
-            corrected = pynvml.nvmlDeviceGetTotalEccErrors(
-                handle,
-                pynvml.NVML_MEMORY_ERROR_TYPE_CORRECTED,
-                pynvml.NVML_AGGREGATE_ECC,
-            )
-            uncorrected = pynvml.nvmlDeviceGetTotalEccErrors(
-                handle,
-                pynvml.NVML_MEMORY_ERROR_TYPE_UNCORRECTED,
-                pynvml.NVML_AGGREGATE_ECC,
-            )
-            return corrected + uncorrected
-        except pynvml.nvml.NVMLError_NotSupported:
-            return None
-
-
-def insert_hw_info(cursor):
-    gpu_id = 0
-    gpu_info = GpuInfo()
-
-    entry = (
-        socket.gethostname(),
-        platform.machine(),
-        gpu_info.device_product_name(gpu_id),
-        gpu_info.system_driver_version(),
-        gpu_info.cuda_driver_version(),
-        gpu_info.pcie_link_generation(gpu_id),
-        gpu_info.gpu_cores(gpu_id),
-        gpu_info.max_sm_clock(gpu_id),
-        gpu_info.max_memory_clock(gpu_id),
-        gpu_info.total_ecc_errors(gpu_id),
-    )
-    print(entry)
-
-    # Insert the HW info.
-    #
-    # There is a UNIQUE constraint, so we IGNORE if the row already exists.
-    cursor.execute(
-        " \
-        INSERT OR IGNORE INTO hw_info( \
-        h_hostname, \
-        h_cpu_arch, \
-        h_gpu_product_name, \
-        h_nvidia_driver_version, \
-        h_cuda_version, \
-        h_gpu_pcie_link_generation, \
-        h_gpu_cuda_cores, \
-        h_gpu_max_clock_sm_mhz, \
-        h_gpu_max_clock_memory_mhz, \
-        h_gpu_ecc_errors \
-        ) \
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-        ",
-        entry,
-    )
-
-    # Retrieve the primary key of the HW info row.
-    #
-    # We can't use `lastrowid`, because the INSERT OR IGNORE might not insert a
-    # new row. In this case, `lastrowid` doesn't contain to the row we want.
-    #
-    # OR NULL is necessary to match rows that don't have a NOT NULL constraint.
-    # FIXME: This isn't entirely correct, because theoretically it might return
-    # multiple rows.
-    cursor.execute(
-        " \
-        SELECT h_id \
-        FROM hw_info \
-        WHERE h_hostname = ? \
-        AND h_cpu_arch = ? \
-        AND NULL OR h_gpu_product_name = ? \
-        AND NULL OR h_nvidia_driver_version = ? \
-        AND NULL OR h_cuda_version = ? \
-        AND NULL OR h_gpu_pcie_link_generation = ? \
-        AND NULL OR h_gpu_cuda_cores = ? \
-        AND NULL OR h_gpu_max_clock_sm_mhz = ? \
-        AND NULL OR h_gpu_max_clock_memory_mhz = ? \
-        AND NULL OR h_gpu_ecc_errors = ? \
-        ",
-        entry,
-    )
-
-    return cursor.fetchone()[0]
-
-
-def insert_parameters(cursor, entry):
-    cursor.execute(
-        " \
-        INSERT OR IGNORE INTO parameters( \
-        p_num_workers, \
-        p_num_partitions, \
-        p_join_use_hash_map_cache,  \
-        p_read_use_zero_copy \
-        ) \
-        VALUES (:num_workers, :num_partitions, :join_use_hash_map_cache, :read_use_zero_copy) \
-        ",
-        entry,
-    )
-
-    cursor.execute(
-        " \
-        SELECT p_id \
-        FROM parameters \
-        WHERE p_num_workers = :num_workers \
-        AND p_num_partitions = :num_partitions \
-        AND p_join_use_hash_map_cache = :join_use_hash_map_cache \
-        AND p_read_use_zero_copy = :read_use_zero_copy \
-        ",
-        entry,
-    )
-
-    return cursor.fetchone()[0]
-
-
-def insert_experiment(cursor, entry):
-    cursor.execute(
-        " \
-        INSERT INTO experiment( \
-        e_parameters_id, \
-        e_hw_info_id, \
-        e_build_info_id, \
-        e_name, \
-        e_suite, \
-        e_scale_factor \
-        ) \
-        VALUES (:parameters_id, :hw_info_id, :build_info_id, :name, :suite, :scale_factor) \
-        RETURNING e_id \
-        ",
-        entry,
-    )
-
-    return cursor.fetchone()[0]
-
-
-def insert_run(cursor, entry):
-    cursor.execute(
-        " \
-        INSERT INTO run( \
-        r_experiment_id, \
-        r_number, \
-        r_nvtx_marker, \
-        r_duration_s \
-        ) \
-        VALUES (:experiment_id, :number, :nvtx_marker, :duration_s) \
-        RETURNING r_id \
-        ",
-        entry,
-    )
-
-    return cursor.fetchone()[0]
-
-
-def analyze(cursor):
-    cursor.execute("ANALYZE")

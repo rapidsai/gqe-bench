@@ -11,7 +11,6 @@
 from gqe.relation import Relation
 from gqe import Catalog
 import gqe.lib
-from typing import Optional, Union  # Not needed with Python>=3.10
 
 
 class Context:
@@ -28,8 +27,8 @@ class Context:
     def execute(
         self,
         catalog: Catalog,
-        relation: Union[Relation, gqe.lib.Relation],
-        output_path: Optional[str],
+        relation: Relation | gqe.lib.Relation,
+        output_path: str | None,
     ) -> float:
         """
         Execute the query plan.

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+#
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
@@ -9,10 +11,21 @@
 # its affiliates is strictly prohibited.
 
 from gqe import Catalog
-from gqe.benchmark.run import run_tpc, QueryInfo, Parameter, connect_db
+from gqe.benchmark.gqe_experiment import GqeExperimentConnection
+from gqe.benchmark.run import (
+    run_tpc,
+    QueryInfo,
+    Parameter,
+    EdbInfo,
+    setup_db,
+    parse_scale_factor,
+)
+
+from database_benchmarking_tools.experiment import ExperimentDB
+from database_benchmarking_tools.utility import generate_db_path
+
 import argparse
 import importlib
-import os
 import itertools
 
 
@@ -30,52 +43,64 @@ def main():
     num_row_groups = 8
     load_all_data = 1
     storage = "memory"
+    gqe_host = "localhost"
+    query_source = "hand coded".lower()  # tool that generates the query plan
+    query_source_path = query_source.replace(" ", "_")
 
-    perf_db_file = "gqe_tpch.db3"
-    suffix = 1
-    while os.path.isfile(perf_db_file):
-        perf_db_file = f"gqe_tpch_{suffix}.db3"
-        suffix += 1
+    scale_factor = parse_scale_factor(args.location)
 
-    out_cursor, out_conn, hw_info_id = connect_db(perf_db_file)
+    edb_file = generate_db_path(f"gqe_{query_source_path}", "tpch", gqe_host)
+    edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
+        GqeExperimentConnection
+    )
+    print(f"Writing SQLite file to {edb_file}")
+
     errors = []
-    
-    if load_all_data or (storage != "memory"):
-        catalog = Catalog()
-        catalog.register_tpch(args.location, storage, num_row_groups)
+    with edb_config as edb:
+        edb_info = setup_db(edb, query_source)
 
-    for query_idx in [1, 2, 6, 11, 12, 15, 17, 18, 20, 21]:
-        if not load_all_data and (storage == "memory"):
+        if load_all_data or (storage != "memory"):
             catalog = Catalog()
-            catalog.register_tpch(args.location, storage, num_row_groups, query_idx)
+            catalog.register_tpch(args.location, storage, num_row_groups)
 
-        query_identifier = "tpch_q" + str(query_idx)
-        module = importlib.import_module(query_identifier)
-        root_relation = getattr(module, query_identifier)().root_relation()
-        reference_file = args.solution.replace("%d", f"q{query_idx}")
+        for query_idx in [1, 2, 6, 11, 12, 15, 17, 18, 20, 21]:
+            if not load_all_data and (storage == "memory"):
+                catalog = Catalog()
+                catalog.register_tpch(args.location, storage, num_row_groups, query_idx)
 
-        query = QueryInfo(
-            query_identifier_to_name(query_identifier), root_relation, reference_file
-        )
+            query_identifier = "tpch_q" + str(query_idx)
+            module = importlib.import_module(query_identifier)
+            root_relation = getattr(module, query_identifier)().root_relation()
+            reference_file = args.solution.replace("%d", f"q{query_idx}")
 
-        parameters = []
-        for num_partitions, read_use_zero_copy, max_num_workers in itertools.product(
-            [1, 2, 4, 8], [False, True], [1]
-        ):
-            if read_use_zero_copy and (num_partitions != num_row_groups):
-                continue
-
-            parameters.append(
-                Parameter(num_partitions, read_use_zero_copy, max_num_workers)
+            query = QueryInfo(
+                query_identifier_to_name(query_identifier),
+                root_relation,
+                reference_file,
             )
 
-        run_tpc(catalog, query, parameters, out_cursor, hw_info_id, errors)
+            parameters = []
+            for (
+                num_partitions,
+                read_use_zero_copy,
+                max_num_workers,
+            ) in itertools.product([1, 2, 4, 8], [False, True], [1]):
+                if read_use_zero_copy and (num_partitions != num_row_groups):
+                    continue
 
-    out_conn.commit()
-    print(f"Finished SQLite file at {perf_db_file}")
+                parameters.append(
+                    Parameter(num_partitions, read_use_zero_copy, max_num_workers)
+                )
 
-    print("The following configurations run successfully but produce incorrect results")
-    print(errors)
+            run_tpc(catalog, query, scale_factor, parameters, edb, edb_info, errors)
+
+    print(f"Finished SQLite file at {edb_file}")
+
+    if errors:
+        print(
+            "The following configurations run successfully but produce incorrect results"
+        )
+        print(errors)
 
 
 if __name__ == "__main__":
