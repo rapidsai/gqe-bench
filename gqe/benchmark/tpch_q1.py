@@ -15,6 +15,8 @@ from gqe.benchmark.query import Query
 
 
 """
+SQL string: 
+
 select
         l_returnflag,
         l_linestatus,
@@ -36,6 +38,20 @@ group by
 order by
         l_returnflag,
         l_linestatus
+
+List of optimization over substrait plans:
+- When we filter lineitem on l_shipdate, we don't materialize l_shipdate in the output using projection indices.
+
+- For aggregations we reuse the sum and count for values. 
+  
+  For ex. we need to calculate sum(l_quantity) and avg(l_quantity).
+  We could instead calculate sum(l_quantity), count(l_quantity) and then calculate avg through these two columns. 
+  GQE effectively already does this via it's multi-partition aggregation implementation.
+  
+  Additionally, the COUNT(*) == COUNT(l_quantity) as TPC-H columns are guaranteed to be NOT NULL
+
+  We can then reuse the COUNT(*) values across averages of different columns 
+  and sum(l_quantity) across sum(l_quantity) and avg(l_quantity)
 """
 
 
@@ -66,14 +82,27 @@ class tpch_q1(Query):
                 ("sum", CR(2)),
                 ("sum", CR(2) * (Literal(1.0) - CR(0))),
                 ("sum", CR(2) * (Literal(1.0) - CR(0)) * (Literal(1.0) + CR(5))),
-                ("avg", CR(1)),
-                ("avg", CR(2)),
-                ("avg", CR(0)),
+                ("sum", CR(0)),
                 ("count_all", CR(0)),
             ],
         )
 
-        sorted_output = agg.sort(
+        project = agg.project(
+            [
+                (CR(0)),
+                (CR(1)),
+                (CR(2)),
+                (CR(3)),
+                CR(4),
+                CR(5),
+                (CR(2) / CR(7)),
+                (CR(3) / CR(7)),
+                (CR(6) / CR(7)),
+                (CR(7)),
+            ]
+        )
+
+        sorted_output = project.sort(
             [(CR(0), "ascending", "before"), (CR(1), "ascending", "before")]
         )
 
