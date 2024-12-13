@@ -35,15 +35,21 @@ class tpch_q6(Query):
 
         # l_shipdate >= date '1994-01-01'
         # and l_shipdate < date '1994-01-01' + interval '1' year
+        lineitem = lineitem.filter(
+            (CR(0) >= DateLiteral("1994-01-01")) & (CR(0) < DateLiteral("1995-01-01")),
+            [1, 2, 3],
+        )
+
         # and l_discount between 0.06 - 0.01 and 0.06 + 0.01
         # and l_quantity < 24
+        #
+        # splitting the filter predicate effectively late materializes this
+        # part when using zero-copy
         lineitem = lineitem.filter(
-            (CR(0) >= DateLiteral("1994-01-01"))
-            & (CR(0) < DateLiteral("1995-01-01"))
-            & (CR(1) >= Literal(0.05))
-            & (CR(1) <= Literal(0.07))
-            & (CR(2) < Literal(24.0)),
-            [1, 3],
+            (CR(0) >= Literal(0.05))
+            & (CR(0) <= Literal(0.07))
+            & (CR(1) < Literal(24.0)),
+            [0, 2],
         )
 
         # sum(l_extendedprice * l_discount) as revenue
