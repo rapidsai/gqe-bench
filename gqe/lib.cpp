@@ -35,6 +35,7 @@
 #include <gqe/types.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
+#include <gqe/utility/logger.hpp>
 #include <gqe/utility/tpch.hpp>
 
 #include <gqe/optimizer/logical_optimization.hpp>
@@ -179,6 +180,7 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
     auto optimizer =
       std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, catalog);
     logical_plan = optimizer->optimize(logical_plan);
+    GQE_LOG_TRACE("Optimized logical plan: \n {}", logical_plan->to_string());
   }
   gqe::physical_plan_builder plan_builder(catalog);
   return plan_builder.build(logical_plan.get());
