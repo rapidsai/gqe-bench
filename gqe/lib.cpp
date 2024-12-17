@@ -83,20 +83,24 @@ std::shared_ptr<gqe::physical::relation> filter(std::shared_ptr<gqe::physical::r
 }
 
 std::shared_ptr<gqe::physical::relation> broadcast_join(
-  std::shared_ptr<gqe::physical::relation> probe_table,
-  std::shared_ptr<gqe::physical::relation> broadcast_table,
+  std::shared_ptr<gqe::physical::relation> left_table,
+  std::shared_ptr<gqe::physical::relation> right_table,
   gqe::expression const* condition,
   gqe::join_type_type join_type,
-  std::vector<cudf::size_type> projection_indices)
+  std::vector<cudf::size_type> projection_indices,
+  bool broadcast_left_side)
 {
+  gqe::physical::broadcast_policy policy = gqe::physical::broadcast_policy::right;
+  if (broadcast_left_side) policy = gqe::physical::broadcast_policy::left;
+
   return std::make_shared<gqe::physical::broadcast_join_relation>(
-    std::move(probe_table),
-    std::move(broadcast_table),
+    std::move(left_table),
+    std::move(right_table),
     std::vector<std::shared_ptr<gqe::physical::relation>>(),
     join_type,
     condition->clone(),
     std::move(projection_indices),
-    gqe::physical::broadcast_policy::right);
+    policy);
 }
 
 std::shared_ptr<gqe::physical::relation> aggregate(

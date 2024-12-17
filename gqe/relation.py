@@ -52,15 +52,16 @@ class Relation(ABC):
 
     def broadcast_join(
         self,
-        broadcast_table: Relation,
+        right_table: Relation,
         condition: Expression,
         projection_indices: list[int],
         type: str = "inner",
+        broadcast_left: bool = False,
     ) -> Relation:
         """
         Join with another table by broadcasting
 
-        :param broadcast_table: The other table to be joined by broadcasting.
+        :param right_table: The right-hand side of the join.
         :param condition: `condition` determines when a left row matches a right row. Note that the
             column index of `other` starts after `self`, so if `self` has `n` column, the `i`-th
             column of `other` is referred as `ColumnReference(n+i)`.
@@ -68,9 +69,10 @@ class Relation(ABC):
             the same number of columns as `len(projection_indices)`.
         :param type: Type of the join. Acceptable values are `"inner"`, `"left"`, `"left_semi"`,
             `"left_anti"` and `"full"`.
+        :param broadcast_left: Whether to broadcast the left table.
         """
         return BroadcastJoinRelation(
-            self, broadcast_table, condition, projection_indices, type
+            self, right_table, condition, projection_indices, type, broadcast_left
         )
 
     def aggregate(
@@ -183,16 +185,18 @@ class BroadcastJoinRelation(Relation):
 
     def __init__(
         self,
-        probe_table: Relation,
-        broadcast_table: Relation,
+        left_table: Relation,
+        right_table: Relation,
         condition: Expression,
         projection_indices: list[int],
         type: str = "inner",
+        broadcast_left: bool = False
     ):
-        self.probe_table = probe_table
-        self.broadcast_table = broadcast_table
+        self.left_table = left_table
+        self.right_table = right_table
         self.condition = condition
         self.projection_indices = projection_indices
+        self.broadcast_left = broadcast_left
 
         if type not in _join_type_to_cpp:
             raise ValueError(f"Unknown join type: {type}")
@@ -201,11 +205,12 @@ class BroadcastJoinRelation(Relation):
 
     def _to_cpp(self):
         return gqe.lib.broadcast_join(
-            self.probe_table._cpp,
-            self.broadcast_table._cpp,
+            self.left_table._cpp,
+            self.right_table._cpp,
             self.condition._cpp,
             _join_type_to_cpp[self.type],
             self.projection_indices,
+            self.broadcast_left,
         )
 
 
