@@ -236,6 +236,39 @@ class IfThenElseExpr(Expression):
         )
 
 
+_date_time_component_to_cpp: dict[str, gqe.lib.DateTimeComponent] = {
+    "year": gqe.lib.DateTimeComponent.year,
+    "month": gqe.lib.DateTimeComponent.month,
+    "day": gqe.lib.DateTimeComponent.day,
+    "weekday": gqe.lib.DateTimeComponent.weekday,
+    "hour": gqe.lib.DateTimeComponent.hour,
+    "minute": gqe.lib.DateTimeComponent.minute,
+    "second": gqe.lib.DateTimeComponent.second,
+    "millisecond": gqe.lib.DateTimeComponent.millisecond,
+    "nanosecond": gqe.lib.DateTimeComponent.nanosecond,
+}
+
+
+class DatePartExpr(Expression):
+    def __init__(self, input: Expression, component: str):
+        """
+        Construct a date part expression.
+
+        :param input: Expression to extract the date part from
+        :param component: Type of date part to extract
+        """
+        if component not in _date_time_component_to_cpp:
+            raise ValueError(f"Unknown date-time component: {component}")
+
+        self.input = input
+        self.component = component
+
+    def _to_cpp(self):
+        return gqe.lib.DatePart(
+            self.input._to_cpp(), _date_time_component_to_cpp[self.component]
+        )
+
+
 class Literal(Expression):
     def __init__(self, value: int | str | float):
         """

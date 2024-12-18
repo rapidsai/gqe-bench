@@ -354,6 +354,17 @@ PYBIND11_MODULE(lib, py_module)
     .def(py::init<cudf::type_id>())
     .def(py::init<cudf::type_id, int32_t>());
 
+  py::enum_<gqe::datepart_expression::datetime_component>(py_module, "DateTimeComponent")
+    .value("year", gqe::datepart_expression::datetime_component::year)
+    .value("month", gqe::datepart_expression::datetime_component::month)
+    .value("day", gqe::datepart_expression::datetime_component::day)
+    .value("weekday", gqe::datepart_expression::datetime_component::weekday)
+    .value("hour", gqe::datepart_expression::datetime_component::hour)
+    .value("minute", gqe::datepart_expression::datetime_component::minute)
+    .value("second", gqe::datepart_expression::datetime_component::second)
+    .value("millisecond", gqe::datepart_expression::datetime_component::millisecond)
+    .value("nanosecond", gqe::datepart_expression::datetime_component::nanosecond);
+
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
   py_module.def("register_tpch_parquet", &lib::register_tpch_parquet);
@@ -432,6 +443,12 @@ PYBIND11_MODULE(lib, py_module)
     .def(py::init<std::shared_ptr<gqe::expression>,
                   std::shared_ptr<gqe::expression>,
                   std::shared_ptr<gqe::expression>>());
+
+  // Date-part expression
+  py::class_<gqe::datepart_expression, std::shared_ptr<gqe::datepart_expression>>(
+    py_module, "DatePart", expr_cls)
+    .def(
+      py::init<std::shared_ptr<gqe::expression>, gqe::datepart_expression::datetime_component>());
 
   // Literals
   py::class_<gqe::literal_expression<std::string>,
