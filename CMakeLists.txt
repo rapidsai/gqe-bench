@@ -20,7 +20,7 @@ include(cmake/CPM.cmake)
 CPMAddPackage(
   NAME libgqe
   GIT_REPOSITORY ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git
-  GIT_TAG 69cf614db894bccd2371182d0ecc0836dd6a6c02
+  GIT_TAG b2cf64fd815bd186970b79bc0c9855c82c7c0792
   # We could also use the local GQE copy for development
   # SOURCE_DIR <path-to-GQE-repo>
   OPTIONS "CMAKE_POSITION_INDEPENDENT_CODE ON"
