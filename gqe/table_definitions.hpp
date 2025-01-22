@@ -19,6 +19,7 @@ std::unordered_map<std::string, std::vector<tpch::column_definition_type>> query
 {
   std::unordered_map<std::string, std::vector<tpch::column_definition_type>> definitions;
   switch (query_idx) {
+    case 0: definitions = tpch::table_definitions(); break;
     case 1:
       definitions = {{"lineitem",
                       {{"l_returnflag", tpch::string_type},

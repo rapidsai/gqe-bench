@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
+// FIXME: Calculate based on scale factor. Hard-coding SF1k for now.
 std::unordered_map<std::string, size_t> getRowCounts()
 {
   return {{"lineitem", 6001215000},
@@ -16,13 +17,13 @@ std::unordered_map<std::string, size_t> getRowCounts()
           {"region", 5}};
 }
 
-std::unordered_map<std::string, size_t> getTypeSizes()
+std::unordered_map<cudf::type_id, size_t> getTypeSizes()
 {
-  return {{"identifier_type", 4},
-          {"integer_type", 4},
-          {"decimal_type", 8},
-          {"date_type", 4},
-          {"string_type", 25}};
+  return {{tpch::identifier_type.id(), 8},
+          {tpch::integer_type.id(), 4},
+          {tpch::decimal_type.id(), 8},
+          {tpch::date_type.id(), 4},
+          {tpch::string_type.id(), 25}};
 }
 
 size_t calculateMemoryRequirements(
@@ -41,7 +42,7 @@ size_t calculateMemoryRequirements(
 
     for (const auto& column : columns) {
       const auto& colType = column.second;
-      rowSize += typeSizes[colType];
+      rowSize += typeSizes[colType.id()];
     }
 
     totalMemory += tableSize * rowSize;
@@ -55,12 +56,16 @@ std::unordered_map<std::string, std::vector<tpch::column_definition_type>> query
 
 void estimateMemoryForAllQueries()
 {
-  for (int query_idx = 1; query_idx <= 22; ++query_idx) {
+  for (int query_idx = 0; query_idx <= 22; ++query_idx) {
     auto definitions    = query_table_definitions(query_idx);
     size_t memoryNeeded = calculateMemoryRequirements(definitions);
-    std::cout << "Query " << query_idx
-              << " Memory needed: " << static_cast<double>(memoryNeeded) / (1024 * 1024 * 1024)
-              << " GB" << std::endl;
+    if (query_idx == 0) {
+      std::cout << "  Total";
+    } else {
+      std::cout << "Query " << query_idx;
+    }
+    std::cout << " memory needed: " << static_cast<double>(memoryNeeded) / (1024 * 1024 * 1024)
+              << " GiB" << std::endl;
   }
 }
 

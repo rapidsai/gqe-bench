@@ -30,3 +30,6 @@ rapids_find_package(pybind11 REQUIRED)
 pybind11_add_module(lib gqe/lib.cpp)
 target_link_libraries(lib PUBLIC gqe)
 install(TARGETS lib LIBRARY DESTINATION gqe)
+
+add_executable(calculate_memory gqe/calculate_memory.cpp)
+target_link_libraries(calculate_memory PUBLIC gqe)
