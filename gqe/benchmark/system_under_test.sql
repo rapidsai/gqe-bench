@@ -97,10 +97,10 @@ CREATE VIEW gqe_best_parameters AS
       e_name
       ) AS min_data ON data.e_name = min_data.e_name
           AND r_avg_duration_s = min_duration
-   ORDER BY e_suite,
-            e_name,
-            e_scale_factor,
-            e_id
+   ORDER BY data.e_suite,
+            data.e_name,
+            data.e_scale_factor,
+            data.e_id
             ;
 
 -- Failed experiments along with their GQE parameters.
