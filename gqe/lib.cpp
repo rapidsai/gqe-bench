@@ -29,6 +29,7 @@
 #include <gqe/physical/project.hpp>
 #include <gqe/physical/read.hpp>
 #include <gqe/physical/relation.hpp>
+#include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/write.hpp>
 #include <gqe/query_context.hpp>
@@ -166,6 +167,12 @@ std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::re
                                                int64_t count)
 {
   return std::make_shared<gqe::physical::fetch_relation>(std::move(input), offset, count);
+}
+
+std::shared_ptr<gqe::physical::relation> union_all(std::shared_ptr<gqe::physical::relation> lhs,
+                                               std::shared_ptr<gqe::physical::relation> rhs)
+{
+  return std::make_shared<gqe::physical::union_all_relation>(std::move(lhs), std::move(rhs));
 }
 
 std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
@@ -385,6 +392,7 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("project", &lib::project);
   py_module.def("sort", &lib::sort);
   py_module.def("fetch", &lib::fetch);
+  py_module.def("union_all", &lib::union_all);
   py_module.def("load_substrait", &lib::load_substrait);
 
   // Expressions
@@ -459,9 +467,15 @@ PYBIND11_MODULE(lib, py_module)
              std::shared_ptr<gqe::literal_expression<std::string>>>(
     py_module, "LiteralString", expr_cls)
     .def(py::init<std::string, bool>());
+  py::class_<gqe::literal_expression<float>, std::shared_ptr<gqe::literal_expression<float>>>(
+    py_module, "LiteralFloat", expr_cls)
+    .def(py::init<float, bool>());
   py::class_<gqe::literal_expression<double>, std::shared_ptr<gqe::literal_expression<double>>>(
     py_module, "LiteralDouble", expr_cls)
     .def(py::init<double, bool>());
+  py::class_<gqe::literal_expression<int32_t>, std::shared_ptr<gqe::literal_expression<int32_t>>>(
+    py_module, "LiteralInt32", expr_cls)
+    .def(py::init<int32_t, bool>());
   py::class_<gqe::literal_expression<int64_t>, std::shared_ptr<gqe::literal_expression<int64_t>>>(
     py_module, "LiteralInt64", expr_cls)
     .def(py::init<int64_t, bool>());

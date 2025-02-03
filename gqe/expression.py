@@ -21,6 +21,7 @@ import gqe.type
 from abc import ABC, abstractmethod
 from functools import cached_property
 import datetime
+import numpy as np
 
 
 class Expression(ABC):
@@ -270,21 +271,26 @@ class DatePartExpr(Expression):
 
 
 class Literal(Expression):
-    def __init__(self, value: int | str | float):
+    def __init__(self, value: int | np.int32 | np.int64 | str | float | np.float32 | np.float64):
         """
         Construct a literal expression.
 
-        :param value: Value of the literal. Currently, only integers, strings and floats are
-            supported.
+        :param value: Value of the literal. Currently, only integers (np.int32, np.int64,
+            or int which is taken to be 32-bit), strings and floats (np.float32,
+            np.float64, or float which is taken to be 64-bit) are supported.
         """
         self.value = value
 
     def _to_cpp(self):
         if isinstance(self.value, str):
             return gqe.lib.LiteralString(self.value, False)
-        elif isinstance(self.value, float):
+        elif isinstance(self.value, np.float32):
+            return gqe.lib.LiteralFloat(self.value, false)
+        elif isinstance(self.value, float | np.float64):
             return gqe.lib.LiteralDouble(self.value, False)
-        elif isinstance(self.value, int):
+        elif isinstance(self.value, int | np.int32):
+            return gqe.lib.LiteralInt32(self.value, False)
+        elif isinstance(self.value, np.int64):
             return gqe.lib.LiteralInt64(self.value, False)
         else:
             raise NotImplementedError

@@ -126,6 +126,14 @@ class Relation(ABC):
         """
         return FetchRelation(self, offset, count)
 
+    def union_all(self, other: Relation) -> Relation:
+        """
+        Append rows from another table.
+
+        :param other: The other table to be appended at the end of this table.
+        """
+        return UnionAllRelation(self, other)
+
 
 class ReadRelation(Relation):
     """
@@ -332,3 +340,15 @@ class FetchRelation(Relation):
 
     def _to_cpp(self) -> gqe.lib.Relation:
         return gqe.lib.fetch(self.input._cpp, self.offset, self.count)
+
+class UnionAllRelation(Relation):
+    """
+    A union-all relation combines the rows of two input tables, retaining any duplicate rows.
+    """
+
+    def __init__(self, lhs: Relation, rhs: Relation):
+        self.lhs = lhs
+        self.rhs = rhs
+
+    def _to_cpp(self) -> gqe.lib.Relation:
+        return gqe.lib.union_all(self.lhs._cpp, self.rhs._cpp)
