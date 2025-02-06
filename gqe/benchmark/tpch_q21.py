@@ -98,7 +98,7 @@ class tpch_q21(Query):
 
         # o_orderkey = l1.l_orderkey and o_orderstatus = 'F'
         order = read("orders", ["o_orderkey", "o_orderstatus"])
-        order = order.filter(CR(1) == Literal("F"), [0])
+        order = order.filter(CR(1) == Literal(70), [0])
         l1 = order.broadcast_join(l1, CR(0) == CR(2), [1, 2, 3])
 
         # l1 has columns ["l_suppkey", "l_orderkey", "s_name"] which satisfies

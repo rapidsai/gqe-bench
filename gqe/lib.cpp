@@ -11,6 +11,7 @@
  */
 
 #include <gqe/catalog.hpp>
+#include <gqe/context_reference.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -34,7 +35,6 @@
 #include <gqe/physical/write.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
-#include <gqe/context_reference.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
@@ -170,7 +170,7 @@ std::shared_ptr<gqe::physical::relation> fetch(std::shared_ptr<gqe::physical::re
 }
 
 std::shared_ptr<gqe::physical::relation> union_all(std::shared_ptr<gqe::physical::relation> lhs,
-                                               std::shared_ptr<gqe::physical::relation> rhs)
+                                                   std::shared_ptr<gqe::physical::relation> rhs)
 {
   return std::make_shared<gqe::physical::union_all_relation>(std::move(lhs), std::move(rhs));
 }
@@ -189,7 +189,9 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
 
   if (optimize) {
     gqe::optimizer::optimization_configuration logical_rule_config(
-      {gqe::optimizer::logical_optimization_rule_type::projection_pushdown}, {});
+      {gqe::optimizer::logical_optimization_rule_type::projection_pushdown,
+       gqe::optimizer::logical_optimization_rule_type::string_to_int_literal},
+      {});
     auto optimizer =
       std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, catalog);
     logical_plan = optimizer->optimize(logical_plan);
@@ -219,7 +221,7 @@ struct context {
     parameters.max_num_partitions    = max_num_partitions;
     parameters.read_zero_copy_enable = read_zero_copy_enable;
 
-    _query_ctx = std::make_unique<gqe::query_context>(parameters);
+    _query_ctx        = std::make_unique<gqe::query_context>(parameters);
     _task_manager_ctx = std::make_unique<gqe::task_manager_context>();
   }
 
@@ -229,11 +231,13 @@ struct context {
                 std::shared_ptr<gqe::physical::relation> relation,
                 std::optional<std::string> output_path = std::nullopt)
   {
-    gqe::task_graph_builder graph_builder(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
+    gqe::task_graph_builder graph_builder(
+      gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
     auto task_graph = graph_builder.build(relation.get());
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    execute_task_graph_single_gpu(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, task_graph.get());
+    execute_task_graph_single_gpu(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()},
+                                  task_graph.get());
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<float, std::milli> elapsed_time_ms = end_time - start_time;
 

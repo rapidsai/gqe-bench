@@ -22,8 +22,8 @@ std::unordered_map<std::string, std::vector<tpch::column_definition_type>> query
     case 0: definitions = tpch::table_definitions(); break;
     case 1:
       definitions = {{"lineitem",
-                      {{"l_returnflag", tpch::string_type},
-                       {"l_linestatus", tpch::string_type},
+                      {{"l_returnflag", tpch::char_type},
+                       {"l_linestatus", tpch::char_type},
                        {"l_quantity", tpch::decimal_type},
                        {"l_extendedprice", tpch::decimal_type},
                        {"l_discount", tpch::decimal_type},
@@ -185,7 +185,7 @@ std::unordered_map<std::string, std::vector<tpch::column_definition_type>> query
           {"o_totalprice", tpch::decimal_type}}},
         {"lineitem",
          {{"l_orderkey", tpch::identifier_type},
-          {"l_returnflag", tpch::string_type},
+          {"l_returnflag", tpch::char_type},
           {"l_extendedprice", tpch::decimal_type},
           {"l_discount", tpch::decimal_type}}},
         {"nation", {{"n_nationkey", tpch::identifier_type}, {"n_name", tpch::string_type}}}};
@@ -318,7 +318,7 @@ std::unordered_map<std::string, std::vector<tpch::column_definition_type>> query
           {"l_orderkey", tpch::identifier_type},
           {"l_receiptdate", tpch::date_type},
           {"l_commitdate", tpch::date_type}}},
-        {"orders", {{"o_orderkey", tpch::identifier_type}, {"o_orderstatus", tpch::string_type}}},
+        {"orders", {{"o_orderkey", tpch::identifier_type}, {"o_orderstatus", tpch::char_type}}},
         {"nation", {{"n_nationkey", tpch::identifier_type}, {"n_name", tpch::string_type}}}};
       break;
     case 22:
