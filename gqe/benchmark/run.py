@@ -71,6 +71,14 @@ def parse_scale_factor(path: str) -> int:
     return scale_factor
 
 
+# Note: Presumably needs to be set before CUDA initialization. CUDA docs don't
+# mention when the variable needs to be set. Typically, users will set it
+# before launching the program. In our case that's not possible, because the
+# program is already running.
+def set_eager_module_loading():
+    os.environ["CUDA_MODULE_LOADING"] = "EAGER"
+
+
 def run_tpc(
     catalog,
     query: QueryInfo,

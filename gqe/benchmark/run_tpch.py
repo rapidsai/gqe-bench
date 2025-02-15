@@ -19,6 +19,7 @@ from gqe.benchmark.run import (
     EdbInfo,
     setup_db,
     parse_scale_factor,
+    set_eager_module_loading,
 )
 
 from database_benchmarking_tools.experiment import ExperimentDB
@@ -48,6 +49,8 @@ def main():
     query_source_path = query_source.replace(" ", "_")
 
     scale_factor = parse_scale_factor(args.location)
+
+    set_eager_module_loading()
 
     edb_file = generate_db_path(f"gqe_{query_source_path}", "tpch", gqe_host)
     edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
