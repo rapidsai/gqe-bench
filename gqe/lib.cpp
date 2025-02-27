@@ -43,6 +43,7 @@
 
 #include <gqe/optimizer/logical_optimization.hpp>
 
+#include <cudf/datetime.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
@@ -369,16 +370,16 @@ PYBIND11_MODULE(lib, py_module)
     .def(py::init<cudf::type_id>())
     .def(py::init<cudf::type_id, int32_t>());
 
-  py::enum_<gqe::datepart_expression::datetime_component>(py_module, "DateTimeComponent")
-    .value("year", gqe::datepart_expression::datetime_component::year)
-    .value("month", gqe::datepart_expression::datetime_component::month)
-    .value("day", gqe::datepart_expression::datetime_component::day)
-    .value("weekday", gqe::datepart_expression::datetime_component::weekday)
-    .value("hour", gqe::datepart_expression::datetime_component::hour)
-    .value("minute", gqe::datepart_expression::datetime_component::minute)
-    .value("second", gqe::datepart_expression::datetime_component::second)
-    .value("millisecond", gqe::datepart_expression::datetime_component::millisecond)
-    .value("nanosecond", gqe::datepart_expression::datetime_component::nanosecond);
+  py::enum_<cudf::datetime::datetime_component>(py_module, "DateTimeComponent")
+    .value("year", cudf::datetime::datetime_component::YEAR)
+    .value("month", cudf::datetime::datetime_component::MONTH)
+    .value("day", cudf::datetime::datetime_component::DAY)
+    .value("weekday", cudf::datetime::datetime_component::WEEKDAY)
+    .value("hour", cudf::datetime::datetime_component::HOUR)
+    .value("minute", cudf::datetime::datetime_component::MINUTE)
+    .value("second", cudf::datetime::datetime_component::SECOND)
+    .value("millisecond", cudf::datetime::datetime_component::MILLISECOND)
+    .value("nanosecond", cudf::datetime::datetime_component::NANOSECOND);
 
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
@@ -463,8 +464,7 @@ PYBIND11_MODULE(lib, py_module)
   // Date-part expression
   py::class_<gqe::datepart_expression, std::shared_ptr<gqe::datepart_expression>>(
     py_module, "DatePart", expr_cls)
-    .def(
-      py::init<std::shared_ptr<gqe::expression>, gqe::datepart_expression::datetime_component>());
+    .def(py::init<std::shared_ptr<gqe::expression>, cudf::datetime::datetime_component>());
 
   // Literals
   py::class_<gqe::literal_expression<std::string>,
