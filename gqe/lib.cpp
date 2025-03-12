@@ -49,6 +49,8 @@
 #include <cudf/wrappers/durations.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
@@ -205,17 +207,21 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
 struct context {
   context(int32_t max_num_workers    = 1,
           int32_t max_num_partitions = 8,
-          bool read_zero_copy_enable = false)
+          bool read_zero_copy_enable = false,
+          bool debug_mem_usage = false)
   {
+    if (debug_mem_usage) {
+      _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
+    } else {
     // RMM requires the memory location to be aligned to 256B. So here, we set the memory pool size
     // to ~90% to the total memory and a multiple of 256.
     std::size_t free_memory, total_memory;
     GQE_CUDA_TRY(cudaMemGetInfo(&free_memory, &total_memory));
     auto const pool_size = total_memory / 284 * 256;
-
-    _pool_mr = std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
-      &_cuda_mr, pool_size, pool_size);
-    rmm::mr::set_current_device_resource(_pool_mr.get());
+      _mr = std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
+        &_cuda_mr, pool_size, pool_size);
+    }
+    rmm::mr::set_current_device_resource(_mr.get());
 
     gqe::optimization_parameters parameters;
     parameters.max_num_workers       = max_num_workers;
@@ -254,7 +260,7 @@ struct context {
   }
 
   rmm::mr::cuda_memory_resource _cuda_mr;
-  std::unique_ptr<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>> _pool_mr;
+  std::unique_ptr<rmm::mr::device_memory_resource> _mr;
   std::unique_ptr<gqe::query_context> _query_ctx;
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
 };
@@ -491,6 +497,6 @@ PYBIND11_MODULE(lib, py_module)
 
   // Execution
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t, int32_t, bool>())
+    .def(py::init<int32_t, int32_t, bool, bool>())
     .def("execute", &lib::context::execute);
 }

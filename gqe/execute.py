@@ -19,9 +19,10 @@ class Context:
         max_num_workers: int = 1,
         max_num_partitions: int = 8,
         read_zero_copy_enable: bool = False,
+        debug_mem_usage = False,
     ):
         self._context = gqe.lib.Context(
-            max_num_workers, max_num_partitions, read_zero_copy_enable
+            max_num_workers, max_num_partitions, read_zero_copy_enable, debug_mem_usage
         )
 
     def execute(

@@ -95,11 +95,13 @@ def run_tpc(
         read_use_zero_copy = parameter.read_use_zero_copy
         max_num_workers = parameter.max_num_workers
         join_use_hash_map_cache = bool(os.getenv("GQE_JOIN_USE_HASH_MAP_CACHE", False))
+        debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
         print(
             f"Running with parameters num_partitions={num_partitions}, "
             f"read_use_zero_copy={read_use_zero_copy}, "
-            f"num_workers={max_num_workers}"
+            f"num_workers={max_num_workers}, "
+            f"debug_mem_usage={debug_mem_usage}"
         )
 
         parameters_id = edb.insert_gqe_parameters(
@@ -113,7 +115,7 @@ def run_tpc(
         )
 
         # TODO: use with statement instead?
-        context = Context(max_num_workers, num_partitions, read_use_zero_copy)
+        context = Context(max_num_workers, num_partitions, read_use_zero_copy, debug_mem_usage)
 
         print(f"Running {query.identifier}...")
 
