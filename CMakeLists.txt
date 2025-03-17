@@ -17,14 +17,36 @@ endif()
 project(gqe-python LANGUAGES CXX CUDA)
 
 include(cmake/CPM.cmake)
-CPMAddPackage(
-  NAME libgqe
-  GIT_REPOSITORY ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git
-  GIT_TAG ebd031a565ccaf83ce6ab9098ab79ac2d4b40ed7
-  # We could also use the local GQE copy for development
-  # SOURCE_DIR <path-to-GQE-repo>
-  OPTIONS "CMAKE_POSITION_INDEPENDENT_CODE ON"
-)
+
+
+
+if(DEFINED GQE_SOURCE_DIR)
+  message(STATUS "Using GQE from local source directory: ${GQE_SOURCE_DIR}")
+  CPMAddPackage(
+    NAME libgqe
+    SOURCE_DIR ${GQE_SOURCE_DIR}
+    OPTIONS "CMAKE_POSITION_INDEPENDENT_CODE ON"
+  )
+else()
+  
+  if(NOT DEFINED GQE_GIT_REPOSITORY)
+    set(GQE_GIT_REPOSITORY "ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git")
+  endif()
+
+  if(NOT DEFINED GQE_GIT_TAG)
+    set(GQE_GIT_TAG "ebd031a565ccaf83ce6ab9098ab79ac2d4b40ed7")
+  endif()
+  
+  message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")
+  message(STATUS "Using GQE tag: ${GQE_GIT_TAG}")
+  
+  CPMAddPackage(
+    NAME libgqe
+    GIT_REPOSITORY ${GQE_GIT_REPOSITORY}
+    GIT_TAG ${GQE_GIT_TAG}
+    OPTIONS "CMAKE_POSITION_INDEPENDENT_CODE ON"
+  )
+endif()
 
 rapids_find_package(pybind11 REQUIRED)
 pybind11_add_module(lib gqe/lib.cpp)
