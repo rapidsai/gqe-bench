@@ -48,8 +48,8 @@
 #include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
 
-#include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
@@ -57,7 +57,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "table_definitions.hpp"
 #include <chrono>
 #include <stdexcept>
 
@@ -208,16 +207,16 @@ struct context {
   context(int32_t max_num_workers    = 1,
           int32_t max_num_partitions = 8,
           bool read_zero_copy_enable = false,
-          bool debug_mem_usage = false)
+          bool debug_mem_usage       = false)
   {
     if (debug_mem_usage) {
-      _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
+      _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
     } else {
-    // RMM requires the memory location to be aligned to 256B. So here, we set the memory pool size
-    // to ~90% to the total memory and a multiple of 256.
-    std::size_t free_memory, total_memory;
-    GQE_CUDA_TRY(cudaMemGetInfo(&free_memory, &total_memory));
-    auto const pool_size = total_memory / 284 * 256;
+      // RMM requires the memory location to be aligned to 256B. So here, we set the memory pool
+      // size to ~90% to the total memory and a multiple of 256.
+      std::size_t free_memory, total_memory;
+      GQE_CUDA_TRY(cudaMemGetInfo(&free_memory, &total_memory));
+      auto const pool_size = total_memory / 284 * 256;
       _mr = std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
         &_cuda_mr, pool_size, pool_size);
     }
@@ -313,19 +312,13 @@ void register_table_in_memory(
   ctx.execute(catalog, write_table, std::nullopt);
 }
 
-void register_tpch_in_memory(gqe::catalog* catalog,
-                             std::string dataset_location,
-                             int32_t num_row_groups,
-                             int load_data_of_query = 0)
+void register_tpch_in_memory(
+  gqe::catalog* catalog,
+  std::string dataset_location,
+  int32_t num_row_groups,
+  std::unordered_map<std::string, std::vector<gqe::utility::tpch::column_definition_type>>
+    table_definitions)
 {
-  std::unordered_map<std::string, std::vector<tpch::column_definition_type>> table_definitions;
-  if (!load_data_of_query) {
-    // Load all the tables
-    table_definitions = gqe::utility::tpch::table_definitions();
-  } else {
-    // Load only the required tables and columns
-    table_definitions = query_table_definitions(load_data_of_query);
-  }
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
     register_table_in_memory(catalog, num_row_groups, name, definition, file_paths);
@@ -345,6 +338,7 @@ PYBIND11_MODULE(lib, py_module)
   py_module.doc() = "Python binding for GQE library";
 
   // Types
+
   py::enum_<gqe::join_type_type>(py_module, "JoinType")
     .value("inner", gqe::join_type_type::inner)
     .value("left", gqe::join_type_type::left)
@@ -369,12 +363,19 @@ PYBIND11_MODULE(lib, py_module)
     .value("before", cudf::null_order::BEFORE);
 
   py::enum_<cudf::type_id>(py_module, "TypeId")
+    .value("int8", cudf::type_id::INT8)
+    .value("int32", cudf::type_id::INT32)
     .value("int64", cudf::type_id::INT64)
-    .value("float64", cudf::type_id::FLOAT64);
+    .value("float32", cudf::type_id::FLOAT32)
+    .value("float64", cudf::type_id::FLOAT64)
+    .value("string", cudf::type_id::STRING)
+    .value("timestamp_days", cudf::type_id::TIMESTAMP_DAYS);
 
   py::class_<cudf::data_type>(py_module, "DataType")
     .def(py::init<cudf::type_id>())
-    .def(py::init<cudf::type_id, int32_t>());
+    .def(py::init<cudf::type_id, int32_t>())
+    .def("type_id", &cudf::data_type::id)
+    .def("scale", &cudf::data_type::scale);
 
   py::enum_<cudf::datetime::datetime_component>(py_module, "DateTimeComponent")
     .value("year", cudf::datetime::datetime_component::YEAR)

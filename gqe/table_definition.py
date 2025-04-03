@@ -1,0 +1,349 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+from __future__ import annotations  # Enable forward references for type annotations
+
+import gqe.lib
+
+
+class TPCHTableDefinitions:
+    def __init__(self):
+        self.char_type = gqe.lib.DataType(gqe.lib.TypeId.int8)
+        self.identifier_type = gqe.lib.DataType(gqe.lib.TypeId.int32)
+        self.integer_type = gqe.lib.DataType(gqe.lib.TypeId.int32)
+        self.decimal_type = gqe.lib.DataType(gqe.lib.TypeId.float64)
+        self.string_type = gqe.lib.DataType(gqe.lib.TypeId.string)
+        self.date_type = gqe.lib.DataType(gqe.lib.TypeId.timestamp_days)
+
+        self.definitions = {
+            "part": {
+                "p_partkey": self.identifier_type,
+                "p_name": self.string_type,
+                "p_mfgr": self.string_type,
+                "p_brand": self.string_type,
+                "p_type": self.string_type,
+                "p_size": self.integer_type,
+                "p_container": self.string_type,
+            },
+            "supplier": {
+                "s_suppkey": self.identifier_type,
+                "s_name": self.string_type,
+                "s_address": self.string_type,
+                "s_nationkey": self.identifier_type,
+                "s_phone": self.string_type,
+                "s_acctbal": self.decimal_type,
+                "s_comment": self.string_type,
+            },
+            "partsupp": {
+                "ps_partkey": self.identifier_type,
+                "ps_suppkey": self.identifier_type,
+                "ps_availqty": self.integer_type,
+                "ps_supplycost": self.decimal_type,
+            },
+            "customer": {
+                "c_custkey": self.identifier_type,
+                "c_name": self.string_type,
+                "c_address": self.string_type,
+                "c_nationkey": self.identifier_type,
+                "c_phone": self.string_type,
+                "c_acctbal": self.decimal_type,
+                "c_mktsegment": self.string_type,
+                "c_comment": self.string_type,
+            },
+            "orders": {
+                "o_orderkey": self.identifier_type,
+                "o_custkey": self.identifier_type,
+                "o_orderstatus": self.char_type,
+                "o_totalprice": self.decimal_type,
+                "o_orderdate": self.date_type,
+                "o_orderpriority": self.string_type,
+                "o_shippriority": self.integer_type,
+                "o_comment": self.string_type,
+            },
+            "lineitem": {
+                "l_orderkey": self.identifier_type,
+                "l_partkey": self.identifier_type,
+                "l_suppkey": self.identifier_type,
+                "l_linenumber": self.integer_type,
+                "l_quantity": self.decimal_type,
+                "l_extendedprice": self.decimal_type,
+                "l_discount": self.decimal_type,
+                "l_tax": self.decimal_type,
+                "l_returnflag": self.char_type,
+                "l_linestatus": self.char_type,
+                "l_shipdate": self.date_type,
+                "l_commitdate": self.date_type,
+                "l_receiptdate": self.date_type,
+                "l_shipinstruct": self.string_type,
+                "l_shipmode": self.string_type,
+            },
+            "nation": {
+                "n_nationkey": self.identifier_type,
+                "n_name": self.string_type,
+                "n_regionkey": self.identifier_type,
+            },
+            "region": {"r_regionkey": self.identifier_type, "r_name": self.string_type},
+        }
+
+    def get_column_types(
+        self, tables: dict[str, list[str]]
+    ) -> dict[str, list[tuple[str, gqe.lib.DataType]]]:
+        definitions = {}
+        for table, columns in tables.items():
+            definitions[table] = [
+                (col, self.definitions[table][col]) for col in columns
+            ]
+        return definitions
+
+    def query_table_definitions(
+        self, query_idx: int
+    ) -> dict[str, list[tuple[str, gqe.lib.DataType]]]:
+        if query_idx == 0:
+            return {table: list(cols.items()) for table, cols in self.definitions.items()}
+
+        if query_idx == 1:
+            tables = {
+                "lineitem": [
+                    "l_returnflag",
+                    "l_linestatus",
+                    "l_quantity",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_tax",
+                    "l_shipdate",
+                ]
+            }
+
+        elif query_idx == 2:
+            tables = {
+                "part": ["p_partkey", "p_size", "p_type", "p_mfgr"],
+                "supplier": [
+                    "s_suppkey",
+                    "s_nationkey",
+                    "s_acctbal",
+                    "s_name",
+                    "s_address",
+                    "s_phone",
+                    "s_comment",
+                ],
+                "partsupp": ["ps_suppkey", "ps_partkey", "ps_supplycost"],
+                "nation": ["n_name", "n_nationkey", "n_regionkey"],
+                "region": ["r_name", "r_regionkey"],
+            }
+        elif query_idx == 3:
+            tables = {
+                "customer": ["c_custkey", "c_mktsegment"],
+                "orders": ["o_orderkey", "o_orderdate", "o_shippriority", "o_custkey"],
+                "lineitem": [
+                    "l_orderkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_shipdate",
+                ],
+            }
+        elif query_idx == 4:
+            tables = {
+                "orders": ["o_orderkey", "o_orderpriority", "o_orderdate"],
+                "lineitem": ["l_orderkey", "l_commitdate", "l_receiptdate"],
+            }
+        elif query_idx == 5:
+            tables = {
+                "customer": ["c_custkey", "c_nationkey"],
+                "orders": ["o_orderkey", "o_custkey", "o_orderdate"],
+                "lineitem": [
+                    "l_orderkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_suppkey",
+                ],
+                "supplier": ["s_suppkey", "s_nationkey"],
+                "nation": ["n_name", "n_nationkey", "n_regionkey"],
+                "region": ["r_regionkey", "r_name"],
+            }
+        elif query_idx == 6:
+            tables = {
+                "lineitem": [
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_shipdate",
+                    "l_quantity",
+                ]
+            }
+        elif query_idx == 7:
+            tables = {
+                "supplier": ["s_suppkey", "s_nationkey"],
+                "lineitem": [
+                    "l_suppkey",
+                    "l_orderkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_shipdate",
+                ],
+                "orders": ["o_orderkey", "o_custkey"],
+                "customer": ["c_custkey", "c_nationkey"],
+                "nation": ["n_name", "n_nationkey", "n_regionkey"],
+            }
+        elif query_idx == 8:
+            tables = {
+                "part": ["p_partkey", "p_type"],
+                "supplier": ["s_suppkey", "s_nationkey"],
+                "lineitem": [
+                    "l_partkey",
+                    "l_suppkey",
+                    "l_orderkey",
+                    "l_extendedprice",
+                    "l_discount",
+                ],
+                "orders": ["o_orderkey", "o_custkey", "o_orderdate"],
+                "customer": ["c_custkey", "c_nationkey"],
+                "nation": ["n_name", "n_nationkey", "n_regionkey"],
+                "region": ["r_name", "r_regionkey"],
+            }
+        elif query_idx == 9:
+            tables = {
+                "part": ["p_name", "p_partkey"],
+                "lineitem": [
+                    "l_partkey",
+                    "l_suppkey",
+                    "l_orderkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_quantity",
+                    "l_shipdate",
+                ],
+                "orders": ["o_orderkey", "o_orderdate"],
+                "supplier": ["s_suppkey", "s_nationkey"],
+                "nation": ["n_name", "n_nationkey"],
+                "partsupp": ["ps_suppkey", "ps_partkey", "ps_supplycost"],
+            }
+        elif query_idx == 10:
+            tables = {
+                "customer": [
+                    "c_custkey",
+                    "c_name",
+                    "c_acctbal",
+                    "c_phone",
+                    "c_address",
+                    "c_comment",
+                    "c_nationkey",
+                ],
+                "orders": ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"],
+                "lineitem": [
+                    "l_orderkey",
+                    "l_returnflag",
+                    "l_extendedprice",
+                    "l_discount",
+                ],
+                "nation": ["n_nationkey", "n_name"],
+            }
+        elif query_idx == 11:
+            tables = {
+                "partsupp": [
+                    "ps_partkey",
+                    "ps_suppkey",
+                    "ps_supplycost",
+                    "ps_availqty",
+                ],
+                "supplier": ["s_suppkey", "s_nationkey"],
+                "nation": ["n_name", "n_nationkey"],
+            }
+        elif query_idx == 12:
+            tables = {
+                "orders": ["o_orderkey", "o_orderpriority", "o_orderdate"],
+                "lineitem": [
+                    "l_orderkey",
+                    "l_commitdate",
+                    "l_receiptdate",
+                    "l_shipdate",
+                    "l_shipmode",
+                ],
+            }
+        elif query_idx == 13:
+            tables = {
+                "customer": ["c_custkey"],
+                "orders": ["o_orderkey", "o_custkey", "o_comment"],
+            }
+        elif query_idx == 14:
+            tables = {
+                "lineitem": [
+                    "l_partkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_shipdate",
+                ],
+                "part": ["p_partkey", "p_type"],
+            }
+        elif query_idx == 15:
+            tables = {
+                "lineitem": [
+                    "l_suppkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_shipdate",
+                ],
+                "supplier": ["s_suppkey", "s_name", "s_address", "s_phone"],
+            }
+        elif query_idx == 16:
+            tables = {
+                "part": ["p_brand", "p_type", "p_size", "p_partkey"],
+                "partsupp": ["ps_partkey", "ps_suppkey"],
+                "supplier": ["s_suppkey", "s_comment"],
+            }
+        elif query_idx == 17:
+            tables = {
+                "lineitem": ["l_partkey", "l_extendedprice", "l_quantity"],
+                "part": ["p_partkey", "p_brand", "p_container"],
+            }
+        elif query_idx == 18:
+            tables = {
+                "customer": ["c_custkey", "c_name"],
+                "orders": ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"],
+                "lineitem": ["l_orderkey", "l_quantity"],
+            }
+        elif query_idx == 19:
+            tables = {
+                "lineitem": [
+                    "l_partkey",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_quantity",
+                    "l_shipmode",
+                    "l_shipinstruct",
+                ],
+                "part": ["p_partkey", "p_brand", "p_container", "p_size"],
+            }
+        elif query_idx == 20:
+            tables = {
+                "part": ["p_partkey", "p_name"],
+                "supplier": ["s_suppkey", "s_nationkey", "s_name", "s_address"],
+                "partsupp": ["ps_partkey", "ps_suppkey", "ps_availqty"],
+                "nation": ["n_name", "n_nationkey"],
+                "lineitem": ["l_partkey", "l_suppkey", "l_quantity", "l_shipdate"],
+            }
+        elif query_idx == 21:
+            tables = {
+                "supplier": ["s_suppkey", "s_nationkey", "s_name"],
+                "lineitem": [
+                    "l_suppkey",
+                    "l_orderkey",
+                    "l_receiptdate",
+                    "l_commitdate",
+                ],
+                "orders": ["o_orderkey", "o_orderstatus"],
+                "nation": ["n_nationkey", "n_name"],
+            }
+        elif query_idx == 22:
+            tables = {
+                "customer": ["c_custkey", "c_acctbal", "c_phone", "c_nationkey"],
+                "orders": ["o_custkey"],
+                "nation": ["n_nationkey"],
+            }
+
+        return self.get_column_types(tables)

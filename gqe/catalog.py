@@ -19,6 +19,7 @@ in the future.
 """
 
 import gqe.lib
+from .table_definition import TPCHTableDefinitions
 
 
 class Catalog:
@@ -47,8 +48,11 @@ class Catalog:
         if storage == "parquet":
             gqe.lib.register_tpch_parquet(self._catalog, dataset)
         elif storage == "memory":
+            table_definitions = TPCHTableDefinitions().query_table_definitions(
+                load_data_of_query
+            )
             gqe.lib.register_tpch_in_memory(
-                self._catalog, dataset, num_row_groups, load_data_of_query
+                self._catalog, dataset, num_row_groups, table_definitions
             )
         else:
             raise ValueError(f"Unrecognized storage: {storage}")
