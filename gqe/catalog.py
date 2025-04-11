@@ -21,7 +21,6 @@ in the future.
 import gqe.lib
 from .table_definition import TPCHTableDefinitions
 
-
 class Catalog:
     def __init__(self) -> None:
         self._catalog = gqe.lib.Catalog()
@@ -32,6 +31,8 @@ class Catalog:
         storage: str = "parquet",
         num_row_groups: int = 8,
         load_data_of_query: int = 0,
+        identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32,
+        use_opt_char_type: bool = True
     ) -> None:
         """
         Register TPC-H dataset in the catalog.
@@ -44,15 +45,18 @@ class Catalog:
             if `load_data_of_query = 0` loads entire dataset,
             else if `0 < load_data_of_query <= 22` loads table and columns required for the
             specific query
+        :arg identifier_type: Can be either `gqe.lib.TypeId.int32` or `gqe.lib.TypeId.int64`
+        :arg use_opt_char_type: If true, use optimized char type for single character columns.
+        
         """
+        
+        table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
+        
         if storage == "parquet":
-            gqe.lib.register_tpch_parquet(self._catalog, dataset)
+            gqe.lib.register_tpch_parquet(self._catalog, dataset, table_definitions.query_table_definitions(0))
         elif storage == "memory":
-            table_definitions = TPCHTableDefinitions().query_table_definitions(
-                load_data_of_query
-            )
             gqe.lib.register_tpch_in_memory(
-                self._catalog, dataset, num_row_groups, table_definitions
+                self._catalog, dataset, num_row_groups, table_definitions.query_table_definitions(load_data_of_query)
             )
         else:
             raise ValueError(f"Unrecognized storage: {storage}")

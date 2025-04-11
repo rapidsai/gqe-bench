@@ -264,9 +264,12 @@ struct context {
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
 };
 
-void register_tpch_parquet(gqe::catalog* catalog, std::string dataset_location)
+void register_tpch_parquet(
+  gqe::catalog* catalog,
+  std::string dataset_location,
+  std::unordered_map<std::string, std::vector<gqe::utility::tpch::column_definition_type>>
+    table_definitions)
 {
-  auto const& table_definitions = gqe::utility::tpch::table_definitions();
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
 

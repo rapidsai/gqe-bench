@@ -12,11 +12,18 @@ from __future__ import annotations  # Enable forward references for type annotat
 
 import gqe.lib
 
+def check_identifier_type(type_id: gqe.lib.TypeId) -> bool:
+    if type_id in [gqe.lib.TypeId.int32, gqe.lib.TypeId.int64]:
+        return True
+    raise ValueError(f"Invalid identifier type: {type_id}. Must be int32 or int64.")
+
 
 class TPCHTableDefinitions:
-    def __init__(self):
-        self.char_type = gqe.lib.DataType(gqe.lib.TypeId.int8)
-        self.identifier_type = gqe.lib.DataType(gqe.lib.TypeId.int32)
+    def __init__(self, identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32, use_opt_char_type: bool = True):
+        check_identifier_type(identifier_type)
+
+        self.char_type = gqe.lib.DataType(gqe.lib.TypeId.int8 if use_opt_char_type else gqe.lib.TypeId.string)
+        self.identifier_type = gqe.lib.DataType(identifier_type)
         self.integer_type = gqe.lib.DataType(gqe.lib.TypeId.int32)
         self.decimal_type = gqe.lib.DataType(gqe.lib.TypeId.float64)
         self.string_type = gqe.lib.DataType(gqe.lib.TypeId.string)

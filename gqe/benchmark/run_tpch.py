@@ -21,6 +21,8 @@ from gqe.benchmark.run import (
     parse_scale_factor,
     set_eager_module_loading,
 )
+from gqe import lib
+
 
 from database_benchmarking_tools.experiment import ExperimentDB
 from database_benchmarking_tools.utility import generate_db_path
@@ -28,7 +30,6 @@ from database_benchmarking_tools.utility import generate_db_path
 import argparse
 import importlib
 import itertools
-
 
 def query_identifier_to_name(identifier):
     # Convert "tpch_q6" -> "Q6"
@@ -47,7 +48,10 @@ def main():
     gqe_host = "localhost"
     query_source = "hand coded".lower()  # tool that generates the query plan
     query_source_path = query_source.replace(" ", "_")
-
+    use_opt_char_type = True
+    
+    # You can set it to int32 or int64, for SF1k int64 is required.
+    identifier_type = lib.TypeId.int32
     scale_factor = parse_scale_factor(args.location)
 
     set_eager_module_loading()
@@ -64,12 +68,12 @@ def main():
 
         if load_all_data or (storage != "memory"):
             catalog = Catalog()
-            catalog.register_tpch(args.location, storage, num_row_groups)
+            catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
 
         for query_idx in [1, 2, 4, 6, 7, 10, 11, 12, 15, 17, 18, 19, 20, 21]:
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
-                catalog.register_tpch(args.location, storage, num_row_groups, query_idx)
+                catalog.register_tpch(args.location, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
 
             query_identifier = "tpch_q" + str(query_idx)
             module = importlib.import_module(query_identifier)
