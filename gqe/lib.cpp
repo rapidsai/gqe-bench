@@ -93,7 +93,8 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
   gqe::expression const* condition,
   gqe::join_type_type join_type,
   std::vector<cudf::size_type> projection_indices,
-  bool broadcast_left_side)
+  bool broadcast_left_side,
+  gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none)
 {
   gqe::physical::broadcast_policy policy = gqe::physical::broadcast_policy::right;
   if (broadcast_left_side) policy = gqe::physical::broadcast_policy::left;
@@ -105,7 +106,8 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
     join_type,
     condition->clone(),
     std::move(projection_indices),
-    policy);
+    policy,
+    unique_keys_pol);
 }
 
 std::shared_ptr<gqe::physical::relation> aggregate(
@@ -192,7 +194,9 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
   if (optimize) {
     gqe::optimizer::optimization_configuration logical_rule_config(
       {gqe::optimizer::logical_optimization_rule_type::projection_pushdown,
-       gqe::optimizer::logical_optimization_rule_type::string_to_int_literal},
+       gqe::optimizer::logical_optimization_rule_type::string_to_int_literal,
+       gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
+       gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
       {});
     auto optimizer =
       std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, catalog);
@@ -207,7 +211,8 @@ struct context {
   context(int32_t max_num_workers    = 1,
           int32_t max_num_partitions = 8,
           bool read_zero_copy_enable = false,
-          bool debug_mem_usage       = false)
+          bool join_use_unique_keys = false,
+          bool debug_mem_usage = false)
   {
     if (debug_mem_usage) {
       _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
@@ -226,6 +231,7 @@ struct context {
     parameters.max_num_workers       = max_num_workers;
     parameters.max_num_partitions    = max_num_partitions;
     parameters.read_zero_copy_enable = read_zero_copy_enable;
+    parameters.join_use_unique_keys  = join_use_unique_keys;
 
     _query_ctx        = std::make_unique<gqe::query_context>(parameters);
     _task_manager_ctx = std::make_unique<gqe::task_manager_context>();
@@ -267,8 +273,7 @@ struct context {
 void register_tpch_parquet(
   gqe::catalog* catalog,
   std::string dataset_location,
-  std::unordered_map<std::string, std::vector<gqe::utility::tpch::column_definition_type>>
-    table_definitions)
+  std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions)
 {
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
@@ -284,7 +289,7 @@ void register_table_in_memory(
   gqe::catalog* catalog,
   int32_t num_row_groups,
   std::string name,
-  std::vector<std::pair<std::string, cudf::data_type>> const& definition,
+  std::vector<gqe::column_traits> const& definition,
   std::vector<std::string> const& file_paths)
 {
   catalog->register_table(name + "_parquet",
@@ -297,7 +302,7 @@ void register_table_in_memory(
 
   std::vector<std::string> column_names;
   std::vector<cudf::data_type> column_types;
-  for (auto const& [column_name, type] : definition) {
+  for (auto const& [column_name, type, column_properties] : definition) {
     column_names.push_back(column_name);
     column_types.push_back(type);
   }
@@ -319,7 +324,7 @@ void register_tpch_in_memory(
   gqe::catalog* catalog,
   std::string dataset_location,
   int32_t num_row_groups,
-  std::unordered_map<std::string, std::vector<gqe::utility::tpch::column_definition_type>>
+  std::unordered_map<std::string, std::vector<gqe::column_traits>>
     table_definitions)
 {
   for (auto const& [name, definition] : table_definitions) {
@@ -374,6 +379,14 @@ PYBIND11_MODULE(lib, py_module)
     .value("string", cudf::type_id::STRING)
     .value("timestamp_days", cudf::type_id::TIMESTAMP_DAYS);
 
+  py::enum_<gqe::column_traits::column_property>(py_module, "ColumnProperty")
+    .value("unique", gqe::column_traits::column_property::unique);
+
+  py::enum_<gqe::unique_keys_policy>(py_module, "UniqueKeysPolicy")
+    .value("none", gqe::unique_keys_policy::none)
+    .value("right", gqe::unique_keys_policy::right)
+    .value("left", gqe::unique_keys_policy::left);
+
   py::class_<cudf::data_type>(py_module, "DataType")
     .def(py::init<cudf::type_id>())
     .def(py::init<cudf::type_id, int32_t>())
@@ -393,6 +406,9 @@ PYBIND11_MODULE(lib, py_module)
 
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
+  py::class_<gqe::column_traits>(py_module, "ColumnTraits")
+    .def(py::init<std::string const&, cudf::data_type const&, std::vector<gqe::column_traits::column_property> const&>())
+    .def(py::init<std::string const&, cudf::data_type const&>());
   py_module.def("register_tpch_parquet", &lib::register_tpch_parquet);
   py_module.def("register_tpch_in_memory", &lib::register_tpch_in_memory);
 
@@ -501,6 +517,6 @@ PYBIND11_MODULE(lib, py_module)
 
   // Execution
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t, int32_t, bool, bool>())
+    .def(py::init<int32_t, int32_t, bool, bool, bool>())
     .def("execute", &lib::context::execute);
 }

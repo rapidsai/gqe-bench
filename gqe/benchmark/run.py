@@ -42,6 +42,7 @@ class Parameter:
     num_partitions: int
     read_use_zero_copy: bool
     max_num_workers: int
+    join_use_unique_keys: bool
 
 
 def setup_db(edb: exp.ExperimentDB, query_source: str) -> EdbInfo:
@@ -94,6 +95,7 @@ def run_tpc(
         num_partitions = parameter.num_partitions
         read_use_zero_copy = parameter.read_use_zero_copy
         max_num_workers = parameter.max_num_workers
+        join_use_unique_keys = parameter.join_use_unique_keys
         join_use_hash_map_cache = bool(os.getenv("GQE_JOIN_USE_HASH_MAP_CACHE", False))
         debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
@@ -101,6 +103,7 @@ def run_tpc(
             f"Running with parameters num_partitions={num_partitions}, "
             f"read_use_zero_copy={read_use_zero_copy}, "
             f"num_workers={max_num_workers}, "
+            f"join_use_unique_keys={join_use_unique_keys}, "
             f"debug_mem_usage={debug_mem_usage}"
         )
 
@@ -111,11 +114,12 @@ def run_tpc(
                 num_partitions=num_partitions,
                 join_use_hash_map_cache=join_use_hash_map_cache,
                 read_use_zero_copy=read_use_zero_copy,
+                join_use_unique_keys=join_use_unique_keys,
             )
         )
 
         # TODO: use with statement instead?
-        context = Context(max_num_workers, num_partitions, read_use_zero_copy, debug_mem_usage)
+        context = Context(max_num_workers, num_partitions, read_use_zero_copy, join_use_unique_keys, debug_mem_usage)
 
         print(f"Running {query.identifier}...")
 

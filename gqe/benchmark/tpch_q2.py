@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, LikeExpr
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 
 """
@@ -76,7 +77,7 @@ class tpch_q2(Query):
 
         # After these operations, `nation` contains columns ["n_nationkey", "n_name"]
         nation = read("nation", ["n_nationkey", "n_regionkey", "n_name"])
-        nation = nation.broadcast_join(region, CR(1) == CR(3), [0, 2])
+        nation = nation.broadcast_join(region, CR(1) == CR(3), [0, 2], unique_keys_policy=UniqueKeysPolicy.right)
 
         # After these operations, `supplier` contains columns
         # ["s_suppkey", "s_acctbal", "s_name", "s_address", "s_phone", "s_comment", "n_name"]
@@ -93,20 +94,20 @@ class tpch_q2(Query):
             ],
         )
         supplier = supplier.broadcast_join(
-            nation, CR(1) == CR(7), [0, 2, 3, 4, 5, 6, 8]
+            nation, CR(1) == CR(7), [0, 2, 3, 4, 5, 6, 8], unique_keys_policy=UniqueKeysPolicy.right
         )
 
         # Because p_partkey is a primary key, we can push the filter into the subquery
         # After these operations, `partsupp` contains columns
         # ["ps_partkey", "ps_suppkey", "ps_supplycost", "p_mfgr"]
         partsupp = read("partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost"])
-        partsupp = partsupp.broadcast_join(part, CR(0) == CR(3), [0, 1, 2, 4])
+        partsupp = partsupp.broadcast_join(part, CR(0) == CR(3), [0, 1, 2, 4], unique_keys_policy=UniqueKeysPolicy.right)
 
         # After this operation, `partsupp` contains columns
         # ["ps_partkey", "ps_supplycost", "p_mfgr", "s_acctbal",
         #  "s_name", "s_address", "s_phone", "s_comment", "n_name"]
         partsupp = partsupp.broadcast_join(
-            supplier, CR(1) == CR(4), [0, 2, 3, 5, 6, 7, 8, 9, 10]
+            supplier, CR(1) == CR(4), [0, 2, 3, 5, 6, 7, 8, 9, 10], unique_keys_policy=UniqueKeysPolicy.right
         )
 
         # After these operations, `agg_result` contains columns ["ps_partkey", min(ps_supplycost)]
@@ -116,7 +117,7 @@ class tpch_q2(Query):
         # ["s_acctbal", "s_name", "n_name", "p_partkey",
         #  "p_mfgr", "s_address", "s_phone", "s_comment"]
         partsupp = partsupp.broadcast_join(
-            agg_result, (CR(0) == CR(9)) & (CR(1) == CR(10)), [3, 4, 8, 0, 2, 5, 6, 7]
+            agg_result, (CR(0) == CR(9)) & (CR(1) == CR(10)), [3, 4, 8, 0, 2, 5, 6, 7], unique_keys_policy=UniqueKeysPolicy.right
         )
 
         # order by s_acctbal desc, n_name, s_name, p_partkey

@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral, IfThenElseExpr
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 
 """
@@ -70,7 +71,7 @@ class tpch_q12(Query):
 
         # After these operations join contains ["l_shipmode", "l_orderkey"]
         # Due to filter, orders table is bigger than lineitem table
-        join_out = orders.broadcast_join(lineitem, CR(0) == CR(3), [1, 2])
+        join_out = orders.broadcast_join(lineitem, CR(0) == CR(3), [1, 2], unique_keys_policy=UniqueKeysPolicy.left)
 
         agg_out = join_out.aggregate(
             [CR(1)],

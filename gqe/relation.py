@@ -57,6 +57,7 @@ class Relation(ABC):
         projection_indices: list[int],
         type: str = "inner",
         broadcast_left: bool = False,
+        unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none
     ) -> Relation:
         """
         Join with another table by broadcasting
@@ -72,7 +73,7 @@ class Relation(ABC):
         :param broadcast_left: Whether to broadcast the left table.
         """
         return BroadcastJoinRelation(
-            self, right_table, condition, projection_indices, type, broadcast_left
+            self, right_table, condition, projection_indices, type, broadcast_left, unique_keys_policy
         )
 
     def aggregate(
@@ -198,13 +199,15 @@ class BroadcastJoinRelation(Relation):
         condition: Expression,
         projection_indices: list[int],
         type: str = "inner",
-        broadcast_left: bool = False
+        broadcast_left: bool = False,
+        unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none
     ):
         self.left_table = left_table
         self.right_table = right_table
         self.condition = condition
         self.projection_indices = projection_indices
         self.broadcast_left = broadcast_left
+        self.unique_keys_policy = unique_keys_policy
 
         if type not in _join_type_to_cpp:
             raise ValueError(f"Unknown join type: {type}")
@@ -219,6 +222,7 @@ class BroadcastJoinRelation(Relation):
             _join_type_to_cpp[self.type],
             self.projection_indices,
             self.broadcast_left,
+            self.unique_keys_policy,
         )
 
 

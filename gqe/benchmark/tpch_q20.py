@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral, LikeExpr, Cast
 from gqe.type import Float64
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 
 """
@@ -103,7 +104,7 @@ class tpch_q20(Query):
         # s_nationkey = n_nationkey
         # After these operations, `supplier` contains columns ["s_suppkey", "s_name", "s_address"]
         supplier = read("supplier", ["s_suppkey", "s_nationkey", "s_name", "s_address"])
-        supplier = supplier.broadcast_join(nation, CR(1) == CR(4), [0, 2, 3])
+        supplier = supplier.broadcast_join(nation, CR(1) == CR(4), [0, 2, 3], unique_keys_policy=UniqueKeysPolicy.right)
 
         # s_suppkey in (subquery)
         # After this operation, `supplier` contains columns ["s_name", "s_address"]

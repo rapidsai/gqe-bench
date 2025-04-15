@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 
 """
@@ -55,7 +56,7 @@ class tpch_q11(Query):
         # s_nationkey = n_nationkey
         # After these operations, `supplier` contains columns ["s_suppkey"]
         supplier = read("supplier", ["s_suppkey", "s_nationkey"])
-        supplier = supplier.broadcast_join(nation, CR(1) == CR(2), [0])
+        supplier = supplier.broadcast_join(nation, CR(1) == CR(2), [0], unique_keys_policy=UniqueKeysPolicy.right)
 
         # ps_suppkey = s_suppkey
         # After these operations, `partsupp` contains columns
@@ -63,7 +64,7 @@ class tpch_q11(Query):
         partsupp = read(
             "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"]
         )
-        partsupp = partsupp.broadcast_join(supplier, CR(1) == CR(4), [0, 2, 3])
+        partsupp = partsupp.broadcast_join(supplier, CR(1) == CR(4), [0, 2, 3], unique_keys_policy=UniqueKeysPolicy.right)
 
         # Calculate sum(ps_supplycost * ps_availqty) * 0.0001
         # FIXME: for some reason CR(1) * CR(2) * Literal(0.0001) fails

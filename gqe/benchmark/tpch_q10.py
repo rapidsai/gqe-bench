@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import DateLiteral
 from gqe.expression import Literal
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 '''
 select
@@ -65,14 +66,14 @@ class tpch_q10(Query):
         # c_custkey = o_custkey
         # broadcast orders table
         # j1 has columns ["o_orderkey", "c_custkey", "c_nationkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"]
-        j1 = orders.broadcast_join(customer, CR(1) == CR(2), [0, 2, 3, 4, 5, 6, 7, 8], "inner", True)
+        j1 = orders.broadcast_join(customer, CR(1) == CR(2), [0, 2, 3, 4, 5, 6, 7, 8], "inner", True, unique_keys_policy=UniqueKeysPolicy.right)
 
         nation = read("nation", ["n_nationkey", "n_name"])
         
         # c_nationkey = n_nationkey
         # broadcast nation table
         # j2 has columns ["n_name", "o_orderkey", "c_custkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"]
-        j2 = nation.broadcast_join(j1, CR(0) == CR(4), [1, 2, 3, 5, 6, 7, 8, 9], "inner", True)
+        j2 = nation.broadcast_join(j1, CR(0) == CR(4), [1, 2, 3, 5, 6, 7, 8, 9], "inner", True, unique_keys_policy=UniqueKeysPolicy.left)
 
         # l_returnflag = 'R'
         # After this operation, `lineitem` has column ["l_orderkey", "l_extendedprice", "l_discount"]
@@ -82,7 +83,7 @@ class tpch_q10(Query):
         # l_orderkey = o_orderkey
         # broadcast right side (join)
         #j3 hash columns ["l_extendedprice", "l_discount", "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"]
-        j3 = lineitem.broadcast_join(j2, CR(0) == CR(4), [1,2,3,5,6,7,8,9,10])
+        j3 = lineitem.broadcast_join(j2, CR(0) == CR(4), [1,2,3,5,6,7,8,9,10], unique_keys_policy=UniqueKeysPolicy.right)
 
         # group by "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone", "c_address", "c_comment"
         # sum l_extendedprice * (1 - l_discount)

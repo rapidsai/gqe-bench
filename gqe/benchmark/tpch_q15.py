@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import Literal, DateLiteral
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 """
 with revenue (supplier_no, total_revenue) as (
@@ -61,12 +62,12 @@ class tpch_q15(Query):
 
         max_revenue = revenue.aggregate([], [("max", CR(1))])
 
-        l_max_revenue = revenue.broadcast_join(max_revenue, (CR(1) == CR(2)), [0, 1])
+        l_max_revenue = revenue.broadcast_join(max_revenue, (CR(1) == CR(2)), [0, 1], unique_keys_policy=UniqueKeysPolicy.right)
 
         supplier = read("supplier", ["s_suppkey", "s_name", "s_address", "s_phone"])
 
         unsorted_output = supplier.broadcast_join(
-            l_max_revenue, (CR(0) == CR(4)), [0, 1, 2, 3, 5]
+            l_max_revenue, (CR(0) == CR(4)), [0, 1, 2, 3, 5], unique_keys_policy=UniqueKeysPolicy.left
         )
 
         return unsorted_output.sort([(CR(0), "ascending", "before")])

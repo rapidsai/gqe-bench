@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import Literal
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 """
 select
@@ -66,11 +67,11 @@ class tpch_q18(Query):
         # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
         orders = read(
             "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]
-        ).broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5])
+        ).broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5], unique_keys_policy=UniqueKeysPolicy.left)
 
         # After this operation, `orders` contains
         # [o_orderkey, c_custkey, o_orderdate, o_totalprice, sum(l_quantity), c_name]
-        orders = orders.broadcast_join(customer, CR(1) == CR(5), [0, 1, 2, 3, 4, 6])
+        orders = orders.broadcast_join(customer, CR(1) == CR(5), [0, 1, 2, 3, 4, 6], unique_keys_policy=UniqueKeysPolicy.right)
 
         # After this operation, `orders` contains
         # [c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum(l_quantity)]

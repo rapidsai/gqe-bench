@@ -95,12 +95,13 @@ def main():
                 num_partitions,
                 read_use_zero_copy,
                 max_num_workers,
-            ) in itertools.product([1, 2, 4, 8], [False, True], [1]):
+                join_use_unique_keys,
+            ) in itertools.product([1, 2, 4, 8], [False, True], [1], [True]):
                 if read_use_zero_copy and (num_partitions != num_row_groups):
                     continue
 
                 parameters.append(
-                    Parameter(num_partitions, read_use_zero_copy, max_num_workers)
+                    Parameter(num_partitions, read_use_zero_copy, max_num_workers, join_use_unique_keys)
                 )
 
             run_tpc(catalog, query, scale_factor, parameters, edb, edb_info, errors)

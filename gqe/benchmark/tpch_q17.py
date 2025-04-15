@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import Literal
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
+from gqe.lib import UniqueKeysPolicy
 
 """
 select
@@ -48,7 +49,7 @@ class tpch_q17(Query):
         # Join the lineitem with the part table
         # After this operation, `lineitem` has columns
         # ["l_partkey", "l_quantity", "l_extendedprice"]
-        lineitem = lineitem.broadcast_join(part, CR(0) == CR(3), [0, 1, 2])
+        lineitem = lineitem.broadcast_join(part, CR(0) == CR(3), [0, 1, 2], unique_keys_policy=UniqueKeysPolicy.right)
 
         # Calculate avg(l_quantity) for each `l_partkey`
         # `avg_l_quantity` has columns ["l_partkey", avg(l_quantity)]

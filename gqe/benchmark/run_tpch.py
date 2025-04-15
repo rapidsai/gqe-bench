@@ -70,7 +70,7 @@ def main():
             catalog = Catalog()
             catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
 
-        for query_idx in [1, 2, 4, 6, 7, 10, 11, 12, 15, 17, 18, 19, 20, 21]:
+        for query_idx in [1, 2, 4, 5, 6, 7, 10, 11, 12, 15, 17, 18, 19, 20, 21]:
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
                 catalog.register_tpch(args.location, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
@@ -91,12 +91,13 @@ def main():
                 num_partitions,
                 read_use_zero_copy,
                 max_num_workers,
-            ) in itertools.product([1, 2, 4, 8], [False, True], [1]):
+                join_use_unique_keys,
+            ) in itertools.product([1, 2, 4, 8], [False, True], [1], [True]):
                 if read_use_zero_copy and (num_partitions != num_row_groups):
                     continue
 
                 parameters.append(
-                    Parameter(num_partitions, read_use_zero_copy, max_num_workers)
+                    Parameter(num_partitions, read_use_zero_copy, max_num_workers, join_use_unique_keys)
                 )
 
             run_tpc(catalog, query, scale_factor, parameters, edb, edb_info, errors)

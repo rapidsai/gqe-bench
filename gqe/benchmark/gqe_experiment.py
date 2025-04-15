@@ -23,6 +23,7 @@ class GqeParameters:
     num_partitions: int | None = None
     join_use_hash_map_cache: bool | None = None
     read_use_zero_copy: bool | None = None
+    join_use_unique_keys: bool | None = None
 
 
 class GqeExperimentConnection(ExperimentConnection):
@@ -37,9 +38,10 @@ class GqeExperimentConnection(ExperimentConnection):
             p_num_workers, \
             p_num_partitions, \
             p_join_use_hash_map_cache,  \
-            p_read_use_zero_copy \
+            p_read_use_zero_copy, \
+            p_join_use_unique_keys \
             ) \
-            VALUES (:sut_info_id, :num_workers, :num_partitions, :join_use_hash_map_cache, :read_use_zero_copy) \
+            VALUES (:sut_info_id, :num_workers, :num_partitions, :join_use_hash_map_cache, :read_use_zero_copy, :join_use_unique_keys) \
             ",
             asdict(entry),
         )
@@ -52,6 +54,7 @@ class GqeExperimentConnection(ExperimentConnection):
             AND p_num_partitions = :num_partitions \
             AND p_join_use_hash_map_cache = :join_use_hash_map_cache \
             AND p_read_use_zero_copy = :read_use_zero_copy \
+            AND p_join_use_unique_keys = :join_use_unique_keys \
             ",
             asdict(entry),
         )

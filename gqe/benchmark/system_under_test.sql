@@ -17,8 +17,9 @@ CREATE TABLE gqe_parameters(
   p_num_partitions INTEGER NOT NULL,
   p_join_use_hash_map_cache INTEGER NOT NULL,
   p_read_use_zero_copy INTEGER NOT NULL,
+  p_join_use_unique_keys INTEGER NOT NULL,
   -- Each parameter combination should be unique within the experiment database.
-  UNIQUE (p_num_workers, p_num_partitions, p_join_use_hash_map_cache, p_read_use_zero_copy),
+  UNIQUE (p_num_workers, p_num_partitions, p_join_use_hash_map_cache, p_read_use_zero_copy, p_join_use_unique_keys),
   FOREIGN KEY (p_sut_info_id) REFERENCES sut_info(s_id)
 );
 
@@ -64,6 +65,7 @@ CREATE VIEW gqe_best_parameters AS
       p_num_partitions,
       p_join_use_hash_map_cache,
       p_read_use_zero_copy,
+      p_join_use_unique_keys,
       avg(r_duration_s) AS r_avg_duration_s,
       min(r_duration_s) AS r_min_duration_s,
       max(r_duration_s) AS r_max_duration_s,
@@ -81,7 +83,8 @@ CREATE VIEW gqe_best_parameters AS
       p_num_workers,
       p_num_partitions,
       p_join_use_hash_map_cache,
-      p_read_use_zero_copy
+      p_read_use_zero_copy,
+      p_join_use_unique_keys
   )
   SELECT
     data.*

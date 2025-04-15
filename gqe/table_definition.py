@@ -31,89 +31,92 @@ class TPCHTableDefinitions:
 
         self.definitions = {
             "part": {
-                "p_partkey": self.identifier_type,
-                "p_name": self.string_type,
-                "p_mfgr": self.string_type,
-                "p_brand": self.string_type,
-                "p_type": self.string_type,
-                "p_size": self.integer_type,
-                "p_container": self.string_type,
+                "p_partkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
+                "p_name": [self.string_type],
+                "p_mfgr": [self.string_type],
+                "p_brand": [self.string_type],
+                "p_type": [self.string_type],
+                "p_size": [self.integer_type],
+                "p_container": [self.string_type],
             },
             "supplier": {
-                "s_suppkey": self.identifier_type,
-                "s_name": self.string_type,
-                "s_address": self.string_type,
-                "s_nationkey": self.identifier_type,
-                "s_phone": self.string_type,
-                "s_acctbal": self.decimal_type,
-                "s_comment": self.string_type,
+                "s_suppkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
+                "s_name": [self.string_type],
+                "s_address": [self.string_type],
+                "s_nationkey": [self.identifier_type],
+                "s_phone": [self.string_type],
+                "s_acctbal": [self.decimal_type],
+                "s_comment": [self.string_type],
             },
             "partsupp": {
-                "ps_partkey": self.identifier_type,
-                "ps_suppkey": self.identifier_type,
-                "ps_availqty": self.integer_type,
-                "ps_supplycost": self.decimal_type,
+                "ps_partkey": [self.identifier_type],
+                "ps_suppkey": [self.identifier_type],
+                "ps_availqty": [self.integer_type],
+                "ps_supplycost": [self.decimal_type],
             },
             "customer": {
-                "c_custkey": self.identifier_type,
-                "c_name": self.string_type,
-                "c_address": self.string_type,
-                "c_nationkey": self.identifier_type,
-                "c_phone": self.string_type,
-                "c_acctbal": self.decimal_type,
-                "c_mktsegment": self.string_type,
-                "c_comment": self.string_type,
+                "c_custkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
+                "c_name": [self.string_type],
+                "c_address": [self.string_type],
+                "c_nationkey": [self.identifier_type],
+                "c_phone": [self.string_type],
+                "c_acctbal": [self.decimal_type],
+                "c_mktsegment": [self.string_type],
+                "c_comment": [self.string_type],
             },
             "orders": {
-                "o_orderkey": self.identifier_type,
-                "o_custkey": self.identifier_type,
-                "o_orderstatus": self.char_type,
-                "o_totalprice": self.decimal_type,
-                "o_orderdate": self.date_type,
-                "o_orderpriority": self.string_type,
-                "o_shippriority": self.integer_type,
-                "o_comment": self.string_type,
+                "o_orderkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
+                "o_custkey": [self.identifier_type],
+                "o_orderstatus": [self.char_type],
+                "o_totalprice": [self.decimal_type],
+                "o_orderdate": [self.date_type],
+                "o_orderpriority": [self.string_type],
+                "o_shippriority": [self.integer_type],
+                "o_comment": [self.string_type],
             },
             "lineitem": {
-                "l_orderkey": self.identifier_type,
-                "l_partkey": self.identifier_type,
-                "l_suppkey": self.identifier_type,
-                "l_linenumber": self.integer_type,
-                "l_quantity": self.decimal_type,
-                "l_extendedprice": self.decimal_type,
-                "l_discount": self.decimal_type,
-                "l_tax": self.decimal_type,
-                "l_returnflag": self.char_type,
-                "l_linestatus": self.char_type,
-                "l_shipdate": self.date_type,
-                "l_commitdate": self.date_type,
-                "l_receiptdate": self.date_type,
-                "l_shipinstruct": self.string_type,
-                "l_shipmode": self.string_type,
+                "l_orderkey": [self.identifier_type],
+                "l_partkey": [self.identifier_type],
+                "l_suppkey": [self.identifier_type],
+                "l_linenumber": [self.integer_type],
+                "l_quantity": [self.decimal_type],
+                "l_extendedprice": [self.decimal_type],
+                "l_discount": [self.decimal_type],
+                "l_tax": [self.decimal_type],
+                "l_returnflag": [self.char_type],
+                "l_linestatus": [self.char_type],
+                "l_shipdate": [self.date_type],
+                "l_commitdate": [self.date_type],
+                "l_receiptdate": [self.date_type],
+                "l_shipinstruct": [self.string_type],
+                "l_shipmode": [self.string_type],
             },
             "nation": {
-                "n_nationkey": self.identifier_type,
-                "n_name": self.string_type,
-                "n_regionkey": self.identifier_type,
+                "n_nationkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
+                "n_name": [self.string_type],
+                "n_regionkey": [self.identifier_type],
             },
-            "region": {"r_regionkey": self.identifier_type, "r_name": self.string_type},
+            "region": {
+                "r_regionkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
+                "r_name": [self.string_type]
+            },
         }
 
     def get_column_types(
         self, tables: dict[str, list[str]]
-    ) -> dict[str, list[tuple[str, gqe.lib.DataType]]]:
+    ) -> dict[str, list[ColumnTraits]]:
         definitions = {}
         for table, columns in tables.items():
             definitions[table] = [
-                (col, self.definitions[table][col]) for col in columns
+                gqe.lib.ColumnTraits(col, *self.definitions[table][col]) for col in columns
             ]
         return definitions
 
     def query_table_definitions(
         self, query_idx: int
-    ) -> dict[str, list[tuple[str, gqe.lib.DataType]]]:
+    ) -> dict[str, list[ColumnTraits]]:
         if query_idx == 0:
-            return {table: list(cols.items()) for table, cols in self.definitions.items()}
+            return {table: [gqe.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()] for table, cols in self.definitions.items()}
 
         if query_idx == 1:
             tables = {
