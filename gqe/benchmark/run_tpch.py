@@ -40,6 +40,7 @@ def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("location", help="TPC-H dataset location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
+    arg_parser.add_argument("--output", "-o", help="Output file path")
     args = arg_parser.parse_args()
 
     num_row_groups = 8
@@ -56,7 +57,7 @@ def main():
 
     set_eager_module_loading()
 
-    edb_file = generate_db_path(f"gqe_{query_source_path}", "tpch", gqe_host)
+    edb_file = args.output if args.output else generate_db_path(f"gqe_{query_source_path}", "tpch", gqe_host)
     edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
         GqeExperimentConnection
     )
