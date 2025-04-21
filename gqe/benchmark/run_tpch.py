@@ -41,6 +41,7 @@ def main():
     arg_parser.add_argument("location", help="TPC-H dataset location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
+    arg_parser.add_argument("--queries", "-q", help="Which queries to run", nargs="+", action="extend")
     args = arg_parser.parse_args()
 
     num_row_groups = 8
@@ -71,7 +72,8 @@ def main():
             catalog = Catalog()
             catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
 
-        for query_idx in [1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]:
+        queries = args.queries if args.queries else [1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
+        for query_idx in queries:
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
                 catalog.register_tpch(args.location, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
