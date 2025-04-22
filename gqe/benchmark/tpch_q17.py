@@ -57,6 +57,8 @@ class tpch_q17(Query):
 
         # Calculate l_quantity < 0.2 * avg(l_quantity)
         # After this operation, `lineitem` has column ["l_extendedprice"]
+        # This is UniqueKeysPolicy.right but not marked in the join
+        # because we cannot yet do unique key joins on non-equijoins.
         lineitem = lineitem.broadcast_join(
             avg_l_quantity, (CR(0) == CR(3)) & (CR(1) < Literal(0.2) * CR(4)), [2]
         )

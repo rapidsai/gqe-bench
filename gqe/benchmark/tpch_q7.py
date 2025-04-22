@@ -109,6 +109,9 @@ class tpch_q7(Query):
         #   l1 has columns ["cust_nation", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
         #   supplier has columns ["s_suppkey", "supp_nation"]
         #   returns ["supp_nation", "cust_nation", "l_shipdate", "l_extendedprice", "l_discount"]
+        #   This is UniqueKeysPolicy.right but not marked in the join
+        #   because we cannot yet do unique key joins on
+        #   non-equijoins.
         l1 = l1.broadcast_join(
             supplier, (CR(1) == CR(5)) & (CR(0) != CR(6)), [6, 0, 2, 3, 4]
         )
