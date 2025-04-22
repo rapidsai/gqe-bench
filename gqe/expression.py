@@ -285,7 +285,7 @@ class Literal(Expression):
         if isinstance(self.value, str):
             return gqe.lib.LiteralString(self.value, False)
         elif isinstance(self.value, np.float32):
-            return gqe.lib.LiteralFloat(self.value, false)
+            return gqe.lib.LiteralFloat(self.value, False)
         elif isinstance(self.value, float | np.float64):
             return gqe.lib.LiteralDouble(self.value, False)
         elif isinstance(self.value, int | np.int32):
