@@ -40,6 +40,7 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 #include <gqe/utility/tpch.hpp>
+#include <gqe/device_properties.hpp>
 
 #include <gqe/optimizer/logical_optimization.hpp>
 
@@ -215,17 +216,11 @@ struct context {
           bool debug_mem_usage = false)
   {
     if (debug_mem_usage) {
-      _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
+      auto _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
+      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(gqe::device_properties{}, std::move(_mr));
     } else {
-      // RMM requires the memory location to be aligned to 256B. So here, we set the memory pool
-      // size to ~90% to the total memory and a multiple of 256.
-      std::size_t free_memory, total_memory;
-      GQE_CUDA_TRY(cudaMemGetInfo(&free_memory, &total_memory));
-      auto const pool_size = total_memory / 284 * 256;
-      _mr = std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
-        &_cuda_mr, pool_size, pool_size);
+      _task_manager_ctx = std::make_unique<gqe::task_manager_context>();
     }
-    rmm::mr::set_current_device_resource(_mr.get());
 
     gqe::optimization_parameters parameters;
     parameters.max_num_workers       = max_num_workers;
@@ -234,7 +229,6 @@ struct context {
     parameters.join_use_unique_keys  = join_use_unique_keys;
 
     _query_ctx        = std::make_unique<gqe::query_context>(parameters);
-    _task_manager_ctx = std::make_unique<gqe::task_manager_context>();
   }
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
@@ -264,8 +258,6 @@ struct context {
     return elapsed_time_ms.count();
   }
 
-  rmm::mr::cuda_memory_resource _cuda_mr;
-  std::unique_ptr<rmm::mr::device_memory_resource> _mr;
   std::unique_ptr<gqe::query_context> _query_ctx;
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
 };
