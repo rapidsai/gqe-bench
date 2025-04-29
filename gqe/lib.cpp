@@ -400,7 +400,10 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
   py::class_<gqe::column_traits>(py_module, "ColumnTraits")
     .def(py::init<std::string const&, cudf::data_type const&, std::vector<gqe::column_traits::column_property> const&>())
-    .def(py::init<std::string const&, cudf::data_type const&>());
+    .def(py::init<std::string const&, cudf::data_type const&>())
+    .def_readwrite("name", &gqe::column_traits::name)
+    .def_readwrite("data_type", &gqe::column_traits::data_type)
+    .def_readwrite("is_unique", &gqe::column_traits::is_unique);
   py_module.def("register_tpch_parquet", &lib::register_tpch_parquet);
   py_module.def("register_tpch_in_memory", &lib::register_tpch_in_memory);
 

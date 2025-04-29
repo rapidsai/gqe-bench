@@ -10,7 +10,7 @@
 
 import gqe.lib
 from typing import Dict
-from table_definition import TPCHTableDefinitions
+from gqe import table_definition
 
 
 def get_row_counts() -> Dict[str, int]:
@@ -37,7 +37,7 @@ def get_type_sizes() -> Dict[gqe.lib.TypeId, int]:
         gqe.lib.TypeId.int8: 1 # char type
     }
 
-def calculate_memory_requirements(definitions: dict[str, list[tuple[str, gqe.lib.DataType]]]) -> int:
+def calculate_memory_requirements(definitions: dict[str, list[gqe.lib.ColumnTraits]]) -> int:
     type_sizes = get_type_sizes()
     row_counts = get_row_counts()
     
@@ -47,15 +47,15 @@ def calculate_memory_requirements(definitions: dict[str, list[tuple[str, gqe.lib
         table_size = row_counts[table_name]
         row_size = 0
         
-        for col_name, col_type in columns:
-            row_size += type_sizes[col_type.type_id()]
+        for column_traits in columns:
+            row_size += type_sizes[column_traits.data_type.type_id()]
             
         total_memory += table_size * row_size
         
     return total_memory
 
-def estimate_memory_for_all_queries():
-    table_defs = TPCHTableDefinitions()
+def estimate_memory_for_all_queries(identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32, use_opt_char_type: bool = True):
+    table_defs = table_definition.TPCHTableDefinitions(identifier_type, use_opt_char_type)
     
     for query_idx in range(23):  # 0-22 inclusive
         definitions = table_defs.query_table_definitions(query_idx)
