@@ -114,7 +114,8 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
 std::shared_ptr<gqe::physical::relation> aggregate(
   std::shared_ptr<gqe::physical::relation> input,
   std::vector<std::shared_ptr<gqe::expression>> keys,
-  std::vector<std::pair<cudf::aggregation::Kind, std::shared_ptr<gqe::expression>>> measures)
+  std::vector<std::pair<cudf::aggregation::Kind, std::shared_ptr<gqe::expression>>> measures,
+  gqe::expression const* condition = nullptr)
 {
   std::vector<std::unique_ptr<gqe::expression>> cloned_keys;
   for (auto const& key : keys) {
@@ -126,11 +127,14 @@ std::shared_ptr<gqe::physical::relation> aggregate(
     cloned_measures.emplace_back(kind, expr->clone());
   }
 
+  std::unique_ptr<gqe::expression> cloned_condition = condition ? condition->clone() : nullptr;
+
   return std::make_shared<gqe::physical::concatenate_aggregate_relation>(
     std::move(input),
     std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(cloned_keys),
-    std::move(cloned_measures));
+    std::move(cloned_measures),
+    std::move(cloned_condition));
 }
 
 std::shared_ptr<gqe::physical::relation> project(

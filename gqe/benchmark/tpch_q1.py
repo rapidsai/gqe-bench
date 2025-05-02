@@ -40,7 +40,12 @@ order by
         l_linestatus
 
 List of optimization over substrait plans:
-- When we filter lineitem on l_shipdate, we don't materialize l_shipdate in the output using projection indices.
+- We pass the filter condition to the aggregate operator, to save on materialization of columns. 
+    
+    The filter is evaluated on "l_shipdate" before the actual aggregation kernel, which then operates only on the rows that pass the filter.  
+    We don't materialize the other columns, after the filter mask is calculated, instead the mask and the columns are directly passed to the aggregate kernel. 
+    
+    The filter is 98% selective, and if we materialize the other columns, we are simply doing a copy of the data. 
 
 - For aggregations we reuse the sum and count for values. 
   
@@ -70,23 +75,37 @@ class tpch_q1(Query):
             ],
         )
 
-        # [ "l_discount", "l_quantity", "l_extendedprice", "l_returnflag", "l_linestatus", "l_tax"]
-        lineitem = lineitem.filter(
-            (CR(0) <= DateLiteral("1998-09-02")), [1, 2, 3, 4, 5, 6]
-        )
-
+        # After aggregation, the columns in `lineitem` are:
+        # ["l_returnflag",  "l_linestatus", 
+        #   SUM("l_quantity"), 
+        #   SUM("l_extendedprice"), 
+        #   SUM("l_extendedprice" * (1 - "l_discount")), 
+        #   SUM("l_extendedprice" * (1 - "l_discount") * (1 + "l_tax")),
+        #   SUM("l_discount"),
+        #   COUNT("l_discount")]
         agg = lineitem.aggregate(
-            [CR(3), CR(4)],
+            [CR(4), CR(5)],
             [
-                ("sum", CR(1)),
                 ("sum", CR(2)),
-                ("sum", CR(2) * (Literal(1.0) - CR(0))),
-                ("sum", CR(2) * (Literal(1.0) - CR(0)) * (Literal(1.0) + CR(5))),
-                ("sum", CR(0)),
-                ("count_all", CR(0)),
+                ("sum", CR(3)),
+                ("sum", CR(3) * (Literal(1.0) - CR(1))),
+                ("sum", CR(3) * (Literal(1.0) - CR(1)) * (Literal(1.0) + CR(6))),
+                ("sum", CR(1)),
+                ("count_all", CR(1)),
             ],
+            CR(0) <= DateLiteral("1998-09-02")
         )
 
+        # After projection, the columns in `agg` are:
+        # ["l_returnflag", "l_linestatus", 
+        #   SUM("l_quantity"), 
+        #   SUM("l_extendedprice"), 
+        #   SUM("l_extendedprice" * (1 - "l_discount")), 
+        #   SUM("l_extendedprice" * (1 - "l_discount") * (1 + "l_tax")), 
+        #   AVG("l_quantity"), 
+        #   AVG("l_extendedprice"), 
+        #   AVG("l_discount"), 
+        #   COUNT("l_discount")]
         project = agg.project(
             [
                 (CR(0)),
@@ -102,6 +121,7 @@ class tpch_q1(Query):
             ]
         )
 
+        # order by "l_returnflag", "l_linestatus"
         sorted_output = project.sort(
             [(CR(0), "ascending", "before"), (CR(1), "ascending", "before")]
         )

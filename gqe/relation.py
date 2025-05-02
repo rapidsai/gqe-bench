@@ -77,7 +77,7 @@ class Relation(ABC):
         )
 
     def aggregate(
-        self, keys: list[Expression], measures: list[tuple[str, Expression]]
+        self, keys: list[Expression], measures: list[tuple[str, Expression]], condition: Expression = None
     ) -> Relation:
         """
         Groups the table on zero or more sets of grouping keys and applies reduction within the
@@ -91,8 +91,11 @@ class Relation(ABC):
             aggregate relation behaves like a groupby.
         :param measures: A list of (op, expression) pairs, representing the reduction operations
             within the groups.
+        :param condition: An optional expression to filter rows before aggregation. Only rows
+            where the condition evaluates to `True` are included. If not provided, all rows
+            are aggregated.
         """
-        return AggregateRelation(self, keys, measures)
+        return AggregateRelation(self, keys, measures, condition)
 
     def project(self, out_exprs: list[Expression]) -> Relation:
         """
@@ -247,6 +250,7 @@ class AggregateRelation(Relation):
         input: Relation,
         keys: list[Expression],
         measures: list[tuple[str, Expression]],
+        condition: Expression = None,
     ):
         self.input = input
 
@@ -263,6 +267,7 @@ class AggregateRelation(Relation):
                 raise TypeError("Aggregate reductions are not expressions")
 
         self.measures = measures
+        self.condition = condition
 
     def _to_cpp(self):
         return gqe.lib.aggregate(
@@ -272,6 +277,7 @@ class AggregateRelation(Relation):
                 (_aggregation_kind_to_cpp[kind], expr._cpp)
                 for (kind, expr) in self.measures
             ],
+            self.condition._cpp if self.condition else None
         )
 
 
