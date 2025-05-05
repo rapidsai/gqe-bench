@@ -101,7 +101,7 @@ CREATE VIEW gqe_best_parameters AS
       ) AS min_data ON data.e_name = min_data.e_name
           AND r_avg_duration_s = min_duration
    ORDER BY data.e_suite,
-            data.e_name,
+            CAST(ltrim(data.e_name, 'Q') AS INTEGER),
             data.e_scale_factor,
             data.e_id
             ;
