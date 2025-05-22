@@ -72,7 +72,7 @@ def main():
             catalog = Catalog()
             catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
 
-        queries = args.queries if args.queries else [1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
+        queries = args.queries if args.queries else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
         for query_idx in queries:
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
