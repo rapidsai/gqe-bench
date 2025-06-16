@@ -41,7 +41,8 @@ def main():
     arg_parser.add_argument("location", help="TPC-H dataset location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
-    arg_parser.add_argument("--queries", "-q", help="Which queries to run", nargs="+", action="extend")
+    arg_parser.add_argument("--queries", "-q", help="Which queries to run", nargs="+",
+                            action="extend", type=int)
     args = arg_parser.parse_args()
 
     num_row_groups = 8
