@@ -72,6 +72,19 @@ def parse_scale_factor(path: str) -> int:
     return scale_factor
 
 
+def parse_identifier_type(path: str) -> gqe.lib.TypeId:
+    """Finds the identifier type in a path to database files."""
+    location_parts = re.split(r'_|/', path)
+    has_id32 = "id32" in location_parts
+    has_id64 = "id64" in location_parts
+    if has_id32 and not has_id64:
+        return gqe.lib.TypeId.int32
+    elif has_id64 and not has_id32:
+        return gqe.lib.TypeId.int64
+    else:
+        raise RuntimeError(f"Can't determine the identifier type of {path}")
+
+
 # Note: Presumably needs to be set before CUDA initialization. CUDA docs don't
 # mention when the variable needs to be set. Typically, users will set it
 # before launching the program. In our case that's not possible, because the

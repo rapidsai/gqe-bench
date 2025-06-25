@@ -20,6 +20,7 @@ from gqe.benchmark.run import (
     EdbInfo,
     setup_db,
     parse_scale_factor,
+    parse_identifier_type,
     set_eager_module_loading,
 )
 from gqe import lib
@@ -45,6 +46,8 @@ def main():
         help="Tool that generated the query plan",
         default="datafusion",
     )
+    arg_parser.add_argument("--identifier_type", "-i", help="Identifier type used in the dataset",
+                            choices=["auto", "int32", "int64"], default="auto")
     args = arg_parser.parse_args()
 
     num_row_groups = 8
@@ -56,7 +59,12 @@ def main():
     use_opt_char_type = True
 
     # You can set it to int32 or int64, for SF1k int64 is required.
-    identifier_type = lib.TypeId.int32
+    str_to_type = {"int32": lib.TypeId.int32,
+                   "int64": lib.TypeId.int64}
+    if args.identifier_type == "auto":
+        identifier_type = parse_identifier_type(args.location)
+    else:
+        identifier_type = str_to_type[args.location]
     scale_factor = parse_scale_factor(args.dataset)
 
     set_eager_module_loading()
