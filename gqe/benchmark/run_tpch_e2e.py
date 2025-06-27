@@ -81,7 +81,11 @@ def main():
 
         if load_all_data or (storage != "memory"):
             catalog = Catalog()
-            catalog.register_tpch(args.dataset, storage, num_row_groups, 0, identifier_type, use_opt_char_type)
+            try:
+                catalog.register_tpch(args.dataset, storage, num_row_groups, 0, identifier_type, use_opt_char_type)
+            except Exception as e:
+                print(f"Error registering table: {e}")
+                return
 
         for query_idx in range(1, 23):
 
@@ -90,7 +94,11 @@ def main():
 
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
-                catalog.register_tpch(args.dataset, storage, num_row_groups, query_idx, identifier_type, use_opt_char_type)
+                try:
+                    catalog.register_tpch(args.dataset, storage, num_row_groups, query_idx, identifier_type, use_opt_char_type)
+                except Exception as e:
+                    print(f"Error registering in memory table for query {query_idx}: {e}")
+                    continue
 
             reference_file = args.solution.replace("%d", f"q{query_idx}")
 

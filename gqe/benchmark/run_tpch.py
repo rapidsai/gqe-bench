@@ -79,13 +79,21 @@ def main():
 
         if load_all_data or (storage != "memory"):
             catalog = Catalog()
-            catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
+            try:
+                catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
+            except Exception as e:
+                print(f"Error registering table: {e}")
+                return
 
         queries = args.queries if args.queries else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
         for query_idx in queries:
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
-                catalog.register_tpch(args.location, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
+                try:
+                    catalog.register_tpch(args.location, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
+                except Exception as e:
+                    print(f"Error registering in memory table for query {query_idx}: {e}")
+                    continue
 
             query_identifier = "tpch_q" + str(query_idx)
             module = importlib.import_module(query_identifier)
