@@ -39,7 +39,7 @@ def query_identifier_to_name(identifier):
 
 def main():
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("location", help="TPC-H dataset location")
+    arg_parser.add_argument("dataset", help="TPC-H dataset location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
     arg_parser.add_argument("--queries", "-q", help="Which queries to run", nargs="+",
@@ -60,10 +60,10 @@ def main():
     str_to_type = {"int32": lib.TypeId.int32,
                    "int64": lib.TypeId.int64}
     if args.identifier_type == "auto":
-        identifier_type = parse_identifier_type(args.location)
+        identifier_type = parse_identifier_type(args.dataset)
     else:
-        identifier_type = str_to_type[args.location]
-    scale_factor = parse_scale_factor(args.location)
+        identifier_type = str_to_type[args.dataset]
+    scale_factor = parse_scale_factor(args.dataset)
 
     set_eager_module_loading()
 
@@ -80,7 +80,7 @@ def main():
         if load_all_data or (storage != "memory"):
             catalog = Catalog()
             try:
-                catalog.register_tpch(args.location, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
+                catalog.register_tpch(args.dataset, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
             except Exception as e:
                 print(f"Error registering table: {e}")
                 return
@@ -90,7 +90,7 @@ def main():
             if not load_all_data and (storage == "memory"):
                 catalog = Catalog()
                 try:
-                    catalog.register_tpch(args.location, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
+                    catalog.register_tpch(args.dataset, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
                 except Exception as e:
                     print(f"Error registering in memory table for query {query_idx}: {e}")
                     continue

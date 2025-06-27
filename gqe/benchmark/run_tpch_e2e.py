@@ -62,9 +62,9 @@ def main():
     str_to_type = {"int32": lib.TypeId.int32,
                    "int64": lib.TypeId.int64}
     if args.identifier_type == "auto":
-        identifier_type = parse_identifier_type(args.location)
+        identifier_type = parse_identifier_type(args.dataset)
     else:
-        identifier_type = str_to_type[args.location]
+        identifier_type = str_to_type[args.dataset]
     scale_factor = parse_scale_factor(args.dataset)
 
     set_eager_module_loading()
