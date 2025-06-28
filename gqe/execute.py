@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,12 +18,28 @@ class Context:
         self,
         max_num_workers: int = 1,
         max_num_partitions: int = 8,
-        read_zero_copy_enable: bool = False,
+        use_opt_type_for_single_char_col: bool = False,
+        use_overlap_mtx: bool = False,
+        join_use_hash_map_cache: bool = False,
+        read_use_zero_copy: bool = False,
         join_use_unique_keys: bool = False,
-        debug_mem_usage = False,
+        in_memory_table_compression_format: str = "none",
+        in_memory_table_compression_data_type: str = "char",
+        compression_chunk_size: int = 65536,
+        debug_mem_usage=False,
     ):
         self._context = gqe.lib.Context(
-            max_num_workers, max_num_partitions, read_zero_copy_enable, join_use_unique_keys, debug_mem_usage
+            max_num_workers,
+            max_num_partitions,
+            in_memory_table_compression_format,
+            in_memory_table_compression_data_type,
+            compression_chunk_size,
+            use_opt_type_for_single_char_col,
+            use_overlap_mtx,
+            join_use_hash_map_cache,
+            read_use_zero_copy,
+            join_use_unique_keys,
+            debug_mem_usage,
         )
 
     def execute(

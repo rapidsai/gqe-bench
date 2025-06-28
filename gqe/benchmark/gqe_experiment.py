@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -8,22 +8,40 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from database_benchmarking_tools.experiment import (
+    DataInfoId,
     ExperimentConnection,
     ParametersId,
     SutInfoId,
 )
+from database_benchmarking_tools import sql_generator
 
 
 @dataclass
 class GqeParameters:
-    sut_info_id: SutInfoId | None = None
-    num_workers: int | None = None
-    num_partitions: int | None = None
-    join_use_hash_map_cache: bool | None = None
-    read_use_zero_copy: bool | None = None
-    join_use_unique_keys: bool | None = None
+    _table_name = "gqe_parameters"
+    _table_prefix = "p_"
+    num_workers: int
+    num_partitions: int
+    use_overlap_mtx: bool
+    join_use_hash_map_cache: bool
+    read_use_zero_copy: bool
+    join_use_unique_keys: bool
+
+    sut_info_id: SutInfoId | None = None  # Don't set manually
+
+
+@dataclass
+class GqeDataInfoExt:
+    _table_name = "gqe_data_info_ext"
+    _table_prefix = "de_"
+    num_row_groups: int
+    compression_format: str
+    compression_data_type: str
+    compression_chunk_size: int
+
+    data_info_id: DataInfoId | None = None  # Don't set manually
 
 
 class GqeExperimentConnection(ExperimentConnection):
@@ -31,32 +49,9 @@ class GqeExperimentConnection(ExperimentConnection):
         super().__init__(db_path, hostname)
 
     def insert_gqe_parameters(self, entry: GqeParameters) -> ParametersId:
-        self._cursor.execute(
-            " \
-            INSERT OR IGNORE INTO gqe_parameters( \
-            p_sut_info_id, \
-            p_num_workers, \
-            p_num_partitions, \
-            p_join_use_hash_map_cache,  \
-            p_read_use_zero_copy, \
-            p_join_use_unique_keys \
-            ) \
-            VALUES (:sut_info_id, :num_workers, :num_partitions, :join_use_hash_map_cache, :read_use_zero_copy, :join_use_unique_keys) \
-            ",
-            asdict(entry),
-        )
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
 
-        self._cursor.execute(
-            " \
-            SELECT p_id \
-            FROM gqe_parameters \
-            WHERE p_num_workers = :num_workers \
-            AND p_num_partitions = :num_partitions \
-            AND p_join_use_hash_map_cache = :join_use_hash_map_cache \
-            AND p_read_use_zero_copy = :read_use_zero_copy \
-            AND p_join_use_unique_keys = :join_use_unique_keys \
-            ",
-            asdict(entry),
-        )
-
-        return self._cursor.fetchone()[0]
+    def insert_gqe_data_info_ext(self, entry: GqeDataInfoExt) -> DataInfoId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)

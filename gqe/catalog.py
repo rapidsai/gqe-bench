@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -28,18 +28,22 @@ class Catalog:
     def register_tpch(
         self,
         dataset: str,
-        storage: str = "parquet",
+        storage_kind: str = "pinned_memory",
         num_row_groups: int = 8,
         load_data_of_query: int = 0,
         identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32,
-        use_opt_char_type: bool = True
+        use_opt_char_type: bool = True,
+        in_memory_table_compression_format="none",
+        in_memory_table_compression_data_type="char",
+        compression_chunk_size=2**16
     ) -> None:
         """
         Register TPC-H dataset in the catalog.
 
         :arg dataset: Location of the TPC-H dataset.
-        :arg storage: Can be either `"parquet"` for loading from Parquet files during execution, or
-            `"memory"` for pre-copying dataset into CPU memory during registration time.
+        :arg storage_kind: Storage kind for tables. Can be either `"pinned_memory"`,
+            `"system_memory"`, `"numa_memory"`, `"device_memory"`, or `"managed_memory"` or
+            `"parquet_file"`.
         :arg num_row_groups: Number of row groups for in-memory storage.
         :arg load_data_of_query: For in-memory storage,
             if `load_data_of_query = 0` loads entire dataset,
@@ -47,19 +51,29 @@ class Catalog:
             specific query
         :arg identifier_type: Can be either `gqe.lib.TypeId.int32` or `gqe.lib.TypeId.int64`
         :arg use_opt_char_type: If true, use optimized char type for single character columns.
-        
+        :arg in_memory_table_compression_format: Compression format for the in-memory table.
+        :arg in_memory_table_compression_data_type: Determines how input data is viewed as for compression.
+        :arg compression_chunk_size: Size of each chunk for nvcomp compression.
         """
-        
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
-        
-        if storage == "parquet":
-            gqe.lib.register_tpch_parquet(self._catalog, dataset, table_definitions.query_table_definitions(0))
-        elif storage == "memory":
+
+        if storage_kind == "parquet_file":
+            gqe.lib.register_tpch_parquet(
+                self._catalog, dataset, table_definitions.query_table_definitions(0)
+            )
+        elif storage_kind in ["pinned_memory", "system_memory", "numa_memory", "device_memory", "managed_memory"]:
             gqe.lib.register_tpch_in_memory(
-                self._catalog, dataset, num_row_groups, table_definitions.query_table_definitions(load_data_of_query)
+                self._catalog,
+                dataset,
+                num_row_groups,
+                in_memory_table_compression_format,
+                in_memory_table_compression_data_type,
+                compression_chunk_size,
+                table_definitions.query_table_definitions(load_data_of_query),
+                storage_kind
             )
         else:
-            raise ValueError(f"Unrecognized storage: {storage}")
+            raise ValueError(f"Unrecognized storage kind: {storage_kind}")
 
     def load_substrait(
         self, substrait_file: str, optimized: bool = True

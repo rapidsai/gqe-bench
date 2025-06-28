@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -12,6 +12,7 @@
 
 #include <gqe/catalog.hpp>
 #include <gqe/context_reference.hpp>
+#include <gqe/device_properties.hpp>
 #include <gqe/executor/optimization_parameters.hpp>
 #include <gqe/executor/task_graph.hpp>
 #include <gqe/expression/binary_op.hpp>
@@ -40,7 +41,6 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 #include <gqe/utility/tpch.hpp>
-#include <gqe/device_properties.hpp>
 
 #include <gqe/optimizer/logical_optimization.hpp>
 
@@ -214,11 +214,17 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
 }
 
 struct context {
-  context(int32_t max_num_workers    = 1,
-          int32_t max_num_partitions = 8,
-          bool read_zero_copy_enable = false,
-          bool join_use_unique_keys = false,
-          bool debug_mem_usage = false)
+  context(int32_t max_num_workers                           = 1,
+          int32_t max_num_partitions                        = 8,
+          std::string in_memory_table_compression_format    = "none",
+          std::string in_memory_table_compression_data_type = "char",
+          int32_t compression_chunk_size                    = 65536,
+          bool use_opt_type_for_single_char_col             = true,
+          bool use_overlap_mtx                              = true,
+          bool join_use_hash_map_cache                      = false,
+          bool read_use_zero_copy                           = false,
+          bool join_use_unique_keys                         = true,
+          bool debug_mem_usage                              = false)
   {
     if (debug_mem_usage) {
       auto _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
@@ -232,13 +238,64 @@ struct context {
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(mr));
     }
 
-    gqe::optimization_parameters parameters;
-    parameters.max_num_workers       = max_num_workers;
-    parameters.max_num_partitions    = max_num_partitions;
-    parameters.read_zero_copy_enable = read_zero_copy_enable;
-    parameters.join_use_unique_keys  = join_use_unique_keys;
+    gqe::optimization_parameters parameters(false);
+    parameters.max_num_workers                  = max_num_workers;
+    parameters.max_num_partitions               = max_num_partitions;
+    parameters.use_opt_type_for_single_char_col = use_opt_type_for_single_char_col;
+    parameters.use_overlap_mtx                  = use_overlap_mtx;
+    parameters.join_use_hash_map_cache          = join_use_hash_map_cache;
+    parameters.read_zero_copy_enable            = read_use_zero_copy;
+    parameters.join_use_unique_keys             = join_use_unique_keys;
 
-    _query_ctx        = std::make_unique<gqe::query_context>(parameters);
+    // FIXME: DRY compression format
+    if (in_memory_table_compression_format == "none") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::none;
+    } else if (in_memory_table_compression_format == "ans") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+    } else if (in_memory_table_compression_format == "lz4") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::lz4;
+    } else if (in_memory_table_compression_format == "snappy") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::snappy;
+    } else if (in_memory_table_compression_format == "gdeflate") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::gdeflate;
+    } else if (in_memory_table_compression_format == "deflate") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::deflate;
+    } else if (in_memory_table_compression_format == "cascaded") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::cascaded;
+    } else if (in_memory_table_compression_format == "zstd") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::zstd;
+    } else if (in_memory_table_compression_format == "gzip") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::gzip;
+    } else if (in_memory_table_compression_format == "bitcomp") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::bitcomp;
+    } else if (in_memory_table_compression_format == "best_compression_ratio") {
+      parameters.in_memory_table_compression_format =
+        gqe::compression_format::best_compression_ratio;
+    } else if (in_memory_table_compression_format == "best_decompression_speed") {
+      parameters.in_memory_table_compression_format =
+        gqe::compression_format::best_decompression_speed;
+    } else {
+      throw std::logic_error("Unrecognized compression format");
+    }
+
+    // FIXME: DRY compression data type
+    if (in_memory_table_compression_data_type == "char") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_CHAR;
+    } else if (in_memory_table_compression_data_type == "short") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_SHORT;
+    } else if (in_memory_table_compression_data_type == "int") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_INT;
+    } else if (in_memory_table_compression_data_type == "longlong") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_LONGLONG;
+    } else if (in_memory_table_compression_data_type == "bits") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_BITS;
+    } else {
+      throw std::logic_error("Unrecognized data type format");
+    }
+
+    parameters.compression_chunk_size = compression_chunk_size;
+
+    _query_ctx = std::make_unique<gqe::query_context>(parameters);
   }
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
@@ -287,20 +344,45 @@ void register_tpch_parquet(
   }
 }
 
-void register_table_in_memory(
-  gqe::catalog* catalog,
-  int32_t num_row_groups,
-  std::string name,
-  std::vector<gqe::column_traits> const& definition,
-  std::vector<std::string> const& file_paths)
+// TODO: duplicate code with tpc.cpp
+gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_description,
+                                           const std::vector<std::string>& file_paths)
+{
+  std::string normalized_description;
+  normalized_description.reserve(storage_kind_description.size());
+  std::transform(storage_kind_description.begin(),
+                 storage_kind_description.end(),
+                 std::back_inserter(normalized_description),
+                 [](auto c) { return std::tolower(c); });
+  std::map<std::string, gqe::storage_kind::type> const storage_kinds{
+    {"system_memory", gqe::storage_kind::system_memory{}},
+    {"numa_memory", gqe::storage_kind::numa_memory{gqe::cpu_set(0)}},
+    {"pinned_memory", gqe::storage_kind::pinned_memory{}},
+    {"device_memory", gqe::storage_kind::device_memory{rmm::cuda_device_id(0)}},
+    {"managed_memory", gqe::storage_kind::managed_memory{}},
+    {"parquet_file", gqe::storage_kind::parquet_file{file_paths}}};
+  return storage_kinds.at(normalized_description);
+}
+
+void register_table_in_memory(gqe::catalog* catalog,
+                              int32_t num_row_groups,
+                              std::string in_memory_table_compression_format,
+                              std::string in_memory_table_compression_data_type,
+                              int32_t compression_chunk_size,
+                              std::string name,
+                              std::vector<gqe::column_traits> const& definition,
+                              std::vector<std::string> const& file_paths,
+                              const std::string& storage_kind_description)
 {
   catalog->register_table(name + "_parquet",
                           definition,
                           gqe::storage_kind::parquet_file{file_paths},
                           gqe::partitioning_schema_kind::automatic{});
 
-  catalog->register_table(
-    name, definition, gqe::storage_kind::pinned_memory{}, gqe::partitioning_schema_kind::none{});
+  catalog->register_table(name,
+                          definition,
+                          parse_storage_kind(storage_kind_description, file_paths),
+                          gqe::partitioning_schema_kind::none{});
 
   std::vector<std::string> column_names;
   std::vector<cudf::data_type> column_types;
@@ -318,7 +400,12 @@ void register_table_in_memory(
   auto write_table =
     std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
-  context ctx(1, num_row_groups);
+  context ctx(1,
+              num_row_groups,
+              in_memory_table_compression_format,
+              in_memory_table_compression_data_type,
+              compression_chunk_size);
+
   ctx.execute(catalog, write_table, std::nullopt);
 }
 
@@ -326,12 +413,23 @@ void register_tpch_in_memory(
   gqe::catalog* catalog,
   std::string dataset_location,
   int32_t num_row_groups,
-  std::unordered_map<std::string, std::vector<gqe::column_traits>>
-    table_definitions)
+  std::string in_memory_table_compression_format,
+  std::string in_memory_table_compression_data_type,
+  int32_t compression_chunk_size,
+  std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
+  const std::string& storage_kind_description)
 {
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
-    register_table_in_memory(catalog, num_row_groups, name, definition, file_paths);
+    register_table_in_memory(catalog,
+                             num_row_groups,
+                             in_memory_table_compression_format,
+                             in_memory_table_compression_data_type,
+                             compression_chunk_size,
+                             name,
+                             definition,
+                             file_paths,
+                             storage_kind_description);
   }
 }
 
@@ -409,7 +507,9 @@ PYBIND11_MODULE(lib, py_module)
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
   py::class_<gqe::column_traits>(py_module, "ColumnTraits")
-    .def(py::init<std::string const&, cudf::data_type const&, std::vector<gqe::column_traits::column_property> const&>())
+    .def(py::init<std::string const&,
+                  cudf::data_type const&,
+                  std::vector<gqe::column_traits::column_property> const&>())
     .def(py::init<std::string const&, cudf::data_type const&>())
     .def_readwrite("name", &gqe::column_traits::name)
     .def_readwrite("data_type", &gqe::column_traits::data_type)
@@ -522,6 +622,16 @@ PYBIND11_MODULE(lib, py_module)
 
   // Execution
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t, int32_t, bool, bool, bool>())
+    .def(py::init<int32_t,
+                  int32_t,
+                  std::string,
+                  std::string,
+                  int32_t,
+                  bool,
+                  bool,
+                  bool,
+                  bool,
+                  bool,
+                  bool>())
     .def("execute", &lib::context::execute);
 }

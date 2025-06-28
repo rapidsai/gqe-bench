@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -11,7 +11,7 @@
 from gqe import Context
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
-from gqe.benchmark.gqe_experiment import GqeParameters
+from gqe.benchmark.gqe_experiment import GqeParameters, GqeDataInfoExt
 from gqe.relation import Relation
 
 from database_benchmarking_tools import experiment as exp
@@ -20,7 +20,27 @@ import importlib.resources
 import os
 import nvtx
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, fields
+from typing import Optional
+
+
+# Extended Experiment
+#
+# gqe-python alters the Experiment table to add a foreign key for the
+# GqeDataInfoExt table. This dataclass adds that field in Python.
+#
+# Note: Consider upstreaming the extension field to
+# database-benchmarking-tools, as altering the table implicitly relies on
+# `dataclass.asdict` returning all fields of the object.
+@dataclass(kw_only=True)
+class Experiment(exp.Experiment):
+    data_info_ext_id: int
+
+
+# A unified DataInfo.
+@dataclass
+class DataInfo(exp.DataInfo, GqeDataInfoExt):
+    pass
 
 
 @dataclass
@@ -38,11 +58,19 @@ class QueryInfo:
 
 
 @dataclass
-class Parameter:
-    num_partitions: int
-    read_use_zero_copy: bool
-    max_num_workers: int
-    join_use_unique_keys: bool
+class Parameter(GqeParameters):
+    pass
+
+
+# Extract only the fields that belong to the superclass
+#
+# `asdict(entry)` return all the fields in the object. However, when using
+# `exp.sql_generator(entry)` we should only generate the fields that exist in the
+# table. This is solved by filtering the fields during upcasting.
+def upcast_to_super(obj, super_class):
+    field_names = {f.name for f in fields(super_class)}
+    super_kwargs = {k: getattr(obj, k) for k in field_names}
+    return super_class(**super_kwargs)
 
 
 def setup_db(edb: exp.ExperimentDB, query_source: str) -> EdbInfo:
@@ -74,7 +102,7 @@ def parse_scale_factor(path: str) -> int:
 
 def parse_identifier_type(path: str) -> gqe.lib.TypeId:
     """Finds the identifier type in a path to database files."""
-    location_parts = re.split(r'_|/', path)
+    location_parts = re.split(r"_|/", path)
     has_id32 = "id32" in location_parts
     has_id64 = "id64" in location_parts
     if has_id32 and not has_id64:
@@ -83,6 +111,25 @@ def parse_identifier_type(path: str) -> gqe.lib.TypeId:
         return gqe.lib.TypeId.int64
     else:
         raise RuntimeError(f"Can't determine the identifier type of {path}")
+
+
+def is_valid_identifier_type(
+    identifier_type: gqe.lib.TypeId, experiment_suite: str, scale_factor: int
+) -> Optional[bool]:
+    match experiment_suite:
+        case "tpch":
+            # int64 is required for scale factors larger than SF 357.
+            #
+            # Orders has the most primary keys. The number of primary keys is specified as:
+            #
+            # > O_ORDERKEY unique within [SF * 1,500,000 * 4].
+            #
+            # Thus, the calculation for the boundary when int32 overflows is:
+            #
+            # (2^31 - 1) / (4 * 1.5 * 10^6) = 357.91
+            return scale_factor < 357 or identifier_type == gqe.lib.TypeId.int64
+        case _:
+            return None
 
 
 # Note: Presumably needs to be set before CUDA initialization. CUDA docs don't
@@ -95,6 +142,7 @@ def set_eager_module_loading():
 
 def run_tpc(
     catalog,
+    data: DataInfo,
     query: QueryInfo,
     scale_factor: int,
     parameters: list[Parameter],
@@ -104,44 +152,51 @@ def run_tpc(
 ):
     repeat = 6
 
+    data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
+
+    data.data_info_id = data_info_id
+    data_info_ext_id = edb.insert_gqe_data_info_ext(
+        upcast_to_super(data, GqeDataInfoExt)
+    )
+
     for parameter in parameters:
-        num_partitions = parameter.num_partitions
-        read_use_zero_copy = parameter.read_use_zero_copy
-        max_num_workers = parameter.max_num_workers
-        join_use_unique_keys = parameter.join_use_unique_keys
-        join_use_hash_map_cache = bool(os.getenv("GQE_JOIN_USE_HASH_MAP_CACHE", False))
         debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
         print(
-            f"Running with parameters num_partitions={num_partitions}, "
-            f"read_use_zero_copy={read_use_zero_copy}, "
-            f"num_workers={max_num_workers}, "
-            f"join_use_unique_keys={join_use_unique_keys}, "
-            f"debug_mem_usage={debug_mem_usage}"
+            f"Running with parameters "
+            f"debug_mem_usage={debug_mem_usage}, "
+            f"{ parameter }, {data}"
         )
 
-        parameters_id = edb.insert_gqe_parameters(
-            GqeParameters(
-                sut_info_id=edb_info.sut_info_id,
-                num_workers=max_num_workers,
-                num_partitions=num_partitions,
-                join_use_hash_map_cache=join_use_hash_map_cache,
-                read_use_zero_copy=read_use_zero_copy,
-                join_use_unique_keys=join_use_unique_keys,
-            )
-        )
+        parameter.sut_info_id = edb_info.sut_info_id
+
+        parameters_id = edb.insert_gqe_parameters(parameter)
 
         # TODO: use with statement instead?
-        context = Context(max_num_workers, num_partitions, read_use_zero_copy, join_use_unique_keys, debug_mem_usage)
+        context = Context(
+            parameter.num_workers,
+            parameter.num_partitions,
+            data.char_type == "char",
+            parameter.use_overlap_mtx,
+            parameter.join_use_hash_map_cache,
+            parameter.read_use_zero_copy,
+            parameter.join_use_unique_keys,
+            data.compression_format,
+            data.compression_data_type,
+            data.compression_chunk_size,
+            debug_mem_usage,
+        )
 
         print(f"Running {query.identifier}...")
 
         experiment_id = edb.insert_experiment(
-            exp.Experiment(
+            Experiment(
                 sut_info_id=edb_info.sut_info_id,
                 parameters_id=parameters_id,
                 hw_info_id=edb_info.hw_info_id,
                 build_info_id=None,
+                data_info_id=data_info_id,
+                data_info_ext_id=data_info_ext_id,
                 name=query.identifier,
                 suite="TPC-H",
                 scale_factor=scale_factor,
@@ -163,7 +218,7 @@ def run_tpc(
 
             try:
                 verify_parquet(out_file, query.reference_solution)
-            except AssertionError as error:
+            except Exception as error:
                 print(error)
                 errors.append((query.identifier, parameter))
                 break

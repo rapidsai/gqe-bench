@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -14,6 +14,7 @@ from gqe import Catalog
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe.benchmark.run import (
     run_tpc,
+    DataInfo,
     QueryInfo,
     Parameter,
     EdbInfo,
@@ -21,6 +22,7 @@ from gqe.benchmark.run import (
     parse_scale_factor,
     parse_identifier_type,
     set_eager_module_loading,
+    is_valid_identifier_type,
 )
 from gqe import lib
 
@@ -32,6 +34,7 @@ import argparse
 import importlib
 import itertools
 
+
 def query_identifier_to_name(identifier):
     # Convert "tpch_q6" -> "Q6"
     return identifier[5:].upper()
@@ -42,32 +45,45 @@ def main():
     arg_parser.add_argument("dataset", help="TPC-H dataset location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
-    arg_parser.add_argument("--queries", "-q", help="Which queries to run", nargs="+",
-                            action="extend", type=int)
-    arg_parser.add_argument("--identifier_type", "-i", help="Identifier type used in the dataset",
-                            choices=["auto", "int32", "int64"], default="auto")
+    arg_parser.add_argument(
+        "--queries",
+        "-q",
+        help="Which queries to run",
+        nargs="+",
+        action="extend",
+        type=int,
+    )
+    arg_parser.add_argument(
+        "--identifier_type",
+        "-i",
+        help="Identifier type used in the dataset",
+        choices=["int32", "int64"],
+        nargs="+",
+        action="extend",
+        type=str,
+    )
     args = arg_parser.parse_args()
 
-    num_row_groups = 8
     load_all_data = 1
-    storage = "memory"
     gqe_host = "localhost"
     query_source = "hand coded".lower()  # tool that generates the query plan
     query_source_path = query_source.replace(" ", "_")
-    use_opt_char_type = True
-    
-    # You can set it to int32 or int64, for SF1k int64 is required.
-    str_to_type = {"int32": lib.TypeId.int32,
-                   "int64": lib.TypeId.int64}
-    if args.identifier_type == "auto":
-        identifier_type = parse_identifier_type(args.dataset)
-    else:
-        identifier_type = str_to_type[args.dataset]
     scale_factor = parse_scale_factor(args.dataset)
+
+    # You can set it to int32 or int64, for SF1k int64 is required.
+    str_to_type = {"int32": lib.TypeId.int32, "int64": lib.TypeId.int64}
+    if not args.identifier_type:
+        identifier_type = [parse_identifier_type(args.dataset)]
+    else:
+        identifier_type = [str_to_type[t] for t in args.identifier_type]
 
     set_eager_module_loading()
 
-    edb_file = args.output if args.output else generate_db_path(f"gqe_{query_source_path}", "tpch", gqe_host)
+    edb_file = (
+        args.output
+        if args.output
+        else generate_db_path(f"gqe_{query_source_path}", "tpch", gqe_host)
+    )
     edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
         GqeExperimentConnection
     )
@@ -77,50 +93,152 @@ def main():
     with edb_config as edb:
         edb_info = setup_db(edb, query_source)
 
-        if load_all_data or (storage != "memory"):
-            catalog = Catalog()
-            try:
-                catalog.register_tpch(args.dataset, storage, num_row_groups, 0,  identifier_type, use_opt_char_type)
-            except Exception as e:
-                print(f"Error registering table: {e}")
-                return
+        num_row_group_list = []
+        if scale_factor < 500:
+            num_row_group_list = [1, 8]
+        elif scale_factor < 1000:
+            num_row_group_list = [4, 8]
+        else:
+            num_row_group_list = [16, 32]
 
-        queries = args.queries if args.queries else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
-        for query_idx in queries:
-            if not load_all_data and (storage == "memory"):
-                catalog = Catalog()
-                try:
-                    catalog.register_tpch(args.dataset, storage,  num_row_groups, query_idx, identifier_type, use_opt_char_type)
-                except Exception as e:
-                    print(f"Error registering in memory table for query {query_idx}: {e}")
+        for (
+            num_row_groups,
+            use_opt_type_for_single_char_col,
+            compression_format,
+            compression_data_type,
+            compression_chunk_size,
+            identifier_type,
+            storage_kind,
+        ) in itertools.product(
+            num_row_group_list,
+            [True],
+            ["none"],
+            ["char"],
+            [2**16],
+            [lib.TypeId.int32] if scale_factor < 357 else [lib.TypeId.int64],
+            ["pinned_memory"],
+        ):
+            match is_valid_identifier_type(identifier_type, "tpch", scale_factor):
+                case True:
+                    pass
+                case False:
                     continue
+                case None:
+                    raise ValueError(
+                        f"Unknown if identifier type { identifier_type } is valid for the given dataset"
+                    )
 
-            query_identifier = "tpch_q" + str(query_idx)
-            module = importlib.import_module(query_identifier)
-            root_relation = getattr(module, query_identifier)().root_relation()
-            reference_file = args.solution.replace("%d", f"q{query_idx}")
-
-            query = QueryInfo(
-                query_identifier_to_name(query_identifier),
-                root_relation,
-                reference_file,
+            data_info = DataInfo(
+                storage_device_kind=storage_kind,
+                format="internal",
+                location=None,  # FIXME: set location as NUMA node, iff set in GQE
+                not_null=False,
+                identifier_type=str(identifier_type),
+                char_type="char" if use_opt_type_for_single_char_col else "text",
+                decimal_type="float",
+                num_row_groups=num_row_groups,
+                compression_format=compression_format,
+                compression_data_type=compression_data_type,
+                compression_chunk_size=compression_chunk_size,
             )
 
-            parameters = []
-            for (
-                num_partitions,
-                read_use_zero_copy,
-                max_num_workers,
-                join_use_unique_keys,
-            ) in itertools.product([1, 2, 4, 8], [False, True], [1], [True]):
-                if read_use_zero_copy and (num_partitions != num_row_groups):
+            if load_all_data or (storage_kind == "parquet_file"):
+                catalog = Catalog()
+                try:
+                    catalog.register_tpch(
+                        args.dataset,
+                        storage_kind,
+                        num_row_groups,
+                        0,
+                        identifier_type,
+                        use_opt_type_for_single_char_col,
+                        compression_format,
+                        compression_data_type,
+                        compression_chunk_size,
+                    )
+                except Exception as e:
+                    print(f"Error registering table: {e}")
                     continue
 
-                parameters.append(
-                    Parameter(num_partitions, read_use_zero_copy, max_num_workers, join_use_unique_keys)
+            queries = (
+                args.queries
+                if args.queries
+                else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
+            )
+            for query_idx in queries:
+                if not load_all_data and (storage_kind == "memory"):
+                    catalog = Catalog()
+                    try:
+                        catalog.register_tpch(
+                            args.dataset,
+                            storage_kind,
+                            num_row_groups,
+                            query_idx,
+                            identifier_type,
+                            use_opt_type_for_single_char_col,
+                            compression_format,
+                            compression_data_type,
+                            compression_chunk_size,
+                        )
+                    except Exception as e:
+                        print(
+                            f"Error registering in memory table for query {query_idx}: {e}"
+                        )
+                        continue
+
+                query_identifier = "tpch_q" + str(query_idx)
+                module = importlib.import_module(query_identifier)
+                root_relation = getattr(module, query_identifier)().root_relation()
+                reference_file = args.solution.replace("%d", f"q{query_idx}")
+
+                query = QueryInfo(
+                    query_identifier_to_name(query_identifier),
+                    root_relation,
+                    reference_file,
                 )
 
-            run_tpc(catalog, query, scale_factor, parameters, edb, edb_info, errors)
+                parameters = []
+                for (
+                    num_workers,
+                    num_partitions,
+                    use_overlap_mtx,
+                    join_use_hash_map_cache,
+                    read_use_zero_copy,
+                    join_use_unique_keys,
+                ) in itertools.product(
+                    [1, 2, 4], [1, 2, 4, 8], [True], [False], [False, True], [True]
+                ):
+                    # Skip zero copy for partition-row-group combinations where zero copy is not supported.
+                    if read_use_zero_copy and (num_partitions != num_row_groups):
+                        continue
+
+                    # Skip zero copy for compression, as compression takes precedence over zero copy in GQE read task.
+                    #
+                    # Note: Revisit if GQE behavior changes in future.
+                    if read_use_zero_copy and compression_format != "none":
+                        continue
+
+                    parameters.append(
+                        Parameter(
+                            num_workers,
+                            num_partitions,
+                            use_overlap_mtx,
+                            join_use_hash_map_cache,
+                            read_use_zero_copy,
+                            join_use_unique_keys,
+                        )
+                    )
+
+                run_tpc(
+                    catalog,
+                    data_info,
+                    query,
+                    scale_factor,
+                    parameters,
+                    edb,
+                    edb_info,
+                    errors,
+                )
 
     print(f"Finished SQLite file at {edb_file}")
 

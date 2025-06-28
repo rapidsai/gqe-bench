@@ -11,7 +11,7 @@
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES "70" "80" "90")
+  set(CMAKE_CUDA_ARCHITECTURES "70-real" "80-real" "90-real" "100-real" "120")
 endif()
 
 project(gqe-python LANGUAGES CXX CUDA)
