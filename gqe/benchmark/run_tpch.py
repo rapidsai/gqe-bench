@@ -166,7 +166,7 @@ def main():
                 else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21]
             )
             for query_idx in queries:
-                if not load_all_data and (storage_kind == "memory"):
+                if not load_all_data and (storage_kind != "parquet_file"):
                     catalog = Catalog()
                     try:
                         catalog.register_tpch(

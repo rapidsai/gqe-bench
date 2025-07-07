@@ -164,7 +164,7 @@ def main():
                 ):
                     continue
 
-                if not load_all_data and (storage_kind == "parquet_file"):
+                if not load_all_data and (storage_kind != "parquet_file"):
                     catalog = Catalog()
                     try:
                         catalog.register_tpch(
