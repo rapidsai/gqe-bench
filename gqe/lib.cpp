@@ -358,6 +358,7 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
     {"system_memory", gqe::storage_kind::system_memory{}},
     {"numa_memory", gqe::storage_kind::numa_memory{gqe::cpu_set(0)}},
     {"pinned_memory", gqe::storage_kind::pinned_memory{}},
+    {"numa_pinned_memory", gqe::storage_kind::numa_pinned_memory{gqe::cpu_set(0)}},
     {"device_memory", gqe::storage_kind::device_memory{rmm::cuda_device_id(0)}},
     {"managed_memory", gqe::storage_kind::managed_memory{}},
     {"parquet_file", gqe::storage_kind::parquet_file{file_paths}}};

@@ -61,7 +61,7 @@ class Catalog:
             gqe.lib.register_tpch_parquet(
                 self._catalog, dataset, table_definitions.query_table_definitions(0)
             )
-        elif storage_kind in ["pinned_memory", "system_memory", "numa_memory", "device_memory", "managed_memory"]:
+        elif storage_kind in ["pinned_memory", "system_memory", "numa_memory", "device_memory", "managed_memory", "numa_pinned_memory"]:
             gqe.lib.register_tpch_in_memory(
                 self._catalog,
                 dataset,
