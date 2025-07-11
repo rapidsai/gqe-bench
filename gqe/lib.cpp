@@ -230,10 +230,10 @@ struct context {
       auto _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(_mr));
     } else {
-      using upstream_mr_type = rmm::mr::cuda_async_memory_resource;
+      using upstream_mr_type = rmm::mr::cuda_memory_resource;
       using mr_type          = rmm::mr::pool_memory_resource<upstream_mr_type>;
       auto pool_size = gqe::utility::default_device_memory_pool_size();
-      auto upstream_mr = std::make_shared<upstream_mr_type>(pool_size);
+      auto upstream_mr = std::make_shared<upstream_mr_type>();
       auto mr = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(upstream_mr, pool_size, pool_size);
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(mr));
     }
