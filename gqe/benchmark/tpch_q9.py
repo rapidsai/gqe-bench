@@ -91,7 +91,7 @@ class tpch_q9(Query):
 
         # Joining "o_orderkey", "o_orderdate" with "l_orderkey", "amount", "s_nationkey"
         # "o_orderdate", "amount",  "s_nationkey"
-        join4 = orders.broadcast_join(join3_projected, CR(0) == CR(2), [1, 3, 4])
+        join4 = orders.broadcast_join(join3_projected, CR(0) == CR(2), [1, 3, 4], unique_keys_policy=UniqueKeysPolicy.left)
 
         nation = read("nation", ["n_nationkey", "n_name"])
 
