@@ -216,6 +216,22 @@ class LikeExpr(Expression):
         return gqe.lib.Like(self.input._cpp, self.pattern, self.escape_character, False)
 
 
+class SubstrExpr(Expression):
+    def __init__(self, input: Expression, start: int, length: int):
+        """
+        Construct a substring expression.
+
+        :param input: Input string to be sliced.
+        :param start: Starting index of the substring (zero-based).
+        :param length: Length of the substring.
+        """
+        self.input = input
+        self.start = start
+        self.length = length
+
+    def _to_cpp(self):
+        return gqe.lib.Substr(self.input._cpp, self.start, self.length)
+
 class IfThenElseExpr(Expression):
     def __init__(
         self, if_expr: Expression, then_expr: Expression, else_expr: Expression

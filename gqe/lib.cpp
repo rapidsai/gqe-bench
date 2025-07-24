@@ -586,6 +586,10 @@ PYBIND11_MODULE(lib, py_module)
     py_module, "Like", expr_cls)
     .def(py::init<std::shared_ptr<gqe::expression>, std::string, std::string, bool>());
 
+  py::class_<gqe::substr_expression, std::shared_ptr<gqe::substr_expression>>(
+    py_module, "Substr", expr_cls)
+    .def(py::init<std::shared_ptr<gqe::expression>, cudf::size_type, cudf::size_type>());
+
   // If-then-else expression
   py::class_<gqe::if_then_else_expression, std::shared_ptr<gqe::if_then_else_expression>>(
     py_module, "IfThenElse", expr_cls)
