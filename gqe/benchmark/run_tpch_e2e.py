@@ -48,6 +48,14 @@ def main():
         default="datafusion",
     )
     arg_parser.add_argument(
+        "--queries",
+        "-q",
+        help="Which queries to run",
+        nargs="+",
+        action="extend",
+        type=int,
+    )
+    arg_parser.add_argument(
         "--identifier_type",
         "-i",
         help="Identifier type used in the dataset",
@@ -154,7 +162,12 @@ def main():
                     print(f"Error registering table: {e}")
                     continue
 
-            for query_idx in range(1, 23):
+            queries = (
+                args.queries
+                if args.queries
+                else range(1, 23)
+            )
+            for query_idx in queries:
 
                 if (
                     query_idx == 15
