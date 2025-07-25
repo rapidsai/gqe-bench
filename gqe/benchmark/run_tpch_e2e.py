@@ -213,7 +213,8 @@ def main():
                     read_use_zero_copy,
                     join_use_unique_keys,
                 ) in itertools.product(
-                    [1, 2, 4], [1, 2, 4, 8], [True], [False], [False, True], [True]
+                    # TODO Change num_workers to [1, 2, 4] when https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/153 is fixed
+                    [1], [1, 2, 4, 8], [True], [False], [False, True], [True]
                 ):
                     # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                     if read_use_zero_copy and (num_partitions != num_row_groups):
