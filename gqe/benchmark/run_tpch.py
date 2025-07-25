@@ -185,7 +185,6 @@ def main():
                             f"Error registering in memory table for query {query_idx}: {e}"
                         )
                         continue
-                    fix_partial_filter_column_references(root_relation, query_idx)
 
                 query_identifier = "tpch_q" + str(query_idx)
                 module = importlib.import_module(query_identifier)

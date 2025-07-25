@@ -140,68 +140,6 @@ def set_eager_module_loading():
     os.environ["CUDA_MODULE_LOADING"] = "EAGER"
 
 
-def fix_partial_filter_column_references(relation: Relation, query: int):
-    """Fix the column references in partial filters.
-
-    Ensures that column references in partial filters of read relations and
-    conditions of filter relations refer to the same column X.
-
-    - The column index used in partial filters of read relations refers to the
-      position of column X in the base table schema.
-
-    - The column index used in condtions of filter relations refers to the
-      position of column X in the list of columns projected by the read
-      relation.
-
-    Note: Aggregation relation can also have conditions and are treated the same
-    as filter relations.
-
-    """
-
-    # Helper to fix the column references in an expression
-    # expression: The partial filter of a read relation
-    # relation: The read relation which should be updated
-    def fix_column_references(expression: Expression, relation: Relation):
-
-        # Leaf condition: Update the column index to refer to the column in the
-        # base table schema.
-        if isinstance(expression, ColumnReference):
-            table = relation.table
-            projected_columns = relation.columns
-            schema_columns = TPCHTableDefinitions().get_schema(query)[table]
-            expression.idx = schema_columns.index(projected_columns[expression.idx])
-
-        # Recursively descent to child expressions
-        elif isinstance(expression, BinaryOpExpression):
-            fix_column_references(expression.lhs, relation)
-            fix_column_references(expression.rhs, relation)
-        elif isinstance(expression, (LikeExpr, DatePartExpr, Cast)):
-            fix_column_references(expression.input, relation)
-        elif isinstance(expression, IfThenElseExpr):
-            fix_column_references(expression.if_expr, relation)
-            fix_column_references(expression.then_expr, relation)
-            fix_column_references(expression.else_expr, relation)
-
-    # Stop recursion when the ReadRelation is reached
-    if isinstance(relation, ReadRelation):
-        return
-
-    # Fix partial filter of ReadRelation, if it is the direct child of a
-    # FilterRelation or AggregateRelation. Also stops recursion.
-    elif isinstance(relation, (AggregateRelation, FilterRelation)) and \
-         isinstance(relation.input, ReadRelation) and \
-         relation.input.partial_filter:
-        relation.input.partial_filter = copy.deepcopy(relation.condition)
-        fix_column_references(relation.input.partial_filter, relation.input)
-
-    # Recursively descent to child relations
-    elif isinstance(relation, BroadcastJoinRelation):
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.right_table, query)
-    else:
-        fix_partial_filter_column_references(relation.input, query)
-
-
 def run_tpc(
     catalog,
     data: DataInfo,
