@@ -54,6 +54,11 @@ class tpch_q12(Query):
         lineitem = read(
             "lineitem",
             ["l_shipmode", "l_commitdate", "l_receiptdate", "l_shipdate", "l_orderkey"],
+            ((CR(14) == Literal("MAIL")) | (CR(14) == Literal("SHIP")))
+            & (CR(12) > CR(11))
+            & (CR(11) > CR(10))
+            & (CR(12) >= DateLiteral("1994-01-01"))
+            & (CR(12) <= DateLiteral("1994-12-31"))
         )
 
         # After these operations lineitem contains ["l_shipmode", "l_orderkey"]

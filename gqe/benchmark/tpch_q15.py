@@ -52,7 +52,8 @@ order by
 class tpch_q15(Query):
     def root_relation(self):
         lineitem = read(
-            "lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
+            "lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
+            (CR(10) >= DateLiteral("1996-01-01")) & (CR(10) <= DateLiteral("1996-03-31"))
         ).filter(
             (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")),
             [0, 2, 3],

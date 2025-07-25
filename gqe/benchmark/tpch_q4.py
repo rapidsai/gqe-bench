@@ -40,7 +40,8 @@ order by
 
 class tpch_q4(Query):
     def root_relation(self):
-        orders = read("orders", ["o_orderkey", "o_orderdate", "o_orderpriority"])
+        orders = read("orders", ["o_orderkey", "o_orderdate", "o_orderpriority"],
+                      (CR(4) >= DateLiteral("1993-07-01")) & (CR(4) < DateLiteral("1993-10-01")))
 
         # o_orderdate >= date '1993-07-01' and o_orderdate < date '1993-07-01' + interval '3' month
         # After this operation, `orders` has column ["o_orderkey", "o_orderpriority"]
@@ -49,7 +50,7 @@ class tpch_q4(Query):
 
         # l_commitdate < l_receiptdate
         # After this operation, `lineitem` has column ["l_orderkey"]
-        lineitem = read("lineitem", ["l_orderkey", "l_commitdate", "l_receiptdate"])
+        lineitem = read("lineitem", ["l_orderkey", "l_commitdate", "l_receiptdate"], (CR(11) < CR(12)))
         lineitem = lineitem.filter(CR(1) < CR(2), [0])
 
         # exists (select * from lineitem where l_orderkey = o_orderkey)

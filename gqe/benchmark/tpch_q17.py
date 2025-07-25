@@ -37,7 +37,8 @@ where
 
 class tpch_q17(Query):
     def root_relation(self):
-        part = read("part", ["p_partkey", "p_brand", "p_container"])
+        part = read("part", ["p_partkey", "p_brand", "p_container"],
+                    (CR(3) == Literal("Brand#23")) & (CR(6) == Literal("MED BOX")))
 
         # Filter the part table
         part = part.filter(

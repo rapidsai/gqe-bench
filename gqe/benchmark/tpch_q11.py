@@ -50,7 +50,7 @@ class tpch_q11(Query):
     def root_relation(self):
         # n_name = 'GERMANY'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read("nation", ["n_nationkey", "n_name"])
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"))
         nation = nation.filter(CR(1) == Literal("GERMANY"), [0])
 
         # s_nationkey = n_nationkey

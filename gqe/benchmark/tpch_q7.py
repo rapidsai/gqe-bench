@@ -64,7 +64,10 @@ class tpch_q7(Query):
         # TODO: fix column reference indices
 
         # WHERE n1.n_name = 'FRANCE' or n1.n_name = 'GERMANY'
-        nation = read("nation", ["n_nationkey", "n_name"]).filter(
+        nation = read("nation",
+                      ["n_nationkey", "n_name"],
+                      (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY"))
+                      ).filter(
             (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")), [0, 1]
         )
 
@@ -87,6 +90,7 @@ class tpch_q7(Query):
         l1 = read(
             "lineitem",
             ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
+            (CR(10) >= DateLiteral("1995-01-01")) & (CR(10) <= DateLiteral("1996-12-31"))
         ).filter(
             (CR(2) >= DateLiteral("1995-01-01")) & (CR(2) <= DateLiteral("1996-12-31")),
             [0, 1, 2, 3, 4],

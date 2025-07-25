@@ -68,11 +68,11 @@ class tpch_q2(Query):
     def root_relation(self):
         # After these operations, `part` contains columns ["p_partkey", "p_mfgr"]
         # It filters out many rows. The selectivity is only ~0.4%.
-        part = read("part", ["p_partkey", "p_size", "p_type", "p_mfgr"])
+        part = read("part", ["p_partkey", "p_size", "p_type", "p_mfgr"], (CR(5) == Literal(15)))
         part = part.filter((CR(1) == Literal(15)) & LikeExpr(CR(2), "%BRASS"), [0, 3])
 
         # After these operations, `region` contains columns ["r_regionkey"]
-        region = read("region", ["r_regionkey", "r_name"])
+        region = read("region", ["r_regionkey", "r_name"], (CR(1) == Literal("EUROPE")))
         region = region.filter(CR(1) == Literal("EUROPE"), [0])
 
         # After these operations, `nation` contains columns ["n_nationkey", "n_name"]

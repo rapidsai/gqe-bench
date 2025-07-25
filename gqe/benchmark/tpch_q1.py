@@ -73,6 +73,7 @@ class tpch_q1(Query):
                 "l_linestatus",
                 "l_tax",
             ],
+            (CR(10) <= DateLiteral("1998-09-02"))
         )
 
         # After aggregation, the columns in `lineitem` are:

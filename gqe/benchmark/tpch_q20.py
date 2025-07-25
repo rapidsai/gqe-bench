@@ -62,7 +62,7 @@ class tpch_q20(Query):
         # p_name like 'forest%'
         # The selectivity of this filter is ~1%
         # After these operations, `part` contains columns ["p_partkey"]
-        part = read("part", ["p_partkey", "p_name"])
+        part = read("part", ["p_partkey", "p_name"], LikeExpr(CR(1), "forest%"))
         part = part.filter(LikeExpr(CR(1), "forest%"), [0])
 
         # l_shipdate >= date '1994-01-01' and l_shipdate < date '1994-01-01' + interval '1' year
@@ -70,7 +70,8 @@ class tpch_q20(Query):
         # After these operations,
         # `lineitem` contains columns ["l_partkey", "l_suppkey", "l_quantity"]
         lineitem = read(
-            "lineitem", ["l_partkey", "l_suppkey", "l_shipdate", "l_quantity"]
+            "lineitem", ["l_partkey", "l_suppkey", "l_shipdate", "l_quantity"],
+            (CR(10) >= DateLiteral("1994-01-01")) & (CR(10) < DateLiteral("1995-01-01"))
         )
         lineitem = lineitem.filter(
             (CR(2) >= DateLiteral("1994-01-01")) & (CR(2) < DateLiteral("1995-01-01")),
@@ -98,7 +99,7 @@ class tpch_q20(Query):
 
         # n_name = 'CANADA'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read("nation", ["n_nationkey", "n_name"])
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("CANADA"))
         nation = nation.filter(CR(1) == Literal("CANADA"), [0])
 
         # s_nationkey = n_nationkey

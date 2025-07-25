@@ -144,22 +144,23 @@ class ReadRelation(Relation):
     A read relation reads a table from the catalog. It does not take any input tables.
     """
 
-    def __init__(self, table: str, columns: list[str]):
+    def __init__(self, table: str, columns: list[str], partial_filter: Expression = None):
         self.table = table
         self.columns = columns
+        self.partial_filter = partial_filter
 
     def _to_cpp(self):
-        return gqe.lib.read(self.table, self.columns)
+        return gqe.lib.read(self.table, self.columns, self.partial_filter._cpp if self.partial_filter else None)
 
 
-def read(table: str, columns: list[str]) -> Relation:
+def read(table: str, columns: list[str], partial_filter: Expression = None) -> Relation:
     """
     Factory for constructing a read relation.
 
     :param table: Name of the table to load.
     :param columns: Name of the columns to load.
     """
-    return ReadRelation(table, columns)
+    return ReadRelation(table, columns, partial_filter)
 
 
 class FilterRelation(Relation):

@@ -54,7 +54,8 @@ limit
 # Plan improves on the substrait plan by having a better join order and reducing string materialization cost.
 class tpch_q10(Query):
     def root_relation(self):
-        orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate"])
+        orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate"],
+                      (CR(4) >= DateLiteral("1993-10-01")) & (CR(4) < DateLiteral("1994-01-01")))
 
         # o_orderdate >= date '1993-10-01' and o_orderdate < date '1993-10-01' + interval '3' month
         # After this operation, `orders` has column ["o_orderkey", "o_custkey"]
@@ -77,7 +78,8 @@ class tpch_q10(Query):
 
         # l_returnflag = 'R'
         # After this operation, `lineitem` has column ["l_orderkey", "l_extendedprice", "l_discount"]
-        lineitem = read("lineitem", ["l_orderkey", "l_returnflag", "l_extendedprice", "l_discount"])
+        lineitem = read("lineitem", ["l_orderkey", "l_returnflag", "l_extendedprice", "l_discount"],
+                        (CR(8) == Literal(ord('R'))))
         lineitem = lineitem.filter((CR(1) == Literal(ord('R'))), [0,2,3])
 
         # l_orderkey = o_orderkey

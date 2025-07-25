@@ -67,13 +67,14 @@ namespace py = pybind11;
 namespace lib {
 
 std::shared_ptr<gqe::physical::relation> read(std::string table_name,
-                                              std::vector<std::string> column_names)
+                                              std::vector<std::string> column_names,
+                                              gqe::expression const* partial_filter)
 {
   return std::make_shared<gqe::physical::read_relation>(
     std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(column_names),
     std::move(table_name),
-    nullptr);
+    partial_filter ? partial_filter->clone() : nullptr);
 }
 
 // The following relation factories create a copy for the expression because Python cannot give up

@@ -30,7 +30,12 @@ where
 class tpch_q6(Query):
     def root_relation(self):
         lineitem = read(
-            "lineitem", ["l_shipdate", "l_discount", "l_quantity", "l_extendedprice"]
+            "lineitem", ["l_shipdate", "l_discount", "l_quantity", "l_extendedprice"],
+            (CR(10) >= DateLiteral("1994-01-01"))
+            & (CR(10) < DateLiteral("1995-01-01"))
+            & (CR(6) >= Literal(0.05))
+            & (CR(6) <= Literal(0.07))
+            & (CR(4) < Literal(24.0))
         )
 
         # l_shipdate >= date '1994-01-01'
