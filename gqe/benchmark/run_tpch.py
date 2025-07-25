@@ -55,7 +55,7 @@ def main():
         type=int,
     )
     arg_parser.add_argument(
-        "--identifier_type",
+        "--identifier-type",
         "-i",
         help="Identifier type used in the dataset",
         choices=["int32", "int64"],
