@@ -115,15 +115,9 @@ class TPCHTableDefinitions:
     def query_table_definitions(
         self, query_idx: int
     ) -> dict[str, list[ColumnTraits]]:
-        """Return the tables and and columns (encoded as C++ ColumnTraits) requrired by a query."""
         if query_idx == 0:
             return {table: [gqe.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()] for table, cols in self.definitions.items()}
-        schema = self.get_schema(query_idx)
-        return self.get_column_types(schema)
 
-
-    def get_schema(self, query_idx: int) -> dict[str, list[str]]:
-        """Return column and table names required by a query."""
         if query_idx == 1:
             tables = {
                 "lineitem": [
@@ -362,4 +356,4 @@ class TPCHTableDefinitions:
                 "nation": ["n_nationkey"],
             }
 
-        return tables
+        return self.get_column_types(tables)

@@ -23,7 +23,6 @@ from gqe.benchmark.run import (
     parse_identifier_type,
     set_eager_module_loading,
     is_valid_identifier_type,
-    fix_partial_filter_column_references,
 )
 from gqe import lib
 
@@ -167,17 +166,6 @@ def main():
                 else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21, 22]
             )
             for query_idx in queries:
-                query_identifier = "tpch_q" + str(query_idx)
-                module = importlib.import_module(query_identifier)
-                root_relation = getattr(module, query_identifier)().root_relation()
-                reference_file = args.solution.replace("%d", f"q{query_idx}")
-
-                query = QueryInfo(
-                    query_identifier_to_name(query_identifier),
-                    root_relation,
-                    reference_file,
-                )
-
                 if not load_all_data and (storage_kind != "parquet_file"):
                     catalog = Catalog()
                     try:
@@ -192,12 +180,22 @@ def main():
                             compression_data_type,
                             compression_chunk_size,
                         )
-                        fix_partial_filter_column_references(root_relation, query_idx)
                     except Exception as e:
                         print(
                             f"Error registering in memory table for query {query_idx}: {e}"
                         )
                         continue
+
+                query_identifier = "tpch_q" + str(query_idx)
+                module = importlib.import_module(query_identifier)
+                root_relation = getattr(module, query_identifier)().root_relation()
+                reference_file = args.solution.replace("%d", f"q{query_idx}")
+
+                query = QueryInfo(
+                    query_identifier_to_name(query_identifier),
+                    root_relation,
+                    reference_file,
+                )
 
                 parameters = []
                 for (

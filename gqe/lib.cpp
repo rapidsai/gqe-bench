@@ -203,8 +203,7 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
       {gqe::optimizer::logical_optimization_rule_type::projection_pushdown,
        gqe::optimizer::logical_optimization_rule_type::string_to_int_literal,
        gqe::optimizer::logical_optimization_rule_type::uniqueness_propagation,
-       gqe::optimizer::logical_optimization_rule_type::join_unique_keys,
-       gqe::optimizer::logical_optimization_rule_type::partial_filter_projection},
+       gqe::optimizer::logical_optimization_rule_type::join_unique_keys},
       {});
     auto optimizer =
       std::make_unique<gqe::optimizer::logical_optimizer>(&logical_rule_config, catalog);

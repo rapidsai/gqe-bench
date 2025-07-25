@@ -12,9 +12,7 @@ from gqe import Context
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
 from gqe.benchmark.gqe_experiment import GqeParameters, GqeDataInfoExt
-from gqe.relation import Relation, ReadRelation, FilterRelation, AggregateRelation, BroadcastJoinRelation
-from gqe.expression import Expression, ColumnReference, BinaryOpExpression, LikeExpr, IfThenElseExpr, DatePartExpr, Cast
-from gqe.table_definition import TPCHTableDefinitions
+from gqe.relation import Relation
 
 from database_benchmarking_tools import experiment as exp
 
@@ -24,7 +22,6 @@ import nvtx
 import re
 from dataclasses import dataclass, asdict, fields
 from typing import Optional
-import copy
 
 
 # Extended Experiment
@@ -141,66 +138,6 @@ def is_valid_identifier_type(
 # program is already running.
 def set_eager_module_loading():
     os.environ["CUDA_MODULE_LOADING"] = "EAGER"
-
-
-def fix_partial_filter_column_references(relation: Relation, query: int):
-    """Fix the column references in partial filters.
-
-    Ensures that column references in partial filters of read relations and
-    conditions of filter relations refer to the same column X.
-
-    - The column index used in partial filters of read relations refers to the
-      position of column X in the base table schema.
-
-    - The column index used in condtions of filter relations refers to the
-      position of column X in the list of columns projected by the read
-      relation.
-
-    Note: Aggregation relation can also have conditions and are treated the same
-    as filter relations.
-
-    """
-
-    # Helper to fix the column references in an expression
-    def fix_column_references(expression: Expression):
-
-        # Leaf condition: Update the column index to refer to the column in the
-        # base table schema.
-        if isinstance(expression, ColumnReference):
-            table = relation.input.table
-            schema_columns = TPCHTableDefinitions().get_schema(query)[table]
-            projected_columns = relation.input.columns
-            expression.idx = schema_columns.index(projected_columns[expression.idx])
-
-        # Recursively descent to child expressions
-        elif isinstance(expression, BinaryOpExpression):
-            fix_column_references(expression.lhs)
-            fix_column_references(expression.rhs)
-        elif isinstance(expression, (LikeExpr, DatePartExpr, Cast)):
-            fix_column_references(expression.input)
-        elif isinstance(expression, IfThenElseExpr):
-            fix_column_references(expression.if_expr)
-            fix_column_references(expression.then_expr)
-            fix_column_references(expression.else_expr)
-
-    # Stop recursion when the ReadRelation is reached
-    if isinstance(relation, ReadRelation):
-        return
-
-    # Fix partial filter of ReadRelation, if it is the direct child of a
-    # FilterRelation or AggregateRelation. Also stops recursion.
-    elif isinstance(relation, (AggregateRelation, FilterRelation)) and \
-         isinstance(relation.input, ReadRelation) and \
-         relation.input.partial_filter:
-        relation.input.partial_filter = fix_column_references(
-            copy.deepcopy(relation.condition))
-
-    # Recursively descent to child relations
-    elif isinstance(relation, BroadcastJoinRelation):
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.right_table, query)
-    else:
-        fix_partial_filter_column_references(relation.input, query)
 
 
 def run_tpc(
