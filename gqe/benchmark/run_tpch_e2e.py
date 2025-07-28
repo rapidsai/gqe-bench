@@ -65,7 +65,7 @@ def main():
         type=str,
     )
     arg_parser.add_argument(
-        "--compression_format",
+        "--compression-format",
         "-c",
         help="Compression format to use",
         choices=[
