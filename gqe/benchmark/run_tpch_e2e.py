@@ -64,6 +64,20 @@ def main():
         action="extend",
         type=str,
     )
+    arg_parser.add_argument(
+        "--compression_format",
+        "-c",
+        help="Compression format to use",
+        choices=[
+            "none", "ans", "lz4", "snappy", "gdeflate", "deflate", 
+            "cascaded", "zstd", "gzip", "bitcomp", 
+            "best_compression_ratio", "best_decompression_speed"
+        ],
+        nargs="+",
+        action="extend",
+        type=str,
+        default=["none"],
+    )
     args = arg_parser.parse_args()
 
     load_all_data = 1
@@ -114,7 +128,7 @@ def main():
         ) in itertools.product(
             num_row_group_list,
             [True],
-            ["none"],
+            args.compression_format,
             ["char"],
             [2**16],
             [lib.TypeId.int32] if scale_factor < 357 else [lib.TypeId.int64],
