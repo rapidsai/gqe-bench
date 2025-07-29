@@ -244,6 +244,7 @@ def run_tpc(
             parameter.join_use_hash_map_cache,
             parameter.read_use_zero_copy,
             parameter.join_use_unique_keys,
+            parameter.join_use_perfect_hash,
             data.compression_format,
             data.compression_data_type,
             data.compression_chunk_size,

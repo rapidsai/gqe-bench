@@ -28,6 +28,7 @@ class GqeParameters:
     join_use_hash_map_cache: bool
     read_use_zero_copy: bool
     join_use_unique_keys: bool
+    join_use_perfect_hash: bool
 
     sut_info_id: SutInfoId | None = None  # Don't set manually
 

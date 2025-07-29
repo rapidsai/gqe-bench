@@ -75,7 +75,7 @@ class tpch_q7(Query):
         #   customer has columns ["c_custkey", "c_nationkey"]
         #   returns ["c_custkey", "n_name" as "cust_nation"]
         customer = read("customer", ["c_custkey", "c_nationkey"]).broadcast_join(
-            nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right
+            nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
 
         # join on c_custkey = o_custkey
@@ -83,7 +83,7 @@ class tpch_q7(Query):
         #   customer has columns ["c_custkey", "cust_nation"]
         #   returns ["o_orderkey", "cust_nation"]
         orders = read("orders", ["o_orderkey", "o_custkey"]).broadcast_join(
-            customer, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right
+            customer, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
 
         # WHERE l_shipdate between date '1995-01-01' and date '1996-12-31'
@@ -100,13 +100,13 @@ class tpch_q7(Query):
         #   l1 has columns ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
         #   orders has columns ["o_orderkey", "cust_nation"]
         #   returns ["cust_nation", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
-        l1 = l1.broadcast_join(orders, CR(0) == CR(5), [6, 1, 2, 3, 4], unique_keys_policy=UniqueKeysPolicy.right)
+        l1 = l1.broadcast_join(orders, CR(0) == CR(5), [6, 1, 2, 3, 4], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
         # join on s_nationkey = n1.n_nationkey
         #   supplier has columns ["s_suppkey", "s_nationkey"]
         #   returns ["s_suppkey", "n_name" as "supp_nation"]
         supplier = read("supplier", ["s_suppkey", "s_nationkey"]).broadcast_join(
-            nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right
+            nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
 
         # join on s_suppkey = l_suppkey and n2.n_name /= n1.n_name

@@ -67,7 +67,7 @@ class tpch_q21(Query):
         )
         supplier = read(
             "supplier", ["s_suppkey", "s_name", "s_nationkey"]
-        ).broadcast_join(nation, CR(2) == CR(3), [0, 1], unique_keys_policy=UniqueKeysPolicy.right)
+        ).broadcast_join(nation, CR(2) == CR(3), [0, 1], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
         # l1.l_receiptdate > l1.l_commitdate
         # `l1` has columns ["l_suppkey", "l_orderkey"]
@@ -78,7 +78,7 @@ class tpch_q21(Query):
 
         # s_suppkey = l1.l_suppkey
         # `l1` has columns ["l_suppkey", "l_orderkey", "s_name"]
-        l1 = l1.broadcast_join(supplier, CR(0) == CR(2), [0, 1, 3], unique_keys_policy=UniqueKeysPolicy.right)
+        l1 = l1.broadcast_join(supplier, CR(0) == CR(2), [0, 1, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
         # l3.l_receiptdate > l3.l_commitdate
         # `l3` has columns ["l_suppkey", "l_orderkey"]
@@ -102,7 +102,7 @@ class tpch_q21(Query):
         # o_orderkey = l1.l_orderkey and o_orderstatus = 'F'
         order = read("orders", ["o_orderkey", "o_orderstatus"], CR(2) == Literal(70))
         order = order.filter(CR(1) == Literal(70), [0])
-        l1 = order.broadcast_join(l1, CR(0) == CR(2), [1, 2, 3], unique_keys_policy=UniqueKeysPolicy.left)
+        l1 = order.broadcast_join(l1, CR(0) == CR(2), [1, 2, 3], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True)
 
         # l1 has columns ["l_suppkey", "l_orderkey", "s_name"] which satisfies
         # exists (

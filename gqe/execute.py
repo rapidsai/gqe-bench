@@ -23,6 +23,7 @@ class Context:
         join_use_hash_map_cache: bool = False,
         read_use_zero_copy: bool = False,
         join_use_unique_keys: bool = False,
+        join_use_perfect_hash: bool = False,
         in_memory_table_compression_format: str = "none",
         in_memory_table_compression_data_type: str = "char",
         compression_chunk_size: int = 65536,
@@ -39,6 +40,7 @@ class Context:
             join_use_hash_map_cache,
             read_use_zero_copy,
             join_use_unique_keys,
+            join_use_perfect_hash,
             debug_mem_usage,
         )
 

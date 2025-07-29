@@ -76,7 +76,7 @@ class tpch_q12(Query):
 
         # After these operations join contains ["l_shipmode", "l_orderkey"]
         # Due to filter, orders table is bigger than lineitem table
-        join_out = orders.broadcast_join(lineitem, CR(0) == CR(3), [1, 2], unique_keys_policy=UniqueKeysPolicy.left)
+        join_out = orders.broadcast_join(lineitem, CR(0) == CR(3), [1, 2], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True)
 
         agg_out = join_out.aggregate(
             [CR(1)],

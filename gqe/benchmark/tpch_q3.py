@@ -72,6 +72,7 @@ class tpch_q3(Query):
             CR(1) == CR(4),  # o_custkey = c_custkey
             [0, 2, 3], 
             unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
         )
 
         # Filter lineitem table: l_shipdate > date '1995-03-15'
@@ -88,6 +89,7 @@ class tpch_q3(Query):
             CR(0) == CR(3),
             [0, 4, 5, 1, 2],
             unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
         )
 
         # Group by: l_orderkey, o_orderdate, o_shippriority

@@ -56,7 +56,7 @@ class tpch_q11(Query):
         # s_nationkey = n_nationkey
         # After these operations, `supplier` contains columns ["s_suppkey"]
         supplier = read("supplier", ["s_suppkey", "s_nationkey"])
-        supplier = supplier.broadcast_join(nation, CR(1) == CR(2), [0], unique_keys_policy=UniqueKeysPolicy.right)
+        supplier = supplier.broadcast_join(nation, CR(1) == CR(2), [0], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=False)
 
         # ps_suppkey = s_suppkey
         # After these operations, `partsupp` contains columns
@@ -64,7 +64,7 @@ class tpch_q11(Query):
         partsupp = read(
             "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"]
         )
-        partsupp = partsupp.broadcast_join(supplier, CR(1) == CR(4), [0, 2, 3], unique_keys_policy=UniqueKeysPolicy.right)
+        partsupp = partsupp.broadcast_join(supplier, CR(1) == CR(4), [0, 2, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
         # Calculate sum(ps_supplycost * ps_availqty) * 0.0001
         # FIXME: for some reason CR(1) * CR(2) * Literal(0.0001) fails

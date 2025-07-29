@@ -97,11 +97,11 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
   gqe::join_type_type join_type,
   std::vector<cudf::size_type> projection_indices,
   bool broadcast_left_side,
-  gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none)
+  gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none,
+  bool perfect_hashing = false)
 {
   gqe::physical::broadcast_policy policy = gqe::physical::broadcast_policy::right;
   if (broadcast_left_side) policy = gqe::physical::broadcast_policy::left;
-
   return std::make_shared<gqe::physical::broadcast_join_relation>(
     std::move(left_table),
     std::move(right_table),
@@ -110,7 +110,8 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
     condition->clone(),
     std::move(projection_indices),
     policy,
-    unique_keys_pol);
+    unique_keys_pol,
+    perfect_hashing);
 }
 
 std::shared_ptr<gqe::physical::relation> aggregate(
@@ -226,6 +227,7 @@ struct context {
           bool join_use_hash_map_cache                      = false,
           bool read_use_zero_copy                           = false,
           bool join_use_unique_keys                         = true,
+          bool join_use_perfect_hash                        = true,
           bool debug_mem_usage                              = false)
   {
     if (debug_mem_usage) {
@@ -248,6 +250,7 @@ struct context {
     parameters.join_use_hash_map_cache          = join_use_hash_map_cache;
     parameters.read_zero_copy_enable            = read_use_zero_copy;
     parameters.join_use_unique_keys             = join_use_unique_keys;
+    parameters.join_use_perfect_hash            = join_use_perfect_hash;
 
     // FIXME: DRY compression format
     if (in_memory_table_compression_format == "none") {
@@ -629,16 +632,17 @@ PYBIND11_MODULE(lib, py_module)
 
   // Execution
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t,
-                  int32_t,
-                  std::string,
-                  std::string,
-                  int32_t,
-                  bool,
-                  bool,
-                  bool,
-                  bool,
-                  bool,
-                  bool>())
+    .def(py::init<int32_t, // max_num_workers
+                  int32_t, // max_num_partitions
+                  std::string, // in_memory_table_compression_format
+                  std::string, // in_memory_table_compression_data_type
+                  int32_t, // compression_chunk_size
+                  bool, // use_opt_type_for_single_char_col
+                  bool, // use_overlap_mtx
+                  bool, // join_use_hash_map_cache
+                  bool, // read_use_zero_copy
+                  bool, // join_use_unique_keys
+                  bool, // join_use_perfect_hash
+                  bool>()) // debug_mem_usage
     .def("execute", &lib::context::execute);
 }
