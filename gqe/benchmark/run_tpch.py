@@ -79,7 +79,7 @@ def main():
     )
     args = arg_parser.parse_args()
 
-    load_all_data = 1
+    load_all_data = 0
     gqe_host = "localhost"
     query_source = "hand coded".lower()  # tool that generates the query plan
     query_source_path = query_source.replace(" ", "_")
