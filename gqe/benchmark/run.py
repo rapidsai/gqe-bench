@@ -12,8 +12,22 @@ from gqe import Context
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
 from gqe.benchmark.gqe_experiment import GqeParameters, GqeDataInfoExt
-from gqe.relation import Relation, ReadRelation, FilterRelation, AggregateRelation, BroadcastJoinRelation
-from gqe.expression import Expression, ColumnReference, BinaryOpExpression, LikeExpr, IfThenElseExpr, DatePartExpr, Cast
+from gqe.relation import (
+    Relation,
+    ReadRelation,
+    FilterRelation,
+    AggregateRelation,
+    BroadcastJoinRelation,
+)
+from gqe.expression import (
+    Expression,
+    ColumnReference,
+    BinaryOpExpression,
+    LikeExpr,
+    IfThenElseExpr,
+    DatePartExpr,
+    Cast,
+)
 from gqe.table_definition import TPCHTableDefinitions
 
 from database_benchmarking_tools import experiment as exp
@@ -21,9 +35,11 @@ from database_benchmarking_tools import experiment as exp
 import importlib.resources
 import os
 import nvtx
+import pandas as pd
 import re
 from dataclasses import dataclass, asdict, fields
 from typing import Optional
+from collections.abc import Callable
 import copy
 
 
@@ -58,6 +74,12 @@ class QueryInfo:
     identifier: str
     root_relation: Relation | gqe.lib.Relation
     reference_solution: str
+    validator: Callable[[pd.DataFrame, pd.DataFrame, float], None] = (
+        # The lambda transforms the positional `atol` parameter into a named parameter.
+        lambda query_result, reference, atol: pd.testing.assert_frame_equal(
+            query_result, reference, atol=atol
+        )
+    )
 
 
 @dataclass
@@ -189,11 +211,14 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
 
     # Fix partial filter of ReadRelation, if it is the direct child of a
     # FilterRelation or AggregateRelation. Also stops recursion.
-    elif isinstance(relation, (AggregateRelation, FilterRelation)) and \
-         isinstance(relation.input, ReadRelation) and \
-         relation.input.partial_filter:
+    elif (
+        isinstance(relation, (AggregateRelation, FilterRelation))
+        and isinstance(relation.input, ReadRelation)
+        and relation.input.partial_filter
+    ):
         relation.input.partial_filter = fix_column_references(
-            copy.deepcopy(relation.condition))
+            copy.deepcopy(relation.condition)
+        )
 
     # Recursively descent to child relations
     elif isinstance(relation, BroadcastJoinRelation):
@@ -281,7 +306,7 @@ def run_tpc(
                     break
 
             try:
-                verify_parquet(out_file, query.reference_solution)
+                verify_parquet(out_file, query.reference_solution, query.validator)
             except Exception as error:
                 print(error)
                 errors.append((query.identifier, parameter))

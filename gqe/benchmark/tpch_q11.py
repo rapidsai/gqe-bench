@@ -14,6 +14,9 @@ from gqe.expression import Literal
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
 
+import pandas as pd
+from pandas.testing import assert_frame_equal
+
 
 """
 select
@@ -116,3 +119,54 @@ class tpch_q11(Query):
         partsupp = partsupp.sort([(CR(1), "descending", "before")])
 
         return partsupp
+
+    def validate_query(
+        self, query_result: pd.DataFrame, reference: pd.DataFrame, atol: float
+    ):
+        """
+        Validates the query result.
+
+        TPC-H Q11 requires a custom validator because:
+
+          1. The query doesn't fully sepecify the sort order of the result.
+          There can be duplicate `value`s, that have different `ps_partkey`s.
+          Thus, comparing results line-by-line can fail due to different line
+          ordering than the reference result.
+
+          2. Substituting the `DECIMAL` type with a floating-point type results
+          in an unstable sort order. Rounding errors in `value` can lead to a
+          different sort order than the reference result.
+
+        Parameters:
+          query_result (pd.DataFrame): The Q11 query result computed by GQE.
+          reference (pd.DataFrame): The reference query result.
+          atol (float): The floating-point tolerance for validation.
+        """
+
+        q_partkey_name = query_result.columns[0]
+        q_value_name = query_result.columns[1]
+
+        r_partkey_name = reference.columns[0]
+        r_value_name = reference.columns[1]
+
+        # Validate sort order.
+        assert_frame_equal(
+            query_result[[q_value_name]], reference[[r_value_name]], atol=atol
+        )
+
+        # Round to two fractional digits, as specified by TPC-H DECIMAL.
+        query_result[q_value_name] = query_result[q_value_name].round(2)
+
+        # Sort again after rounding. Specify a sort order on both columns.
+        query_result = query_result.sort_values(
+            by=[q_partkey_name, q_value_name], ascending=[False, True]
+        )
+        reference = reference.sort_values(
+            by=[r_partkey_name, r_value_name], ascending=[False, True]
+        )
+
+        query_result.reset_index(drop=True, inplace=True)
+        reference.reset_index(drop=True, inplace=True)
+
+        # Validate row contents.
+        assert_frame_equal(query_result, reference, atol=atol)

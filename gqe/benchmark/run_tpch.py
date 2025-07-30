@@ -41,6 +41,20 @@ def query_identifier_to_name(identifier):
     return identifier[5:].upper()
 
 
+def get_query_validator(query_object):
+    try:
+        query_validator = getattr(query_object, "validate_query")
+        # Check that the validator is a callable method.
+        if not callable(query_validator):
+            raise TypeError("Expected the query validator to be a callable method")
+        else:
+            return query_validator
+
+    except AttributeError:
+        # The query doesn't have a validator.
+        return None
+
+
 def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("dataset", help="TPC-H dataset location")
@@ -204,6 +218,9 @@ def main():
                     root_relation,
                     reference_file,
                 )
+
+                if validator := get_query_validator(query_object):
+                    query.validator = validator
 
                 if not load_all_data and (storage_kind != "parquet_file"):
                     catalog = Catalog()
