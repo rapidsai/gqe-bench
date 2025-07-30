@@ -68,9 +68,18 @@ def main():
         "-c",
         help="Compression format to use",
         choices=[
-            "none", "ans", "lz4", "snappy", "gdeflate", "deflate", 
-            "cascaded", "zstd", "gzip", "bitcomp", 
-            "best_compression_ratio", "best_decompression_speed"
+            "none",
+            "ans",
+            "lz4",
+            "snappy",
+            "gdeflate",
+            "deflate",
+            "cascaded",
+            "zstd",
+            "gzip",
+            "bitcomp",
+            "best_compression_ratio",
+            "best_decompression_speed",
         ],
         nargs="+",
         action="extend",
@@ -183,7 +192,11 @@ def main():
             for query_idx in queries:
                 query_identifier = "tpch_q" + str(query_idx)
                 module = importlib.import_module(query_identifier)
-                root_relation = getattr(module, query_identifier)().root_relation()
+                # Set the scale factor; required by TPC-H Q11
+                query_object = getattr(module, query_identifier)(
+                    scale_factor=scale_factor
+                )
+                root_relation = query_object.root_relation()
                 reference_file = args.solution.replace("%d", f"q{query_idx}")
 
                 query = QueryInfo(
@@ -224,7 +237,13 @@ def main():
                     join_use_perfect_hash,
                 ) in itertools.product(
                     # TODO Change num_workers to [1, 2, 4] when https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/153 is fixed
-                    [1], [1, 2, 4, 8], [True], [False], [False, True], [True], [True, False]
+                    [1],
+                    [1, 2, 4, 8],
+                    [True],
+                    [False],
+                    [False, True],
+                    [True],
+                    [True, False],
                 ):
                     # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                     if read_use_zero_copy and (num_partitions != num_row_groups):

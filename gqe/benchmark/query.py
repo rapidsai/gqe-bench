@@ -13,6 +13,25 @@ from gqe.relation import Relation
 
 
 class Query(ABC):
+    """Abstract physical query plan generator."""
+
+    def __init__(self, **kwargs):
+        """
+        Creates a a new physical query plan generator.
+
+        Parameters:
+          kwargs: Subclasses may take keyword arguments.
+        """
+
+        pass
+
     @abstractmethod
     def root_relation(self) -> Relation:
+        """
+        Creates a phyiscal query plan.
+
+        Returns:
+          Relation: The GQE root relation of the physical query plan.
+        """
+
         pass

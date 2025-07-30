@@ -184,10 +184,12 @@ def main():
             for query_idx in queries:
 
                 if (
-                    query_idx == 15
+                    query_idx == 1
+                    # Q11 FIXME: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/141
+                    or query_idx == 11
+                    or query_idx == 15
                     or query_idx == 18
                     or query_idx == 21
-                    or query_idx == 1
                 ):
                     continue
 
