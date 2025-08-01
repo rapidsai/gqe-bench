@@ -76,15 +76,26 @@ def main():
         nargs="+",
         action="extend",
         type=str,
-        default=["none"],
+        default=None,
+    )
+    arg_parser.add_argument(
+        "--load-all-data",
+        "-l",
+        help="Whether to load all data at once (1) or per query (0). If not specified, defaults to 1 for scale_factor <= 200, 0 otherwise",
+        type=int,
+        choices=[0, 1],
     )
     args = arg_parser.parse_args()
 
-    load_all_data = 0
     gqe_host = "localhost"
     query_source = args.query_source.lower()
     query_source_path = query_source.replace(" ", "_")
     scale_factor = parse_scale_factor(args.dataset)
+    load_all_data = args.load_all_data if args.load_all_data is not None else (1 if scale_factor <= 200 else 0)
+
+    # Set default compression format if none provided
+    if args.compression_format is None:
+        args.compression_format = ["none"]
 
     # You can set it to int32 or int64, for SF1k int64 is required.
     str_to_type = {"int32": lib.TypeId.int32, "int64": lib.TypeId.int64}
@@ -132,8 +143,9 @@ def main():
             ["char"],
             [2**16],
             [lib.TypeId.int32] if scale_factor < 357 else [lib.TypeId.int64],
-            ["pinned_memory"],
+            ["numa_pinned_memory"],
         ):
+            
             match is_valid_identifier_type(identifier_type, "tpch", scale_factor):
                 case True:
                     pass
