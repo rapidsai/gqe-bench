@@ -184,26 +184,26 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
     """
 
     # Helper to fix the column references in an expression
-    def fix_column_references(expression: Expression):
+    def fix_column_references(expression: Expression, relation: Relation):
 
         # Leaf condition: Update the column index to refer to the column in the
         # base table schema.
         if isinstance(expression, ColumnReference):
-            table = relation.input.table
+            table = relation.table
+            projected_columns = relation.columns
             schema_columns = TPCHTableDefinitions().get_schema(query)[table]
-            projected_columns = relation.input.columns
             expression.idx = schema_columns.index(projected_columns[expression.idx])
 
         # Recursively descent to child expressions
         elif isinstance(expression, BinaryOpExpression):
-            fix_column_references(expression.lhs)
-            fix_column_references(expression.rhs)
+            fix_column_references(expression.lhs, relation)
+            fix_column_references(expression.rhs, relation)
         elif isinstance(expression, (LikeExpr, DatePartExpr, Cast)):
-            fix_column_references(expression.input)
+            fix_column_references(expression.input, relation)
         elif isinstance(expression, IfThenElseExpr):
-            fix_column_references(expression.if_expr)
-            fix_column_references(expression.then_expr)
-            fix_column_references(expression.else_expr)
+            fix_column_references(expression.if_expr, relation)
+            fix_column_references(expression.then_expr, relation)
+            fix_column_references(expression.else_expr, relation)
 
     # Stop recursion when the ReadRelation is reached
     if isinstance(relation, ReadRelation):
@@ -216,9 +216,8 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
         and isinstance(relation.input, ReadRelation)
         and relation.input.partial_filter
     ):
-        relation.input.partial_filter = fix_column_references(
-            copy.deepcopy(relation.condition)
-        )
+        relation.input.partial_filter = copy.deepcopy(relation.condition)
+        fix_column_references(relation.input.partial_filter, relation.input)
 
     # Recursively descent to child relations
     elif isinstance(relation, BroadcastJoinRelation):

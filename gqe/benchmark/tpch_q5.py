@@ -50,7 +50,7 @@ class tpch_q5(Query):
         customer = read("customer", ["c_nationkey", "c_custkey"])
 
         # read orders table
-        orders = read("orders", ["o_custkey", "o_orderkey", "o_orderdate"])
+        orders = read("orders", ["o_custkey", "o_orderkey", "o_orderdate"], (CR(4) >= DateLiteral("1994-01-01")) & (CR(4) <= DateLiteral("1994-12-31")))
         orders = orders.filter(
             (CR(2) >= DateLiteral("1994-01-01")) & (CR(2) <= DateLiteral("1994-12-31")),
             [0, 1],
