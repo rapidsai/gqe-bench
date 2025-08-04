@@ -269,7 +269,7 @@ def main():
                     [1],
                     [1, 2, 4, 8],
                     [True],
-                    [False],
+                    [True, False],
                     [False, True],
                     [True],
                     [True, False],
@@ -282,6 +282,11 @@ def main():
                     #
                     # Note: Revisit if GQE behavior changes in future.
                     if read_use_zero_copy and compression_format != "none":
+                        continue
+
+                    # Perfect hash join does not currently support hash map cache
+                    # We only run the configuration when one of the two is enabled
+                    if join_use_perfect_hash == join_use_hash_map_cache:
                         continue
 
                     parameters.append(
