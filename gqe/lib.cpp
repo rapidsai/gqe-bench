@@ -228,7 +228,9 @@ struct context {
           bool read_use_zero_copy                           = false,
           bool join_use_unique_keys                         = true,
           bool join_use_perfect_hash                        = true,
-          bool debug_mem_usage                              = false)
+          bool debug_mem_usage                              = false,
+          bool use_partition_pruning                        = false,
+          std::size_t zone_map_partition_size               = 100000)
   {
     if (debug_mem_usage) {
       auto _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
@@ -251,6 +253,8 @@ struct context {
     parameters.read_zero_copy_enable            = read_use_zero_copy;
     parameters.join_use_unique_keys             = join_use_unique_keys;
     parameters.join_use_perfect_hash            = join_use_perfect_hash;
+    parameters.use_partition_pruning            = use_partition_pruning;
+    parameters.zone_map_partition_size          = zone_map_partition_size;
 
     // FIXME: DRY compression format
     if (in_memory_table_compression_format == "none") {
@@ -643,6 +647,8 @@ PYBIND11_MODULE(lib, py_module)
                   bool, // read_use_zero_copy
                   bool, // join_use_unique_keys
                   bool, // join_use_perfect_hash
-                  bool>()) // debug_mem_usage
+                  bool, // debug_mem_usage
+                  bool, // use_partition_pruning
+                  std::size_t>()) // zone_map_partition_size
     .def("execute", &lib::context::execute);
 }

@@ -29,6 +29,8 @@ class GqeParameters:
     read_use_zero_copy: bool
     join_use_unique_keys: bool
     join_use_perfect_hash: bool
+    use_partition_pruning: bool
+    zone_map_partition_size: int
 
     sut_info_id: SutInfoId | None = None  # Don't set manually
 

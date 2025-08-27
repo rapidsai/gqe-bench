@@ -273,6 +273,8 @@ def run_tpc(
             data.compression_data_type,
             data.compression_chunk_size,
             debug_mem_usage,
+            parameter.use_partition_pruning,
+            parameter.zone_map_partition_size,
         )
 
         print(f"Running {query.identifier}...")
