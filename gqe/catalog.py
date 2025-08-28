@@ -21,6 +21,7 @@ in the future.
 import gqe.lib
 from .table_definition import TPCHTableDefinitions
 
+
 class Catalog:
     def __init__(self) -> None:
         self._catalog = gqe.lib.Catalog()
@@ -35,7 +36,8 @@ class Catalog:
         use_opt_char_type: bool = True,
         in_memory_table_compression_format="none",
         in_memory_table_compression_data_type="char",
-        compression_chunk_size=2**16
+        compression_chunk_size=2**16,
+        zone_map_partition_size=100000,
     ) -> None:
         """
         Register TPC-H dataset in the catalog.
@@ -54,6 +56,7 @@ class Catalog:
         :arg in_memory_table_compression_format: Compression format for the in-memory table.
         :arg in_memory_table_compression_data_type: Determines how input data is viewed as for compression.
         :arg compression_chunk_size: Size of each chunk for nvcomp compression.
+        :arg zone_map_partition_size: Number of rows per zone map partition.
         """
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
 
@@ -61,7 +64,14 @@ class Catalog:
             gqe.lib.register_tpch_parquet(
                 self._catalog, dataset, table_definitions.query_table_definitions(0)
             )
-        elif storage_kind in ["pinned_memory", "system_memory", "numa_memory", "device_memory", "managed_memory", "numa_pinned_memory"]:
+        elif storage_kind in [
+            "pinned_memory",
+            "system_memory",
+            "numa_memory",
+            "device_memory",
+            "managed_memory",
+            "numa_pinned_memory",
+        ]:
             gqe.lib.register_tpch_in_memory(
                 self._catalog,
                 dataset,
@@ -69,8 +79,9 @@ class Catalog:
                 in_memory_table_compression_format,
                 in_memory_table_compression_data_type,
                 compression_chunk_size,
+                zone_map_partition_size,
                 table_definitions.query_table_definitions(load_data_of_query),
-                storage_kind
+                storage_kind,
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")

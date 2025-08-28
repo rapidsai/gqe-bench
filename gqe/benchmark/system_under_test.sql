@@ -20,6 +20,7 @@ CREATE TABLE gqe_parameters(
   p_read_use_zero_copy INTEGER NOT NULL,
   p_join_use_unique_keys INTEGER NOT NULL,
   p_join_use_perfect_hash INTEGER NOT NULL,
+  p_use_partition_pruning INTEGER NOT NULL,
   -- Each parameter combination should be unique within the experiment database.
   UNIQUE (
     p_sut_info_id,
@@ -29,7 +30,8 @@ CREATE TABLE gqe_parameters(
     p_join_use_hash_map_cache,
     p_read_use_zero_copy,
     p_join_use_unique_keys,
-    p_join_use_perfect_hash
+    p_join_use_perfect_hash,
+    p_use_partition_pruning
   ),
   FOREIGN KEY (p_sut_info_id) REFERENCES sut_info(s_id)
 );
@@ -45,12 +47,14 @@ CREATE TABLE gqe_data_info_ext(
   de_compression_format TEXT NOT NULL,
   de_compression_data_type TEXT NOT NULL,
   de_compression_chunk_size INTEGER NOT NULL,
+  de_zone_map_partition_size INTEGER NOT NULL,
   UNIQUE (
     de_data_info_id,
     de_num_row_groups,
     de_compression_format,
     de_compression_data_type,
-    de_compression_chunk_size
+    de_compression_chunk_size,
+    de_zone_map_partition_size
   ),
   FOREIGN KEY (de_data_info_id) REFERENCES data_info(d_id)
 );
@@ -113,6 +117,7 @@ CREATE VIEW gqe_best_parameters AS
       p_read_use_zero_copy,
       p_join_use_unique_keys,
       p_join_use_perfect_hash,
+      p_use_partition_pruning,
       d_storage_device_kind,
       d_format,
       d_location,
@@ -125,6 +130,7 @@ CREATE VIEW gqe_best_parameters AS
       de_compression_format,
       de_compression_data_type,
       de_compression_chunk_size,
+      de_zone_map_partition_size,
       avg(r_duration_s) AS r_avg_duration_s,
       min(r_duration_s) AS r_min_duration_s,
       max(r_duration_s) AS r_max_duration_s,
@@ -148,6 +154,7 @@ CREATE VIEW gqe_best_parameters AS
       p_read_use_zero_copy,
       p_join_use_unique_keys,
       p_join_use_perfect_hash,
+      p_use_partition_pruning,
       d_storage_device_kind,
       d_format,
       d_location,
@@ -159,7 +166,8 @@ CREATE VIEW gqe_best_parameters AS
       de_num_row_groups,
       de_compression_format,
       de_compression_data_type,
-      de_compression_chunk_size
+      de_compression_chunk_size,
+      de_zone_map_partition_size
   )
   SELECT
     data.*

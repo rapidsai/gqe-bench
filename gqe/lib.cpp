@@ -52,9 +52,9 @@
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
+#include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
-#include <rmm/mr/device/owning_wrapper.hpp>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -98,7 +98,7 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
   std::vector<cudf::size_type> projection_indices,
   bool broadcast_left_side,
   gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none,
-  bool perfect_hashing = false)
+  bool perfect_hashing                    = false)
 {
   gqe::physical::broadcast_policy policy = gqe::physical::broadcast_policy::right;
   if (broadcast_left_side) policy = gqe::physical::broadcast_policy::left;
@@ -222,25 +222,27 @@ struct context {
           std::string in_memory_table_compression_format    = "none",
           std::string in_memory_table_compression_data_type = "char",
           int32_t compression_chunk_size                    = 65536,
+          size_t zone_map_partition_size                    = 100000,
           bool use_opt_type_for_single_char_col             = true,
           bool use_overlap_mtx                              = true,
           bool join_use_hash_map_cache                      = false,
           bool read_use_zero_copy                           = false,
           bool join_use_unique_keys                         = true,
           bool join_use_perfect_hash                        = true,
-          bool debug_mem_usage                              = false,
           bool use_partition_pruning                        = false,
-          std::size_t zone_map_partition_size               = 100000)
+          bool debug_mem_usage                              = false)
   {
     if (debug_mem_usage) {
-      auto _mr = std::make_unique<rmm::mr::cuda_async_memory_resource>(0); // set initial pool size to 0
+      auto _mr =
+        std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(_mr));
     } else {
       using upstream_mr_type = rmm::mr::cuda_memory_resource;
       using mr_type          = rmm::mr::pool_memory_resource<upstream_mr_type>;
-      auto pool_size = gqe::utility::default_device_memory_pool_size();
-      auto upstream_mr = std::make_shared<upstream_mr_type>();
-      auto mr = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(upstream_mr, pool_size, pool_size);
+      auto pool_size         = gqe::utility::default_device_memory_pool_size();
+      auto upstream_mr       = std::make_shared<upstream_mr_type>();
+      auto mr                = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
+        upstream_mr, pool_size, pool_size);
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(mr));
     }
 
@@ -379,6 +381,7 @@ void register_table_in_memory(gqe::catalog* catalog,
                               std::string in_memory_table_compression_format,
                               std::string in_memory_table_compression_data_type,
                               int32_t compression_chunk_size,
+                              size_t zone_map_partition_size,
                               std::string name,
                               std::vector<gqe::column_traits> const& definition,
                               std::vector<std::string> const& file_paths,
@@ -414,7 +417,8 @@ void register_table_in_memory(gqe::catalog* catalog,
               num_row_groups,
               in_memory_table_compression_format,
               in_memory_table_compression_data_type,
-              compression_chunk_size);
+              compression_chunk_size,
+              zone_map_partition_size);
 
   ctx.execute(catalog, write_table, std::nullopt);
 }
@@ -426,6 +430,7 @@ void register_tpch_in_memory(
   std::string in_memory_table_compression_format,
   std::string in_memory_table_compression_data_type,
   int32_t compression_chunk_size,
+  size_t zone_map_partition_size,
   std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
   const std::string& storage_kind_description)
 {
@@ -436,6 +441,7 @@ void register_tpch_in_memory(
                              in_memory_table_compression_format,
                              in_memory_table_compression_data_type,
                              compression_chunk_size,
+                             zone_map_partition_size,
                              name,
                              definition,
                              file_paths,
@@ -636,19 +642,20 @@ PYBIND11_MODULE(lib, py_module)
 
   // Execution
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t, // max_num_workers
-                  int32_t, // max_num_partitions
-                  std::string, // in_memory_table_compression_format
-                  std::string, // in_memory_table_compression_data_type
-                  int32_t, // compression_chunk_size
-                  bool, // use_opt_type_for_single_char_col
-                  bool, // use_overlap_mtx
-                  bool, // join_use_hash_map_cache
-                  bool, // read_use_zero_copy
-                  bool, // join_use_unique_keys
-                  bool, // join_use_perfect_hash
-                  bool, // debug_mem_usage
-                  bool, // use_partition_pruning
-                  std::size_t>()) // zone_map_partition_size
+    .def(py::init<int32_t,      // max_num_workers
+                  int32_t,      // max_num_partitions
+                  std::string,  // in_memory_table_compression_format
+                  std::string,  // in_memory_table_compression_data_type
+                  int32_t,      // compression_chunk_size
+                  size_t,       // zone_map_partition_size
+                  bool,         // use_opt_type_for_single_char_col
+                  bool,         // use_overlap_mtx
+                  bool,         // join_use_hash_map_cache
+                  bool,         // read_use_zero_copy
+                  bool,         // join_use_unique_keys
+                  bool,         // join_use_perfect_hash
+                  bool,         // use_partition_pruning
+                  bool          // debug_mem_usage
+                  >())
     .def("execute", &lib::context::execute);
 }

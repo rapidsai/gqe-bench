@@ -19,6 +19,7 @@ from gqe.benchmark.run import (
     Parameter,
     EdbInfo,
     setup_db,
+    parse_bool,
     parse_scale_factor,
     parse_identifier_type,
     set_eager_module_loading,
@@ -111,8 +112,9 @@ def main():
         "--partition-pruning",
         "-p",
         help="Enable partition pruning optimization",
-        action="store_true",
-        default=False,
+        type=parse_bool,
+        nargs="*",
+        default=[False],
     )
     args = arg_parser.parse_args()
 
@@ -120,8 +122,12 @@ def main():
     query_source = "hand coded".lower()  # tool that generates the query plan
     query_source_path = query_source.replace(" ", "_")
     scale_factor = parse_scale_factor(args.dataset)
-    load_all_data = args.load_all_data if args.load_all_data is not None else (1 if scale_factor <= 200 else 0)
-        
+    load_all_data = (
+        args.load_all_data
+        if args.load_all_data is not None
+        else (1 if scale_factor <= 200 else 0)
+    )
+
     # Set default compression format if none provided
     if args.compression_format is None:
         args.compression_format = ["none"]
@@ -165,6 +171,7 @@ def main():
             compression_chunk_size,
             identifier_type,
             storage_kind,
+            zone_map_partition_size,
         ) in itertools.product(
             num_row_group_list,
             [True],
@@ -173,6 +180,7 @@ def main():
             [2**16],
             [lib.TypeId.int32] if scale_factor < 357 else [lib.TypeId.int64],
             ["numa_pinned_memory"],
+            [100000],
         ):
 
             match is_valid_identifier_type(identifier_type, "tpch", scale_factor):
@@ -197,6 +205,7 @@ def main():
                 compression_format=compression_format,
                 compression_data_type=compression_data_type,
                 compression_chunk_size=compression_chunk_size,
+                zone_map_partition_size=zone_map_partition_size,
             )
 
             if load_all_data or (storage_kind == "parquet_file"):
@@ -212,6 +221,7 @@ def main():
                         compression_format,
                         compression_data_type,
                         compression_chunk_size,
+                        zone_map_partition_size,
                     )
                 except Exception as e:
                     print(f"Error registering table: {e}")
@@ -254,6 +264,7 @@ def main():
                             compression_format,
                             compression_data_type,
                             compression_chunk_size,
+                            zone_map_partition_size,
                         )
                         fix_partial_filter_column_references(root_relation, query_idx)
                     except Exception as e:
@@ -272,7 +283,6 @@ def main():
                     join_use_unique_keys,
                     join_use_perfect_hash,
                     use_partition_pruning,
-                    zone_map_partition_size,
                 ) in itertools.product(
                     # TODO Change num_workers to [1, 2, 4] when https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/153 is fixed
                     [1],
@@ -282,8 +292,7 @@ def main():
                     [False, True],
                     [True],
                     [True, False],
-                    [args.partition_pruning],
-                    [100000],
+                    args.partition_pruning,
                 ):
                     # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                     if read_use_zero_copy and (num_partitions != num_row_groups):
@@ -310,7 +319,6 @@ def main():
                             join_use_unique_keys,
                             join_use_perfect_hash,
                             use_partition_pruning,
-                            zone_map_partition_size,
                         )
                     )
 

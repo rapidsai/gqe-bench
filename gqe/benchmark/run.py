@@ -111,6 +111,16 @@ def setup_db(edb: exp.ExperimentDB, query_source: str) -> EdbInfo:
     return EdbInfo(sut_info_id, hw_info_id, query_source)
 
 
+def parse_bool(value: str) -> bool:
+    """Parse a string into a Boolean value."""
+    if value.lower() == "true":
+        return True
+    elif value.lower() == "false":
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Expected a Boolean value ("true" or "false")')
+
+
 def parse_scale_factor(path: str) -> int:
     predicate = re.compile(".*(?:sf|SF)([0-9]+)([kK]?).*")
     matches = predicate.match(path)
@@ -272,9 +282,9 @@ def run_tpc(
             data.compression_format,
             data.compression_data_type,
             data.compression_chunk_size,
-            debug_mem_usage,
             parameter.use_partition_pruning,
-            parameter.zone_map_partition_size,
+            data.zone_map_partition_size,
+            debug_mem_usage,
         )
 
         print(f"Running {query.identifier}...")

@@ -27,9 +27,9 @@ class Context:
         in_memory_table_compression_format: str = "none",
         in_memory_table_compression_data_type: str = "char",
         compression_chunk_size: int = 65536,
-        debug_mem_usage=False,
         use_partition_pruning: bool = False,
         zone_map_partition_size: int = 100000,
+        debug_mem_usage=False,
     ):
         self._context = gqe.lib.Context(
             max_num_workers,
@@ -37,15 +37,15 @@ class Context:
             in_memory_table_compression_format,
             in_memory_table_compression_data_type,
             compression_chunk_size,
+            zone_map_partition_size,
             use_opt_type_for_single_char_col,
             use_overlap_mtx,
             join_use_hash_map_cache,
             read_use_zero_copy,
             join_use_unique_keys,
             join_use_perfect_hash,
-            debug_mem_usage,
             use_partition_pruning,
-            zone_map_partition_size,
+            debug_mem_usage,
         )
 
     def execute(

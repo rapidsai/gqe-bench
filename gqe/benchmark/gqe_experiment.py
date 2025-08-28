@@ -30,7 +30,6 @@ class GqeParameters:
     join_use_unique_keys: bool
     join_use_perfect_hash: bool
     use_partition_pruning: bool
-    zone_map_partition_size: int
 
     sut_info_id: SutInfoId | None = None  # Don't set manually
 
@@ -43,6 +42,7 @@ class GqeDataInfoExt:
     compression_format: str
     compression_data_type: str
     compression_chunk_size: int
+    zone_map_partition_size: int
 
     data_info_id: DataInfoId | None = None  # Don't set manually
 
