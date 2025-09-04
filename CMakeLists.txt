@@ -10,6 +10,9 @@
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CUDA_STANDARD 20)
+
 if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES "70-real" "80-real" "90-real" "100-real" "120")
 endif()
@@ -17,8 +20,6 @@ endif()
 project(gqe-python LANGUAGES CXX CUDA)
 
 include(cmake/CPM.cmake)
-
-
 
 if(DEFINED GQE_SOURCE_DIR)
   message(STATUS "Using GQE from local source directory: ${GQE_SOURCE_DIR}")
