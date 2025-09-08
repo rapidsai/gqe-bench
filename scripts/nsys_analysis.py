@@ -1,50 +1,84 @@
-import sqlite3
+#!/usr/bin/env python3
+#
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
 import argparse
 import csv
+import sqlite3
 
-def kernel_time(conn, nvtx_range_regex, csv_output, args):
-    cursor = conn.cursor()        
+def kernel_time(connection, nvtx_range_glob, csv_output, args):
+
     sql_str = f"""
     SELECT 
-        nvtx_filt.name,
-        COUNT(kernel.correlationId) AS kernel_count,
-        ROUND(SUM(kernel.end - kernel.start) / 1000000.0, 3) AS total_kernel_time_ms
-    FROM (
-        SELECT 
-            nvtx.start AS start, nvtx.end AS end, IFNULL(nvtx.text, s.value) AS name
-        FROM NVTX_EVENTS nvtx
-        LEFT JOIN StringIds AS s ON s.id = nvtx.textId
-        WHERE nvtx.eventType = 59 OR nvtx.eventType = 34 OR nvtx.eventType = 75) AS nvtx_filt
-    LEFT JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel ON (kernel.start < nvtx_filt.end AND kernel.end > nvtx_filt.start) -- get kernels
-    LEFT JOIN StringIds kernel_filter_sid ON (kernel.demangledName = kernel_filter_sid.id) -- get kernel names
-    WHERE nvtx_filt.name LIKE "{nvtx_range_regex}" {f"AND kernel_filter_sid.value NOT LIKE \"{args.exclude_kernel_regex}\"" if args.exclude_kernel_regex else ""}
-    GROUP BY nvtx_filt.name, nvtx_filt.start, nvtx_filt.end 
-    ORDER BY nvtx_filt.start
+    nvtx_string.value,
+    COUNT(kernel.correlationId) AS kernel_count,
+    ROUND(SUM(kernel.end - kernel.start) / 1000000.0, 3) AS total_kernel_time_ms
+    
+    FROM NVTX_EVENTS nvtx
+    JOIN StringIds AS nvtx_string
+        ON nvtx_string.id = nvtx.textId -- get nvtx domain names
+    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
+        ON (runtime_activity.end <= nvtx.end
+            AND runtime_activity.start >= nvtx.start) -- get runtime call within nvtx range
+    JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel
+        ON (kernel.correlationId = runtime_activity.correlationId) -- get kernels
+    JOIN StringIds kernel_string
+        ON (kernel.demangledName = kernel_string.id) -- get kernel names
+    WHERE 
+        (nvtx.eventType = 59 OR nvtx.eventType = 60) -- push-pop and start-end ranges
+        AND nvtx_string.value GLOB "{nvtx_range_glob}" 
+        {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'" 
+            if args.exclude_kernel_glob 
+            else ""
+        }
+    GROUP BY 
+        nvtx_string.value, nvtx.start, nvtx.end 
+    ORDER BY 
+        nvtx.start
     """
-    print(sql_str)
-    cursor.execute(sql_str)
-    rows = cursor.fetchall()
+    rows = list(connection.execute(sql_str))
+    headers = ["Name", "Num_Kernels", "Total_kernel_time(ms)"]
     if csv_output:
-        with open(csv_output, 'w') as f:
+        with open(csv_output, 'x') as f:
             writer = csv.writer(f)
-            writer.writerow(["Name", "Num Kernels", "Total kernel time"])
+            writer.writerow(headers)
             writer.writerows(rows)
     else:
-        print(rows)
+        for row in rows:
+            print(dict(zip(headers, row)))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Script to perform analysis on GQE nsys traces')
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    parser.add_argument("sqlite", help="Path to sqlite file for analysis")
-    parser.add_argument("nvtx_range_regex", help="Regex of NVTX range to analyze")
-    parser.add_argument('--csv', default=None, help="CSV file to write to")
+    parser = argparse.ArgumentParser(
+        description="Perform analysis on the supplied nvtx range from an nsys SQLite file")
+    
+    subparsers = parser.add_subparsers(dest="tool", required=True)
+    parser.add_argument("sqlite", help="Path to SQLite file for analysis")
+    parser.add_argument("nvtx_range_glob", help="Glob pattern of NVTX range to analyze")
+    parser.add_argument('-o', '--output', default=None, help="Output to csv file")
 
-    kernel_analysis_parser = subparsers.add_parser("kernel", help="Perform kernel analysis", epilog="Example:\n  python nsys_analysis.py kernel --exclude_kernel_regex \"%fused_concatenate%\" nsys-file.sqlite \"%Run Q13%\"" )
-    kernel_analysis_parser.add_argument('--exclude_kernel_regex', default=None, help="Specify regex for kernels which should be excluded from analysis")
-    kernel_analysis_parser.set_defaults(program=kernel_time)
+    kernel_time_tool_parser = subparsers.add_parser(
+        "kernel_time", 
+        help="Sum up the time for kernels launched in the supplied nvtx range", 
+        epilog="Example:\n  python nsys_analysis.py kernel_time " \
+        "--exclude_kernel_glob \"*fused_concatenate*\" nsys-file.sqlite \"*Run Q13*\"" )
+    
+    kernel_time_tool_parser.add_argument(
+        '--exclude_kernel_glob',
+        default=None, 
+        help="Specify glob pattern for kernels which should be excluded from analysis")
+    
+    kernel_time_tool_parser.set_defaults(program=kernel_time)
     
     args = parser.parse_args()
-    conn = sqlite3.connect(args.sqlite)
-    args.program(conn, args.nvtx_range_regex, args.csv, args)
+    with sqlite3.connect(args.sqlite) as connection:
+        args.program(connection, args.nvtx_range_glob, args.output, args)
 
