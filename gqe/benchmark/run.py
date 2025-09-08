@@ -233,6 +233,10 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
     elif isinstance(relation, BroadcastJoinRelation):
         fix_partial_filter_column_references(relation.left_table, query)
         fix_partial_filter_column_references(relation.right_table, query)
+    # Only check instance is not enough as import_module would create different class objects.
+    elif relation.__class__.__name__ == 'Q22MarkJoinRelation':
+        fix_partial_filter_column_references(relation.customer_table, query)
+        fix_partial_filter_column_references(relation.orders_table, query)
     else:
         fix_partial_filter_column_references(relation.input, query)
 

@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <tpch/q22/task.hpp>
+
 #include <gqe/catalog.hpp>
 #include <gqe/context_reference.hpp>
 #include <gqe/device_properties.hpp>
@@ -33,6 +35,7 @@
 #include <gqe/physical/relation.hpp>
 #include <gqe/physical/set.hpp>
 #include <gqe/physical/sort.hpp>
+#include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/write.hpp>
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
@@ -546,6 +549,8 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("fetch", &lib::fetch);
   py_module.def("union_all", &lib::union_all);
   py_module.def("load_substrait", &lib::load_substrait);
+  py_module.def("q22_fused_project_filter", &gqe_python::benchmark::q22::fused_project_filter);
+  py_module.def("q22_mark_join", &gqe_python::benchmark::q22::mark_join);
 
   // Expressions
   py::class_<gqe::expression, std::shared_ptr<gqe::expression>> expr_cls(py_module, "Expression");

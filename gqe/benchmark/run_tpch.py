@@ -67,12 +67,12 @@ def main():
         help="Which queries to run",
         nargs="+",
         action="extend",
-        type=int,
+        type=str,
     )
     arg_parser.add_argument(
         "--identifier-type",
         "-i",
-        help="Identifier type used in the dataset",
+        help="Identifier type used in the dataset. By default, a suitable type is automatically selected.",
         choices=["int32", "int64"],
         nargs="+",
         action="extend",
@@ -135,7 +135,7 @@ def main():
     # You can set it to int32 or int64, for SF1k int64 is required.
     str_to_type = {"int32": lib.TypeId.int32, "int64": lib.TypeId.int64}
     if not args.identifier_type:
-        identifier_type = [parse_identifier_type(args.dataset)]
+        identifier_type = [lib.TypeId.int32] if scale_factor < 357 else [lib.TypeId.int64]
     else:
         identifier_type = [str_to_type[t] for t in args.identifier_type]
 
@@ -178,7 +178,7 @@ def main():
             args.compression_format,
             ["char"],
             [2**16],
-            [lib.TypeId.int32] if scale_factor < 357 else [lib.TypeId.int64],
+            identifier_type,
             ["numa_pinned_memory"],
             [100000],
         ):
@@ -226,14 +226,19 @@ def main():
                 except Exception as e:
                     print(f"Error registering table: {e}")
                     continue
-
+            
+            complete_queries_as_int = [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21, 22]
+            complete_queries = [str(x) for x in complete_queries_as_int]
+            customized_queries = ["22_opt"]
+            complete_queries.extend(customized_queries)
             queries = (
                 args.queries
                 if args.queries
-                else [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 15, 17, 18, 19, 20, 21, 22]
+                else complete_queries
             )
-            for query_idx in queries:
-                query_identifier = "tpch_q" + str(query_idx)
+            for query_ident in queries:
+                query_identifier = "tpch_q" + str(query_ident)
+                query_idx = int(query_ident.split("_")[0]) if "_" in query_ident else int(query_ident)
                 module = importlib.import_module(query_identifier)
                 # Set the scale factor; required by TPC-H Q11
                 query_object = getattr(module, query_identifier)(
@@ -269,7 +274,7 @@ def main():
                         fix_partial_filter_column_references(root_relation, query_idx)
                     except Exception as e:
                         print(
-                            f"Error registering in memory table for query {query_idx}: {e}"
+                            f"Error registering in memory table for query {query_ident}: {e}"
                         )
                         continue
 
@@ -321,7 +326,6 @@ def main():
                             use_partition_pruning,
                         )
                     )
-
                 run_tpc(
                     catalog,
                     data_info,

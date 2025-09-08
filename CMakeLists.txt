@@ -50,6 +50,19 @@ else()
 endif()
 
 rapids_find_package(pybind11 REQUIRED)
-pybind11_add_module(lib gqe/lib.cpp)
+pybind11_add_module(lib
+  gqe/lib.cpp
+  gqe/benchmark/hardcoded/src/tpch/q22/task.cu
+  gqe/benchmark/hardcoded/src/tpch/q22/fused_project_filter.cu
+  gqe/benchmark/hardcoded/src/tpch/q22/mark_join.cu
+)
+target_include_directories(lib PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/gqe/benchmark/hardcoded/include
+)
+target_compile_options(lib PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
+  $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+  $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>
+)
 target_link_libraries(lib PUBLIC gqe)
 install(TARGETS lib LIBRARY DESTINATION gqe)
