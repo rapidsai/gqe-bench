@@ -233,6 +233,7 @@ struct context {
           bool join_use_unique_keys                         = true,
           bool join_use_perfect_hash                        = true,
           bool use_partition_pruning                        = false,
+          bool filter_use_like_shift_and                    = false,
           bool debug_mem_usage                              = false)
   {
     if (debug_mem_usage) {
@@ -260,6 +261,7 @@ struct context {
     parameters.join_use_perfect_hash            = join_use_perfect_hash;
     parameters.use_partition_pruning            = use_partition_pruning;
     parameters.zone_map_partition_size          = zone_map_partition_size;
+    parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
 
     // FIXME: DRY compression format
     if (in_memory_table_compression_format == "none") {
@@ -660,6 +662,7 @@ PYBIND11_MODULE(lib, py_module)
                   bool,         // join_use_unique_keys
                   bool,         // join_use_perfect_hash
                   bool,         // use_partition_pruning
+                  bool,         // filter_use_like_shift_and
                   bool          // debug_mem_usage
                   >())
     .def("execute", &lib::context::execute);

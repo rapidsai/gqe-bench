@@ -29,6 +29,7 @@ class Context:
         compression_chunk_size: int = 65536,
         use_partition_pruning: bool = False,
         zone_map_partition_size: int = 100000,
+        filter_use_like_shift_and: bool = False,
         debug_mem_usage=False,
     ):
         self._context = gqe.lib.Context(
@@ -45,6 +46,7 @@ class Context:
             join_use_unique_keys,
             join_use_perfect_hash,
             use_partition_pruning,
+            filter_use_like_shift_and,
             debug_mem_usage,
         )
 

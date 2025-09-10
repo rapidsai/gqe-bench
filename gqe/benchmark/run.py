@@ -288,6 +288,7 @@ def run_tpc(
             data.compression_chunk_size,
             parameter.use_partition_pruning,
             data.zone_map_partition_size,
+            parameter.filter_use_like_shift_and,
             debug_mem_usage,
         )
 
