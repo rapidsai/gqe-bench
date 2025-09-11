@@ -59,7 +59,7 @@ class tpch_q4(Query):
         orders = orders.broadcast_join(lineitem, CR(0) == CR(2), [1], "left_semi", True)
 
         # group by o_orderpriority
-        orders = orders.aggregate([CR(0)], [("count_all", CR(0))])
+        orders = orders.aggregate([CR(0)], [("count_all", CR(0))], perfect_hashing=False)
 
         # order by o_orderpriority
         return orders.sort([(CR(0), "ascending", "before")])

@@ -59,9 +59,9 @@ class tpch_q15(Query):
             [0, 2, 3],
         )
 
-        revenue = lineitem.aggregate([CR(0)], [("sum", CR(1) * (Literal(1.0) - CR(2)))])
+        revenue = lineitem.aggregate([CR(0)], [("sum", CR(1) * (Literal(1.0) - CR(2)))], perfect_hashing=True)
 
-        max_revenue = revenue.aggregate([], [("max", CR(1))])
+        max_revenue = revenue.aggregate([], [("max", CR(1))], perfect_hashing=True)
 
         l_max_revenue = revenue.broadcast_join(max_revenue, (CR(1) == CR(2)), [0, 1], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 

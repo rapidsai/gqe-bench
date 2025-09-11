@@ -94,7 +94,8 @@ class tpch_q1(Query):
                 ("sum", CR(1)),
                 ("count_all", CR(1)),
             ],
-            CR(0) <= DateLiteral("1998-09-02")
+            CR(0) <= DateLiteral("1998-09-02"),
+            perfect_hashing=True
         )
 
         # After projection, the columns in `agg` are:

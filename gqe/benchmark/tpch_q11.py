@@ -99,11 +99,11 @@ class tpch_q11(Query):
         )
 
         # Calculate sum(ps_supplycost * ps_availqty)
-        sum_agg = partsupp.aggregate([], [("sum", CR(1) * CR(2))])
+        sum_agg = partsupp.aggregate([], [("sum", CR(1) * CR(2))], perfect_hashing=True)
 
         # sum(ps_supplycost * ps_availqty) group by ps_partkey
         # After this operation, `partsupp` contains columns ["ps_partkey", value]
-        partsupp = partsupp.aggregate([CR(0)], [("sum", CR(1) * CR(2))])
+        partsupp = partsupp.aggregate([CR(0)], [("sum", CR(1) * CR(2))], perfect_hashing=True)
 
         # having sum(ps_supplycost * ps_availqty) > [FRACTION] * ...
         # After this operation, `partsupp` contains columns ["ps_partkey", value]

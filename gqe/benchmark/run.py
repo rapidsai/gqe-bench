@@ -289,6 +289,7 @@ def run_tpc(
             parameter.use_partition_pruning,
             data.zone_map_partition_size,
             parameter.filter_use_like_shift_and,
+            parameter.aggregation_use_perfect_hash,
             debug_mem_usage,
         )
 

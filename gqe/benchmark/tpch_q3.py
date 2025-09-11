@@ -107,6 +107,7 @@ class tpch_q3(Query):
                     CR(3) * (Literal(1) - CR(4)),
                 )  
             ],
+            perfect_hashing=True,
         )
 
         # Sort by: revenue DESC, o_orderdate ASC

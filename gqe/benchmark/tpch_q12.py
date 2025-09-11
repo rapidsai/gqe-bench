@@ -98,6 +98,7 @@ class tpch_q12(Query):
                     ),
                 ),
             ],
+            perfect_hashing=False,
         )
 
         sort_out = agg_out.sort([(CR(0), "ascending", "before")])

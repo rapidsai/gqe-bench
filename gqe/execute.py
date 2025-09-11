@@ -30,6 +30,7 @@ class Context:
         use_partition_pruning: bool = False,
         zone_map_partition_size: int = 100000,
         filter_use_like_shift_and: bool = False,
+        aggregation_use_perfect_hash: bool = False,
         debug_mem_usage=False,
     ):
         self._context = gqe.lib.Context(
@@ -47,6 +48,7 @@ class Context:
             join_use_perfect_hash,
             use_partition_pruning,
             filter_use_like_shift_and,
+            aggregation_use_perfect_hash,
             debug_mem_usage,
         )
 

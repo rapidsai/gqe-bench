@@ -58,4 +58,4 @@ class tpch_q6(Query):
         )
 
         # sum(l_extendedprice * l_discount) as revenue
-        return lineitem.aggregate([], [("sum", CR(1) * CR(0))])
+        return lineitem.aggregate([], [("sum", CR(1) * CR(0))], perfect_hashing=True)

@@ -57,7 +57,7 @@ class tpch_q18(Query):
         # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
         lineitem = (
             read("lineitem", ["l_orderkey", "l_quantity"])
-            .aggregate([CR(0)], [("sum", CR(1))])
+            .aggregate([CR(0)], [("sum", CR(1))], perfect_hashing=True)
             .filter(CR(1) > Literal(300.0), [0, 1])
         )
 
@@ -76,7 +76,7 @@ class tpch_q18(Query):
         # After this operation, `orders` contains
         # [c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum(l_quantity)]
         orders = (
-            orders.aggregate([CR(5), CR(1), CR(0), CR(2), CR(3)], [("sum", CR(4))])
+            orders.aggregate([CR(5), CR(1), CR(0), CR(2), CR(3)], [("sum", CR(4))], perfect_hashing=False)
             .sort([(CR(4), "descending", "before"), (CR(3), "ascending", "before")])
             .fetch(0, 100)
         )

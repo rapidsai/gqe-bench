@@ -111,7 +111,7 @@ class tpch_q2(Query):
         )
 
         # After these operations, `agg_result` contains columns ["ps_partkey", min(ps_supplycost)]
-        agg_result = partsupp.aggregate([CR(0)], [("min", CR(1))])
+        agg_result = partsupp.aggregate([CR(0)], [("min", CR(1))], perfect_hashing=True)
 
         # After this operation, `partsupp` contains columns
         # ["s_acctbal", "s_name", "n_name", "p_partkey",

@@ -100,7 +100,7 @@ class tpch_q9(Query):
         join5 = join4.broadcast_join(nation, CR(2) == CR(3), [4, 0, 1], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
 
-        agg = join5.aggregate([CR(0),  DatePartExpr(CR(1), "year")], [("sum", CR(2))])
+        agg = join5.aggregate([CR(0),  DatePartExpr(CR(1), "year")], [("sum", CR(2))], perfect_hashing=False)
         sorted_output = agg.sort([(CR(0), "ascending", "before"), (CR(1), "descending", "before")])
 
         return sorted_output

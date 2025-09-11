@@ -22,6 +22,7 @@ CREATE TABLE gqe_parameters(
   p_join_use_perfect_hash INTEGER NOT NULL,
   p_use_partition_pruning INTEGER NOT NULL,
   p_filter_use_like_shift_and INTEGER NOT NULL,
+  p_aggregation_use_perfect_hash INTEGER NOT NULL,
   -- Each parameter combination should be unique within the experiment database.
   UNIQUE (
     p_sut_info_id,
@@ -33,7 +34,8 @@ CREATE TABLE gqe_parameters(
     p_join_use_unique_keys,
     p_join_use_perfect_hash,
     p_use_partition_pruning,
-    p_filter_use_like_shift_and
+    p_filter_use_like_shift_and,
+    p_aggregation_use_perfect_hash
   ),
   FOREIGN KEY (p_sut_info_id) REFERENCES sut_info(s_id)
 );
@@ -121,6 +123,7 @@ CREATE VIEW gqe_best_parameters AS
       p_join_use_perfect_hash,
       p_use_partition_pruning,
       p_filter_use_like_shift_and,
+      p_aggregation_use_perfect_hash,
       d_storage_device_kind,
       d_format,
       d_location,
@@ -159,6 +162,7 @@ CREATE VIEW gqe_best_parameters AS
       p_join_use_perfect_hash,
       p_use_partition_pruning,
       p_filter_use_like_shift_and,
+      p_aggregation_use_perfect_hash,
       d_storage_device_kind,
       d_format,
       d_location,

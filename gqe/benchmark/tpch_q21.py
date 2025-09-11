@@ -122,7 +122,7 @@ class tpch_q21(Query):
         #     numwait desc, s_name
         # limit 100
         l1 = (
-            l1.aggregate([CR(0)], [("count_all", CR(0))])
+            l1.aggregate([CR(0)], [("count_all", CR(0))], perfect_hashing=False)
             .sort([(CR(1), "descending", "before"), (CR(0), "ascending", "before")])
             .fetch(0, 100)
         )

@@ -124,4 +124,4 @@ class tpch_q19(Query):
         )
 
         # sum(l_extendedprice* (1 - l_discount)) as revenue
-        return joined.aggregate([], [("sum", CR(0) * (Literal(1) - CR(1)))])
+        return joined.aggregate([], [("sum", CR(0) * (Literal(1) - CR(1)))], perfect_hashing=True)

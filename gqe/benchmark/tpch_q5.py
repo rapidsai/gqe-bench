@@ -88,5 +88,5 @@ class tpch_q5(Query):
         # result has [ "l_extendedprice", "l_discount",  "n_name"]
 
         # groupby and sort
-        result = result.aggregate([CR(2)], [("sum", CR(0) * (Literal(1) - CR(1)))])
+        result = result.aggregate([CR(2)], [("sum", CR(0) * (Literal(1) - CR(1)))], perfect_hashing=False)
         return result.sort([(CR(1), "descending", "before")])

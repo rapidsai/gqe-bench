@@ -121,7 +121,8 @@ std::shared_ptr<gqe::physical::relation> aggregate(
   std::shared_ptr<gqe::physical::relation> input,
   std::vector<std::shared_ptr<gqe::expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::shared_ptr<gqe::expression>>> measures,
-  gqe::expression const* condition = nullptr)
+  gqe::expression const* condition = nullptr,
+  bool perfect_hashing = false)
 {
   std::vector<std::unique_ptr<gqe::expression>> cloned_keys;
   for (auto const& key : keys) {
@@ -140,7 +141,8 @@ std::shared_ptr<gqe::physical::relation> aggregate(
     std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(cloned_keys),
     std::move(cloned_measures),
-    std::move(cloned_condition));
+    std::move(cloned_condition),
+    perfect_hashing);
 }
 
 std::shared_ptr<gqe::physical::relation> project(
@@ -234,6 +236,7 @@ struct context {
           bool join_use_perfect_hash                        = true,
           bool use_partition_pruning                        = false,
           bool filter_use_like_shift_and                    = false,
+          bool aggregation_use_perfect_hash                 = true,
           bool debug_mem_usage                              = false)
   {
     if (debug_mem_usage) {
@@ -262,6 +265,7 @@ struct context {
     parameters.use_partition_pruning            = use_partition_pruning;
     parameters.zone_map_partition_size          = zone_map_partition_size;
     parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
+    parameters.aggregation_use_perfect_hash    = aggregation_use_perfect_hash;
 
     // FIXME: DRY compression format
     if (in_memory_table_compression_format == "none") {
@@ -663,6 +667,7 @@ PYBIND11_MODULE(lib, py_module)
                   bool,         // join_use_perfect_hash
                   bool,         // use_partition_pruning
                   bool,         // filter_use_like_shift_and
+                  bool,         // aggregation_use_perfect_hash
                   bool          // debug_mem_usage
                   >())
     .def("execute", &lib::context::execute);

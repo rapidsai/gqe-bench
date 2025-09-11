@@ -31,6 +31,7 @@ class GqeParameters:
     join_use_perfect_hash: bool
     use_partition_pruning: bool
     filter_use_like_shift_and: bool
+    aggregation_use_perfect_hash: bool
 
     sut_info_id: SutInfoId | None = None  # Don't set manually
 

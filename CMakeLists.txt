@@ -35,7 +35,7 @@ else()
   endif()
 
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "171cbf2bf4156e191608b8e2203393f6de712f93")
+    set(GQE_GIT_TAG "b7a01270a987984a67fe355cb0161148caf2d3d4")
   endif()
   
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")

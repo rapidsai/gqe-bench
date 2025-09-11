@@ -54,7 +54,7 @@ class tpch_q17(Query):
 
         # Calculate avg(l_quantity) for each `l_partkey`
         # `avg_l_quantity` has columns ["l_partkey", avg(l_quantity)]
-        avg_l_quantity = lineitem.aggregate([CR(0)], [("avg", CR(1))])
+        avg_l_quantity = lineitem.aggregate([CR(0)], [("avg", CR(1))], perfect_hashing=True)
 
         # Calculate l_quantity < 0.2 * avg(l_quantity)
         # After this operation, `lineitem` has column ["l_extendedprice"]
@@ -65,7 +65,7 @@ class tpch_q17(Query):
         )
 
         # Calculate sum(l_extendedprice) / 7.0
-        sum_l_extendedprice = lineitem.aggregate([], [("sum", CR(0))]).project(
+        sum_l_extendedprice = lineitem.aggregate([], [("sum", CR(0))], perfect_hashing=True).project(
             [CR(0) / Literal(7.0)]
         )
 

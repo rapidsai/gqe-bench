@@ -136,7 +136,7 @@ class tpch_q7(Query):
         #   supp_nation,
         #   cust_nation,
         #   l_year
-        l1 = l1.aggregate([CR(0), CR(1), CR(2)], [("sum", CR(3))]).sort(
+        l1 = l1.aggregate([CR(0), CR(1), CR(2)], [("sum", CR(3))], perfect_hashing=False).sort(
             [
                 (CR(0), "ascending", "before"),
                 (CR(1), "ascending", "before"),

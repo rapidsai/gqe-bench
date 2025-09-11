@@ -78,7 +78,7 @@ class Relation(ABC):
         )
 
     def aggregate(
-        self, keys: list[Expression], measures: list[tuple[str, Expression]], condition: Expression = None
+        self, keys: list[Expression], measures: list[tuple[str, Expression]], condition: Expression = None, perfect_hashing: bool = False
     ) -> Relation:
         """
         Groups the table on zero or more sets of grouping keys and applies reduction within the
@@ -96,7 +96,7 @@ class Relation(ABC):
             where the condition evaluates to `True` are included. If not provided, all rows
             are aggregated.
         """
-        return AggregateRelation(self, keys, measures, condition)
+        return AggregateRelation(self, keys, measures, condition, perfect_hashing)
 
     def project(self, out_exprs: list[Expression]) -> Relation:
         """
@@ -256,6 +256,7 @@ class AggregateRelation(Relation):
         keys: list[Expression],
         measures: list[tuple[str, Expression]],
         condition: Expression = None,
+        perfect_hashing: bool = False
     ):
         self.input = input
 
@@ -273,6 +274,7 @@ class AggregateRelation(Relation):
 
         self.measures = measures
         self.condition = condition
+        self.perfect_hashing = perfect_hashing
 
     def _to_cpp(self):
         return gqe.lib.aggregate(
@@ -282,7 +284,8 @@ class AggregateRelation(Relation):
                 (_aggregation_kind_to_cpp[kind], expr._cpp)
                 for (kind, expr) in self.measures
             ],
-            self.condition._cpp if self.condition else None
+            self.condition._cpp if self.condition else None,
+            self.perfect_hashing
         )
 
 

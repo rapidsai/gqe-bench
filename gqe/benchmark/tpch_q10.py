@@ -90,7 +90,7 @@ class tpch_q10(Query):
         # group by "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone", "c_address", "c_comment"
         # sum l_extendedprice * (1 - l_discount)
         # agg has "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone", "c_address", "c_comment", "revenue"
-        agg = j3.aggregate([CR(2), CR(3), CR(4), CR(5), CR(6), CR(7), CR(8)], [("sum", CR(0) * (Literal(1.0) - CR(1)))])
+        agg = j3.aggregate([CR(2), CR(3), CR(4), CR(5), CR(6), CR(7), CR(8)], [("sum", CR(0) * (Literal(1.0) - CR(1)))], perfect_hashing=False)
 
         # order by "revenue" desc limit 20
         sort_limit = agg.sort([(CR(7), "descending", "before")]).fetch(0, 20)

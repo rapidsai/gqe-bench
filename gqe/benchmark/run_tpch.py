@@ -289,6 +289,7 @@ def main():
                     join_use_perfect_hash,
                     use_partition_pruning,
                     filter_use_like_shift_and,
+                    aggregation_use_perfect_hash,
                 ) in itertools.product(
                     # TODO Change num_workers to [1, 2, 4] when https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/153 is fixed
                     [1],
@@ -300,6 +301,7 @@ def main():
                     [True, False],
                     args.partition_pruning,
                     [True], # filter_use_like_shift_and
+                    [True, False],
                 ):
                     # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                     if read_use_zero_copy and (num_partitions != num_row_groups):
@@ -327,6 +329,7 @@ def main():
                             join_use_perfect_hash,
                             use_partition_pruning,
                             filter_use_like_shift_and,
+                            aggregation_use_perfect_hash,
                         )
                     )
                 run_tpc(

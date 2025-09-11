@@ -82,7 +82,7 @@ class tpch_q20(Query):
         # sum(l_quantity) group by (l_partkey, l_suppkey)
         # After these operations,
         # `lineitem` contains columns ["l_partkey", "l_suppkey", sum(l_quantity)]
-        lineitem = lineitem.aggregate([CR(0), CR(1)], [("sum", CR(2))])
+        lineitem = lineitem.aggregate([CR(0), CR(1)], [("sum", CR(2))], perfect_hashing=True)
 
         # ps_partkey in (subquery) and ps_availqty > (subquery)
         # After these operations, `partsupp` contains columns ["ps_suppkey"]
