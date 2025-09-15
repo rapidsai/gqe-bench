@@ -97,7 +97,7 @@ class tpch_q22_opt(Query):
         filtered_customers = Q22FusedProjectFilterRelation(customer)
 
         # Calculate average account balance for positive balance customers with matching country codes
-        avg_acctbal = filtered_customers.aggregate([], [("avg", CR(2))])
+        avg_acctbal = filtered_customers.aggregate([], [("avg", CR(2))], perfect_hashing=False)
         
         # Filter customers with account balance > average
         high_balance_customers = filtered_customers.broadcast_join(
@@ -115,7 +115,8 @@ class tpch_q22_opt(Query):
             [
                 ("count_all", CR(0)),  # count(*) as numcust
                 ("sum", CR(1))         # sum(c_acctbal) as totacctbal
-            ]
+            ],
+            perfect_hashing=False
         )
         
         # Order by country code
