@@ -19,3 +19,7 @@ dependencies = [
 cmake.source-dir = "."
 cmake.verbose = true
 install.strip=false
+
+[project.scripts]
+gqe-tpch-parameter-sweep = "gqe.benchmark.run_tpch_parameter_sweep:main"
+gqe-tpch-pretuned = "gqe.benchmark.run_tpch_pretuned:main"

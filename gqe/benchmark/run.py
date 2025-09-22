@@ -66,7 +66,6 @@ class DataInfo(exp.DataInfo, GqeDataInfoExt):
 class EdbInfo:
     sut_info_id: int
     hw_info_id: int
-    query_source: str
 
 
 @dataclass
@@ -98,7 +97,7 @@ def upcast_to_super(obj, super_class):
     return super_class(**super_kwargs)
 
 
-def setup_db(edb: exp.ExperimentDB, query_source: str) -> EdbInfo:
+def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
     sut_creation_path = importlib.resources.files("gqe.benchmark").joinpath(
         "system_under_test.sql"
     )
@@ -108,7 +107,7 @@ def setup_db(edb: exp.ExperimentDB, query_source: str) -> EdbInfo:
     sut_info_id = edb.insert_sut_info(exp.SutInfo(name="gqe"))
     hw_info_id = edb.insert_hw_info()
 
-    return EdbInfo(sut_info_id, hw_info_id, query_source)
+    return EdbInfo(sut_info_id, hw_info_id)
 
 
 def parse_bool(value: str) -> bool:
@@ -141,11 +140,13 @@ def parse_identifier_type(path: str) -> gqe.lib.TypeId:
     has_id32 = "id32" in location_parts
     has_id64 = "id64" in location_parts
     if has_id32 and not has_id64:
-        return gqe.lib.TypeId.int32
+        identifier_type = gqe.lib.TypeId.int32
     elif has_id64 and not has_id32:
-        return gqe.lib.TypeId.int64
+        identifier_type = gqe.lib.TypeId.int64
     else:
-        raise RuntimeError(f"Can't determine the identifier type of {path}")
+        scale_factor = parse_scale_factor(path)   
+        identifier_type = gqe.lib.TypeId.int32 if scale_factor < 357 else gqe.lib.TypeId.int64
+    return identifier_type
 
 
 def is_valid_identifier_type(
@@ -165,6 +166,20 @@ def is_valid_identifier_type(
             return scale_factor < 357 or identifier_type == gqe.lib.TypeId.int64
         case _:
             return None
+
+
+def get_query_validator(query_object):
+    try:
+        query_validator = getattr(query_object, "validate_query")
+        # Check that the validator is a callable method.
+        if not callable(query_validator):
+            raise TypeError("Expected the query validator to be a callable method")
+        else:
+            return query_validator
+
+    except AttributeError:
+        # The query doesn't have a validator.
+        return None
 
 
 # Note: Presumably needs to be set before CUDA initialization. CUDA docs don't
@@ -250,6 +265,7 @@ def run_tpc(
     edb: exp.ExperimentDB,
     edb_info: EdbInfo,
     errors: list,
+    query_source: str,
 ):
     repeat = 6
 
@@ -264,7 +280,7 @@ def run_tpc(
         debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
         print(
-            f"Running with parameters "
+            f"Running query from {query_source} with parameters "
             f"debug_mem_usage={debug_mem_usage}, "
             f"{ parameter }, {data}"
         )
@@ -306,7 +322,7 @@ def run_tpc(
                 name=query.identifier,
                 suite="TPC-H",
                 scale_factor=scale_factor,
-                query_source=edb_info.query_source,
+                query_source=query_source,
             )
         )
 

@@ -114,6 +114,7 @@ CREATE VIEW gqe_best_parameters AS
       e_name,
       e_suite,
       e_scale_factor,
+      e_query_source,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -146,7 +147,7 @@ CREATE VIEW gqe_best_parameters AS
         JOIN run ON e_id = r_experiment_id
         JOIN gqe_parameters ON e_parameters_id = p_id
         JOIN data_info ON d_id = e_data_info_id
-        JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
+        JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id 
      WHERE r_number > 0
      GROUP BY
       e_id,
