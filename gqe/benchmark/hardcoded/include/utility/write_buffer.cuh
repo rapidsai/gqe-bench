@@ -72,7 +72,7 @@ class write_buffer_op {
     cuda::atomic_ref<cudf::size_type, cuda::thread_scope_device> output_table_offset)
     : storage(storage), output_table(output_table), output_table_offset(output_table_offset)
   {
-    assert(warp_size == warpSize);
+    assert(gqe::utility::warp_size == warpSize);
 
     if (gqe_python::utility::thread_rank() == leader) {
       storage->buffer_offset[gqe_python::utility::warp_id()].store(0, cuda::memory_order_relaxed);
