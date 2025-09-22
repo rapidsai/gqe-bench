@@ -18,3 +18,4 @@ dependencies = [
 [tool.scikit-build]
 cmake.source-dir = "."
 cmake.verbose = true
+install.strip=false
