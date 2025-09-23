@@ -24,7 +24,7 @@ namespace benchmark {
 namespace q22 {
 
 template <typename T>
-using mark_join_map_type = gqe_python::utility::multimap_type<T>;
+using mark_join_map_type = gqe_python::utility::multimap_type<T, cudf::size_type>;
 template <typename T>
 using mark_join_map_ref_type =
   typename mark_join_map_type<T>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;

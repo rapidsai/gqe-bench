@@ -1,0 +1,72 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ *
+ * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+ * property and proprietary rights in and to this material, related
+ * documentation and any modifications thereto. Any use, reproduction,
+ * disclosure or distribution of this material and related documentation
+ * without an express license agreement from NVIDIA CORPORATION or
+ * its affiliates is strictly prohibited.
+ */
+
+#pragma once
+
+#include <gqe/physical/relation.hpp>
+
+#include <cstdint>
+#include <memory>
+
+namespace gqe_python {
+namespace benchmark {
+namespace q13 {
+
+/**
+ * @brief Create a groupjoin hash map build relation.
+ *
+ * @param[in] customer The LHS input table of the groupjoin. In Q13, this is the `customer` table.
+ * @param[in] scale_factor The TPC-H scale factor. The SF used to calculate the size of the
+ * `customer` table. This is a workaround for not having access to the GQE catalog.
+ *
+ * @return The groupjoin build physical relation.
+ */
+std::shared_ptr<gqe::physical::relation> groupjoin_build(
+  std::shared_ptr<gqe::physical::relation> customer, int32_t scale_factor);
+
+/**
+ * @brief Create a groupjoin hash map probe relation.
+ *
+ * @param[in] groupjoin_build The build-side relation of the groupjoin.
+ * @param[in] orders The filtered orders input relation.
+ *
+ * @return The groupjoin probe physical relation.
+ */
+std::shared_ptr<gqe::physical::relation> groupjoin_probe(
+  std::shared_ptr<gqe::physical::relation> groupjoin_build,
+  std::shared_ptr<gqe::physical::relation> orders);
+
+/**
+ * @brief A fused relation for the filter and groupjoin probe.
+ *
+ * @param[in] groupjoin_build The build relation of the groupjoin.
+ * @param[in] orders The unfiltered orders input relation.
+ *
+ * @return The fused physical relation.
+ */
+std::shared_ptr<gqe::physical::relation> fused_filter_probe(
+  std::shared_ptr<gqe::physical::relation> groupjoin_build,
+  std::shared_ptr<gqe::physical::relation> orders);
+
+/**
+ * @brief Create a groupjoin hash map retrieve relation.
+ *
+ * @param[in] groupjoin_probe The probe relation of the groupjoin.
+ *
+ * @return The groupjoin retrieve physical relation.
+ */
+std::shared_ptr<gqe::physical::relation> groupjoin_retrieve(
+  std::shared_ptr<gqe::physical::relation> groupjoin_probe);
+
+}  // namespace q13
+}  // namespace benchmark
+}  // namespace gqe_python

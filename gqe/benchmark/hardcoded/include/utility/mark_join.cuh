@@ -30,6 +30,8 @@
 #include <cuco/types.cuh>
 #include <cuco/utility/cuda_thread_scope.cuh>
 
+#include <gqe/utility/helpers.hpp>
+
 #include <cstdint>
 
 namespace {

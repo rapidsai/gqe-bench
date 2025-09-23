@@ -50,11 +50,11 @@ __global__ void iterate_join_map(mark_join_map_ref_type<identifier_type> map_dev
                                  cudf::size_type* customer_out_indices,
                                  cudf::size_type* d_counter_ref)
 {
-  cuda::atomic_ref<cudf::size_type, cuda::thread_scope_device> d_global_offset{*d_counter_ref};
+  cuda::atomic_ref<cudf::size_type, cuda::thread_scope_device> d_global_offset(*d_counter_ref);
   constexpr bool is_anti_join = true;
 
-  __shared__ typename write_buffer_op<cudf::size_type>::storage_t wbs;
-  write_buffer_op<cudf::size_type> wb(&wbs, customer_out_indices, d_global_offset);
+  __shared__ typename utility::write_buffer_op<cudf::size_type>::storage_t wbs;
+  utility::write_buffer_op<cudf::size_type> wb(&wbs, d_global_offset, customer_out_indices);
 
   gqe_python::utility::mark_join_op<mark_join_map_ref_type<identifier_type>> mjo(map_device_view,
                                                                                  d_global_offset);

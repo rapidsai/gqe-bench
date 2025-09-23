@@ -189,8 +189,9 @@ struct mark_join_functor {
         {},
         {},
         {},
-        gqe_python::utility::map_allocator_type<identifier_type>{
-          gqe_python::utility::map_allocator_instance_type<identifier_type>{}, main_stream}};
+        gqe_python::utility::map_allocator_type<identifier_type, cudf::size_type>{
+          gqe_python::utility::map_allocator_instance_type<identifier_type, cudf::size_type>{},
+          main_stream}};
 
       // Create bloom filter.
       // Hyperparameters for bloom filter size to achieve best performance.

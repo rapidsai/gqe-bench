@@ -39,7 +39,7 @@ import os
 
 
 def get_queries(query_source: str, queries: list[str] = None):
-    handcoded_queries = ["1", "2", "3", "4", "5", "6", "7", "9", "10", "11", "12", "15", "17", "18", "19", "20", "21", "22", "22_opt"]
+    handcoded_queries = ["1", "2", "3", "4", "5", "6", "7", "9", "10", "11", "12", "13", "13_opt", "13_fused", "15", "17", "18", "19", "20", "21", "22", "22_opt"]
 
     # 1, 15, 18, 21 removed as per previous run-script
     # Q11 FIXME: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/141

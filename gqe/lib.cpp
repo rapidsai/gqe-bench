@@ -10,6 +10,8 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <tpch/q13/filter_orders_task.hpp>
+#include <tpch/q13/groupjoin_task.hpp>
 #include <tpch/q22/task.hpp>
 
 #include <gqe/catalog.hpp>
@@ -122,7 +124,7 @@ std::shared_ptr<gqe::physical::relation> aggregate(
   std::vector<std::shared_ptr<gqe::expression>> keys,
   std::vector<std::pair<cudf::aggregation::Kind, std::shared_ptr<gqe::expression>>> measures,
   gqe::expression const* condition = nullptr,
-  bool perfect_hashing = false)
+  bool perfect_hashing             = false)
 {
   std::vector<std::unique_ptr<gqe::expression>> cloned_keys;
   for (auto const& key : keys) {
@@ -265,7 +267,7 @@ struct context {
     parameters.use_partition_pruning            = use_partition_pruning;
     parameters.zone_map_partition_size          = zone_map_partition_size;
     parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
-    parameters.aggregation_use_perfect_hash    = aggregation_use_perfect_hash;
+    parameters.aggregation_use_perfect_hash     = aggregation_use_perfect_hash;
 
     // FIXME: DRY compression format
     if (in_memory_table_compression_format == "none") {
@@ -555,6 +557,11 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("fetch", &lib::fetch);
   py_module.def("union_all", &lib::union_all);
   py_module.def("load_substrait", &lib::load_substrait);
+  py_module.def("q13_groupjoin_build", &gqe_python::benchmark::q13::groupjoin_build);
+  py_module.def("q13_groupjoin_probe", &gqe_python::benchmark::q13::groupjoin_probe);
+  py_module.def("q13_groupjoin_retrieve", &gqe_python::benchmark::q13::groupjoin_retrieve);
+  py_module.def("q13_filter_orders", &gqe_python::benchmark::q13::filter_orders);
+  py_module.def("q13_fused_filter_probe", &gqe_python::benchmark::q13::fused_filter_probe);
   py_module.def("q22_fused_project_filter", &gqe_python::benchmark::q22::fused_project_filter);
   py_module.def("q22_mark_join", &gqe_python::benchmark::q22::mark_join);
 
