@@ -1,4 +1,6 @@
 __pycache__
 build/
+build_*/
+.cache/
 *.parquet
 *.db3
