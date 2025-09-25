@@ -14,6 +14,7 @@ from gqe.expression import Literal, DateLiteral, LikeExpr, Cast
 from gqe.type import Float64
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -58,11 +59,11 @@ order by
 
 
 class tpch_q20(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # p_name like 'forest%'
         # The selectivity of this filter is ~1%
         # After these operations, `part` contains columns ["p_partkey"]
-        part = read("part", ["p_partkey", "p_name"], LikeExpr(CR(1), "forest%"))
+        part = read("part", ["p_partkey", "p_name"], LikeExpr(CR(1), "forest%"), table_defs)
         part = part.filter(LikeExpr(CR(1), "forest%"), [0])
 
         # l_shipdate >= date '1994-01-01' and l_shipdate < date '1994-01-01' + interval '1' year
@@ -71,7 +72,8 @@ class tpch_q20(Query):
         # `lineitem` contains columns ["l_partkey", "l_suppkey", "l_quantity"]
         lineitem = read(
             "lineitem", ["l_partkey", "l_suppkey", "l_shipdate", "l_quantity"],
-            (CR(10) >= DateLiteral("1994-01-01")) & (CR(10) < DateLiteral("1995-01-01"))
+            (CR(10) >= DateLiteral("1994-01-01")) & (CR(10) < DateLiteral("1995-01-01")),
+            table_defs
         )
         lineitem = lineitem.filter(
             (CR(2) >= DateLiteral("1994-01-01")) & (CR(2) < DateLiteral("1995-01-01")),
@@ -86,7 +88,7 @@ class tpch_q20(Query):
 
         # ps_partkey in (subquery) and ps_availqty > (subquery)
         # After these operations, `partsupp` contains columns ["ps_suppkey"]
-        partsupp = read("partsupp", ["ps_partkey", "ps_suppkey", "ps_availqty"])
+        partsupp = read("partsupp", ["ps_partkey", "ps_suppkey", "ps_availqty"], None, table_defs)
         partsupp = partsupp.broadcast_join(part, CR(0) == CR(3), [0, 1, 2], "left_semi")
         partsupp = partsupp.broadcast_join(
             lineitem,
@@ -99,12 +101,12 @@ class tpch_q20(Query):
 
         # n_name = 'CANADA'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("CANADA"))
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("CANADA"), table_defs)
         nation = nation.filter(CR(1) == Literal("CANADA"), [0])
 
         # s_nationkey = n_nationkey
         # After these operations, `supplier` contains columns ["s_suppkey", "s_name", "s_address"]
-        supplier = read("supplier", ["s_suppkey", "s_nationkey", "s_name", "s_address"])
+        supplier = read("supplier", ["s_suppkey", "s_nationkey", "s_name", "s_address"], None, table_defs)
         supplier = supplier.broadcast_join(nation, CR(1) == CR(4), [0, 2, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
         # s_suppkey in (subquery)

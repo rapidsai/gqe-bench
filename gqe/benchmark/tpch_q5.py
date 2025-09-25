@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -45,12 +46,12 @@ order by
 
 
 class tpch_q5(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # read customer table
-        customer = read("customer", ["c_nationkey", "c_custkey"])
+        customer = read("customer", ["c_nationkey", "c_custkey"], None, table_defs)
 
         # read orders table
-        orders = read("orders", ["o_custkey", "o_orderkey", "o_orderdate"], (CR(4) >= DateLiteral("1994-01-01")) & (CR(4) <= DateLiteral("1994-12-31")))
+        orders = read("orders", ["o_custkey", "o_orderkey", "o_orderdate"], (CR(4) >= DateLiteral("1994-01-01")) & (CR(4) <= DateLiteral("1994-12-31")), table_defs)
         orders = orders.filter(
             (CR(2) >= DateLiteral("1994-01-01")) & (CR(2) <= DateLiteral("1994-12-31")),
             [0, 1],
@@ -63,25 +64,25 @@ class tpch_q5(Query):
 
         # broadcast join - lineitem result is smaller
         lineitem = read(
-            "lineitem", ["l_orderkey", "l_suppkey", "l_extendedprice", "l_discount"]
+            "lineitem", ["l_orderkey", "l_suppkey", "l_extendedprice", "l_discount"], None, table_defs
         )
         result = lineitem.broadcast_join(result, CR(0) == CR(4), [1, 2, 3, 5], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
         # result has ["l_suppkey", "l_extendedprice", "l_discount", "c_nationkey"]
 
         # broadcast join - supplier is smaller
-        supplier = read("supplier", ["s_suppkey", "s_nationkey"])
+        supplier = read("supplier", ["s_suppkey", "s_nationkey"], None, table_defs)
         result = result.broadcast_join(
             supplier, (CR(0) == CR(4)) & (CR(3) == CR(5)), [1, 2, 5], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
         # result has ["l_extendedprice","l_discount", "s_nationkey"]
 
         # broadcast join nation
-        nation = read("nation", ["n_nationkey", "n_regionkey", "n_name"])
+        nation = read("nation", ["n_nationkey", "n_regionkey", "n_name"], None, table_defs)
         result = result.broadcast_join(nation, (CR(2) == CR(3)), [0, 1, 4, 5], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
         # result has [ "l_extendedprice", "l_discount", "n_regionkey", "n_name"]
 
         # broadcast join -  after filter - region
-        region = read("region", ["r_regionkey", "r_name"]).filter(
+        region = read("region", ["r_regionkey", "r_name"], None, table_defs).filter(
             CR(1) == Literal("ASIA"), [0]
         )
         result = result.broadcast_join(region, (CR(2) == CR(4)), [0, 1, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)

@@ -21,10 +21,12 @@ relations includes :class:`filter <gqe.relation.FilterRelation>`,
 from __future__ import annotations  # Enable forward references for type annotations
 
 from gqe.expression import Expression
+from gqe import table_definition
 import gqe.lib
 from abc import ABC, abstractmethod
 from functools import cached_property
 
+import os
 
 class Relation(ABC):
     @cached_property
@@ -138,6 +140,13 @@ class Relation(ABC):
         :param other: The other table to be appended at the end of this table.
         """
         return UnionAllRelation(self, other)
+    def log_physical_plan(self, query_str : str, folder_path : str) -> None:
+        """
+        Print the physical plan to the file path
+        :param file_path: the physical plan written to
+        """
+        file_path = os.path.join(folder_path, query_str + "_plan.json")
+        return gqe.lib.log_physical_plan(self._to_cpp(), file_path)
 
 
 class ReadRelation(Relation):
@@ -145,23 +154,32 @@ class ReadRelation(Relation):
     A read relation reads a table from the catalog. It does not take any input tables.
     """
 
-    def __init__(self, table: str, columns: list[str], partial_filter: Expression = None):
+    def __init__(self, table: str, columns: list[str], partial_filter: Expression = None, column_defs: list[gqe.lib.ColumnTraits] = None):
         self.table = table
         self.columns = columns
         self.partial_filter = partial_filter
+        self.column_defs = column_defs
 
     def _to_cpp(self):
-        return gqe.lib.read(self.table, self.columns, self.partial_filter._cpp if self.partial_filter else None)
+        return gqe.lib.read(self.table, self.columns, self.partial_filter._cpp if self.partial_filter else None, self.column_defs if self.column_defs else [])
 
 
-def read(table: str, columns: list[str], partial_filter: Expression = None) -> Relation:
+def read(table: str, columns: list[str], partial_filter: Expression = None, table_defs: table_definition.TPCHTableDefinitions = None) -> Relation:
     """
     Factory for constructing a read relation.
 
     :param table: Name of the table to load.
     :param columns: Name of the columns to load.
+    :param partial_filter: Filters determining which rows of the input data are to be loaded.
+    :param table_defs: Table definitions to get column types
     """
-    return ReadRelation(table, columns, partial_filter)
+    column_defs = None
+    if table_defs:
+        # query all tables
+        tables = table_defs.query_table_definitions(0)
+        if table in tables:
+            column_defs = tables[table]
+    return ReadRelation(table, columns, partial_filter, column_defs)
 
 
 class FilterRelation(Relation):

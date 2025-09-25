@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral, IfThenElseExpr
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -50,7 +51,7 @@ order by
 
 
 class tpch_q12(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         lineitem = read(
             "lineitem",
             ["l_shipmode", "l_commitdate", "l_receiptdate", "l_shipdate", "l_orderkey"],
@@ -58,7 +59,8 @@ class tpch_q12(Query):
             & (CR(12) > CR(11))
             & (CR(11) > CR(10))
             & (CR(12) >= DateLiteral("1994-01-01"))
-            & (CR(12) <= DateLiteral("1994-12-31"))
+            & (CR(12) <= DateLiteral("1994-12-31")),
+            table_defs
         )
 
         # After these operations lineitem contains ["l_shipmode", "l_orderkey"]
@@ -72,7 +74,7 @@ class tpch_q12(Query):
             [0, 4],
         )
 
-        orders = read("orders", ["o_orderkey", "o_orderpriority"])
+        orders = read("orders", ["o_orderkey", "o_orderpriority"], None, table_defs)
 
         # After these operations join contains ["l_shipmode", "l_orderkey"]
         # Due to filter, orders table is bigger than lineitem table

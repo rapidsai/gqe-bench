@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 import pandas as pd
 from pandas.testing import assert_frame_equal
@@ -67,15 +68,15 @@ class tpch_q11(Query):
 
         self.scale_factor = scale_factor
 
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # n_name = 'GERMANY'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"))
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"), table_defs)
         nation = nation.filter(CR(1) == Literal("GERMANY"), [0])
 
         # s_nationkey = n_nationkey
         # After these operations, `supplier` contains columns ["s_suppkey"]
-        supplier = read("supplier", ["s_suppkey", "s_nationkey"])
+        supplier = read("supplier", ["s_suppkey", "s_nationkey"], None, table_defs)
         supplier = supplier.broadcast_join(
             nation,
             CR(1) == CR(2),
@@ -88,7 +89,8 @@ class tpch_q11(Query):
         # After these operations, `partsupp` contains columns
         # ["ps_partkey", "ps_supplycost", "ps_availqty"]
         partsupp = read(
-            "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"]
+            "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"],
+            None, table_defs
         )
         partsupp = partsupp.broadcast_join(
             supplier,

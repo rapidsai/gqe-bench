@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR, Literal, DatePartExpr, DateLiteral
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 select
@@ -56,7 +57,7 @@ order by
 
 
 class tpch_q7(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # Nation filter predicate rewrite to a conjunctive normal form separable into multiple filters
         # P := (n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY') or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')
         # <=>
@@ -66,7 +67,7 @@ class tpch_q7(Query):
         # WHERE n1.n_name = 'FRANCE' or n1.n_name = 'GERMANY'
         nation = read("nation",
                       ["n_nationkey", "n_name"],
-                      (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY"))
+                      (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")), table_defs
                       ).filter(
             (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")), [0, 1]
         )
@@ -74,7 +75,7 @@ class tpch_q7(Query):
         # join on c_nationkey = n2.n_nationkey
         #   customer has columns ["c_custkey", "c_nationkey"]
         #   returns ["c_custkey", "n_name" as "cust_nation"]
-        customer = read("customer", ["c_custkey", "c_nationkey"]).broadcast_join(
+        customer = read("customer", ["c_custkey", "c_nationkey"], None, table_defs).broadcast_join(
             nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
 
@@ -82,7 +83,7 @@ class tpch_q7(Query):
         #   orders has columns ["o_orderkey", "o_custkey"]
         #   customer has columns ["c_custkey", "cust_nation"]
         #   returns ["o_orderkey", "cust_nation"]
-        orders = read("orders", ["o_orderkey", "o_custkey"]).broadcast_join(
+        orders = read("orders", ["o_orderkey", "o_custkey"], None, table_defs).broadcast_join(
             customer, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
 
@@ -90,7 +91,8 @@ class tpch_q7(Query):
         l1 = read(
             "lineitem",
             ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
-            (CR(10) >= DateLiteral("1995-01-01")) & (CR(10) <= DateLiteral("1996-12-31"))
+            (CR(10) >= DateLiteral("1995-01-01")) & (CR(10) <= DateLiteral("1996-12-31")),
+            table_defs
         ).filter(
             (CR(2) >= DateLiteral("1995-01-01")) & (CR(2) <= DateLiteral("1996-12-31")),
             [0, 1, 2, 3, 4],
@@ -105,7 +107,7 @@ class tpch_q7(Query):
         # join on s_nationkey = n1.n_nationkey
         #   supplier has columns ["s_suppkey", "s_nationkey"]
         #   returns ["s_suppkey", "n_name" as "supp_nation"]
-        supplier = read("supplier", ["s_suppkey", "s_nationkey"]).broadcast_join(
+        supplier = read("supplier", ["s_suppkey", "s_nationkey"], None, table_defs).broadcast_join(
             nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
         )
 

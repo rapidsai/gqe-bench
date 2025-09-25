@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -47,14 +48,14 @@ The PK-FK join between order and customer on "o_custkey = c_custkey" doesnot cha
 """
 
 class tpch_q3(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
 
-        customer = read("customer", ["c_custkey", "c_mktsegment"],  (CR(6) == Literal("BUILDING")))
+        customer = read("customer", ["c_custkey", "c_mktsegment"],  (CR(6) == Literal("BUILDING")), table_defs)
         orders = read(
-            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_shippriority"], (CR(4) < DateLiteral("1995-03-15")),
+            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_shippriority"], (CR(4) < DateLiteral("1995-03-15")), table_defs
         )
         lineitem = read(
-            "lineitem", ["l_orderkey", "l_extendedprice", "l_discount", "l_shipdate"], (CR(10) > DateLiteral("1995-03-15")),
+            "lineitem", ["l_orderkey", "l_extendedprice", "l_discount", "l_shipdate"], (CR(10) > DateLiteral("1995-03-15")), table_defs
         )
 
         # Filter customer table: c_mktsegment = 'BUILDING'

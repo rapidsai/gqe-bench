@@ -13,6 +13,7 @@ from gqe.expression import Literal
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 select
@@ -53,20 +54,20 @@ limit
 
 
 class tpch_q18(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
         lineitem = (
-            read("lineitem", ["l_orderkey", "l_quantity"])
+            read("lineitem", ["l_orderkey", "l_quantity"], None, table_defs)
             .aggregate([CR(0)], [("sum", CR(1))], perfect_hashing=True)
             .filter(CR(1) > Literal(300.0), [0, 1])
         )
 
-        customer = read("customer", ["c_custkey", "c_name"])
+        customer = read("customer", ["c_custkey", "c_name"], None, table_defs)
 
         # After this operation, `orders` contains
         # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
         orders = read(
-            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]
+            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"], None, table_defs
         ).broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True)
 
         # After this operation, `orders` contains

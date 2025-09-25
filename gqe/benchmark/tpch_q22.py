@@ -11,6 +11,7 @@
 from gqe import read
 from gqe.expression import ColumnReference as CR, Literal, SubstrExpr
 from gqe.benchmark.query import Query
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 select
@@ -53,10 +54,10 @@ order by
 """
 
 class tpch_q22(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         
         # customer: c_custkey, substring(c_phone, 0, 2), c_acctbal
-        customer = read("customer", ["c_custkey", "c_phone", "c_acctbal"])
+        customer = read("customer", ["c_custkey", "c_phone", "c_acctbal"], None, table_defs)
         customer = customer.project([CR(0), SubstrExpr(CR(1), 0, 2), CR(2)])
         
         # List of country codes to filter by
@@ -86,7 +87,7 @@ class tpch_q22(Query):
         )
         
         # Find customers with no orders using left anti join
-        orders = read("orders", ["o_custkey"])
+        orders = read("orders", ["o_custkey"], None, table_defs)
         customers_no_orders = high_balance_customers.broadcast_join(
             orders, CR(0) == CR(3), [1, 2], "left_anti"
         )

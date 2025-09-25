@@ -13,6 +13,7 @@ from gqe.expression import Literal, DateLiteral
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 with revenue (supplier_no, total_revenue) as (
@@ -50,10 +51,11 @@ order by
 
 
 class tpch_q15(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         lineitem = read(
             "lineitem", ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
-            (CR(10) >= DateLiteral("1996-01-01")) & (CR(10) <= DateLiteral("1996-03-31"))
+            (CR(10) >= DateLiteral("1996-01-01")) & (CR(10) <= DateLiteral("1996-03-31")),
+            table_defs
         ).filter(
             (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")),
             [0, 2, 3],
@@ -65,7 +67,7 @@ class tpch_q15(Query):
 
         l_max_revenue = revenue.broadcast_join(max_revenue, (CR(1) == CR(2)), [0, 1], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
-        supplier = read("supplier", ["s_suppkey", "s_name", "s_address", "s_phone"])
+        supplier = read("supplier", ["s_suppkey", "s_name", "s_address", "s_phone"], None, table_defs)
 
         unsorted_output = supplier.broadcast_join(
             l_max_revenue, (CR(0) == CR(4)), [0, 1, 2, 3, 5], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True

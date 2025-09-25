@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 from gqe.relation import Relation
 import gqe.lib
+from gqe.table_definition import TPCHTableDefinitions
 
 class Q22FusedProjectFilterRelation(Relation):
     """
@@ -90,10 +91,10 @@ order by
 """
 
 class tpch_q22_opt(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         
         # customer: c_custkey, substring(c_phone, 0, 2), c_acctbal
-        customer = read("customer", ["c_custkey", "c_phone", "c_acctbal"])
+        customer = read("customer", ["c_custkey", "c_phone", "c_acctbal"], None, table_defs)
         filtered_customers = Q22FusedProjectFilterRelation(customer)
 
         # Calculate average account balance for positive balance customers with matching country codes
@@ -105,7 +106,7 @@ class tpch_q22_opt(Query):
         )
         
         # Find customers with no orders using left anti join
-        orders = read("orders", ["o_custkey"])
+        orders = read("orders", ["o_custkey"], None, table_defs)
         customers_no_orders = Q22MarkJoinRelation(high_balance_customers, orders)
 
         # Group by country code and calculate aggregates

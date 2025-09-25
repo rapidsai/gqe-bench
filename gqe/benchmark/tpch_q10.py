@@ -14,6 +14,7 @@ from gqe.expression import DateLiteral
 from gqe.expression import Literal
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 '''
 select
@@ -53,23 +54,23 @@ limit
 
 # Plan improves on the substrait plan by having a better join order and reducing string materialization cost.
 class tpch_q10(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate"],
-                      (CR(4) >= DateLiteral("1993-10-01")) & (CR(4) < DateLiteral("1994-01-01")))
+                      (CR(4) >= DateLiteral("1993-10-01")) & (CR(4) < DateLiteral("1994-01-01")), table_defs)
 
         # o_orderdate >= date '1993-10-01' and o_orderdate < date '1993-10-01' + interval '3' month
         # After this operation, `orders` has column ["o_orderkey", "o_custkey"]
         orders = orders.filter(
             (CR(2) >= DateLiteral("1993-10-01")) & (CR(2) < DateLiteral("1994-01-01")), [0,1])
         
-        customer = read("customer", ["c_custkey", "c_nationkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"])
+        customer = read("customer", ["c_custkey", "c_nationkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"], None, table_defs)
         
         # c_custkey = o_custkey
         # broadcast orders table
         # j1 has columns ["o_orderkey", "c_custkey", "c_nationkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"]
         j1 = orders.broadcast_join(customer, CR(1) == CR(2), [0, 2, 3, 4, 5, 6, 7, 8], "inner", True, unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
-        nation = read("nation", ["n_nationkey", "n_name"])
+        nation = read("nation", ["n_nationkey", "n_name"], None, table_defs)
         
         # c_nationkey = n_nationkey
         # broadcast nation table
@@ -79,7 +80,7 @@ class tpch_q10(Query):
         # l_returnflag = 'R'
         # After this operation, `lineitem` has column ["l_orderkey", "l_extendedprice", "l_discount"]
         lineitem = read("lineitem", ["l_orderkey", "l_returnflag", "l_extendedprice", "l_discount"],
-                        (CR(8) == Literal(ord('R'))))
+                        (CR(8) == Literal(ord('R'))), table_defs)
         lineitem = lineitem.filter((CR(1) == Literal(ord('R'))), [0,2,3])
 
         # l_orderkey = o_orderkey

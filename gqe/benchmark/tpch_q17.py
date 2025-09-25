@@ -13,6 +13,7 @@ from gqe.expression import Literal
 from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 select
@@ -36,16 +37,17 @@ where
 
 
 class tpch_q17(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         part = read("part", ["p_partkey", "p_brand", "p_container"],
-                    (CR(3) == Literal("Brand#23")) & (CR(6) == Literal("MED BOX")))
+                    (CR(3) == Literal("Brand#23")) & (CR(6) == Literal("MED BOX")),
+                    table_defs)
 
         # Filter the part table
         part = part.filter(
             (CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")), [0]
         )
 
-        lineitem = read("lineitem", ["l_partkey", "l_quantity", "l_extendedprice"])
+        lineitem = read("lineitem", ["l_partkey", "l_quantity", "l_extendedprice"], None, table_defs)
 
         # Join the lineitem with the part table
         # After this operation, `lineitem` has columns

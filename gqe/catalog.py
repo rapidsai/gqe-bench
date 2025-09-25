@@ -38,7 +38,7 @@ class Catalog:
         in_memory_table_compression_data_type="char",
         compression_chunk_size=2**16,
         zone_map_partition_size=100000,
-    ) -> None:
+    ) -> TPCHTableDefinitions:
         """
         Register TPC-H dataset in the catalog.
 
@@ -85,6 +85,7 @@ class Catalog:
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")
+        return table_definitions
 
     def load_substrait(
         self, substrait_file: str, optimized: bool = True

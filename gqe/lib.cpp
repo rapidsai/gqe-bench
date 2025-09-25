@@ -65,6 +65,7 @@
 #include <pybind11/stl.h>
 
 #include <chrono>
+#include <fstream>
 #include <stdexcept>
 
 namespace py = pybind11;
@@ -73,13 +74,30 @@ namespace lib {
 
 std::shared_ptr<gqe::physical::relation> read(std::string table_name,
                                               std::vector<std::string> column_names,
-                                              gqe::expression const* partial_filter)
+                                              gqe::expression const* partial_filter,
+                                              std::vector<gqe::column_traits> column_defs)
 {
+  std::unordered_map<std::string, cudf::data_type> columns;
+  for (auto const& [column_name, type, column_properties] : column_defs) {
+    columns.insert({column_name, type});
+  }
+  std::vector<cudf::data_type> data_types;
+  if (!columns.empty()) {
+    // if column_defs is given, we need to check whether column names are in it
+    for (const auto& name : column_names) {
+      if (columns.count(name)) {
+        data_types.push_back(columns[name]);
+      } else {
+        throw std::logic_error("unable to find column name " + name + " in the " + table_name + " table definition");
+      }
+    }
+  }
   return std::make_shared<gqe::physical::read_relation>(
     std::vector<std::shared_ptr<gqe::physical::relation>>(),
     std::move(column_names),
     std::move(table_name),
-    partial_filter ? partial_filter->clone() : nullptr);
+    partial_filter ? partial_filter->clone() : nullptr,
+    std::move(data_types));
 }
 
 // The following relation factories create a copy for the expression because Python cannot give up
@@ -220,7 +238,37 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
     GQE_LOG_TRACE("Optimized logical plan: \n {}", logical_plan->to_string());
   }
   gqe::physical_plan_builder plan_builder(catalog);
-  return plan_builder.build(logical_plan.get());
+  auto physical_plan = plan_builder.build(logical_plan.get());
+  GQE_LOG_TRACE("Generated physical plan: \n {}", physical_plan->to_string());
+  return physical_plan;
+}
+
+/**
+ * @brief Logs the string representation of a physical relation to a file.
+ *
+ * This function calls the to_string() method on the provided relation object
+ * and writes the resulting string to the file specified by file_path.
+ *
+ * @param relation A shared_ptr to the physical relation to be logged.
+ * @param file_path The path to the output file.
+ * @throws std::logic_error if the file cannot be opened for writing.
+ */
+void log_physical_plan(std::shared_ptr<gqe::physical::relation> relation, std::string file_path)
+{
+  // Create an output file stream object. This attempts to open the file.
+  std::ofstream output_file(file_path);
+
+  // Check if the file stream is in a valid state (i.e., the file was opened).
+  if (!output_file.is_open()) {
+      // If the file could not be opened, throw an exception.
+      throw std::logic_error("Error: Could not open or create file for writing at path: " + file_path);
+  }
+
+  // Ensure the relation pointer is not null before dereferencing it.
+  if (relation) {
+      // Get the string representation and write it to the file.
+      output_file << relation->to_string() << std::endl;
+  }
 }
 
 struct context {
@@ -419,7 +467,8 @@ void register_table_in_memory(gqe::catalog* catalog,
     std::vector<std::shared_ptr<gqe::physical::relation>>(),
     column_names,
     name + "_parquet",
-    nullptr);
+    nullptr,
+    column_types);
 
   auto write_table =
     std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
@@ -557,6 +606,7 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("fetch", &lib::fetch);
   py_module.def("union_all", &lib::union_all);
   py_module.def("load_substrait", &lib::load_substrait);
+  py_module.def("log_physical_plan", &lib::log_physical_plan);
   py_module.def("q13_groupjoin_build", &gqe_python::benchmark::q13::groupjoin_build);
   py_module.def("q13_groupjoin_probe", &gqe_python::benchmark::q13::groupjoin_probe);
   py_module.def("q13_groupjoin_retrieve", &gqe_python::benchmark::q13::groupjoin_retrieve);

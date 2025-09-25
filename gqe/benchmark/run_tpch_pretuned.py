@@ -73,6 +73,9 @@ def get_best_parameters_folder(df_folder: str):
 
     return sorted(best_param_dict.values(), key=lambda x: int(x["e_name"].lstrip("Q")))
 
+def log_physical_plan(query_str : str, relation : lib.Relation, folder_path : str):
+    file_path = os.path.join(folder_path, query_str + "_plan.json")
+    lib.log_physical_plan(relation, file_path)
 
 def main():
     arg_parser = argparse.ArgumentParser()
@@ -89,6 +92,7 @@ def main():
         "--swept-sqlite-folder", help="Folder that has the parameter sweep results"
     )
     arg_parser.add_argument("--output", "-o", help="Output file path")
+    arg_parser.add_argument("--output-physical-plan", help="Output file folder of physical plans")
     arg_parser.add_argument(
         "--queries",
         "-q",
@@ -120,6 +124,12 @@ def main():
         GqeExperimentConnection
     )
     print(f"Writing SQLite file to {edb_file}")
+
+    physical_plan_folder = (
+        args.output_physical_plan if args.output_physical_plan else None
+    )
+    if physical_plan_folder:
+        print(f"Writing Physical Plan to the folder {physical_plan_folder}")
 
     errors = []
 
@@ -194,9 +204,10 @@ def main():
                 zone_map_partition_size=zone_map_partition_size,
             )
 
+            table_definitions = None
             catalog = Catalog()
             try:
-                catalog.register_tpch(
+                table_definitions = catalog.register_tpch(
                     args.dataset,
                     storage_kind,
                     num_row_groups,
@@ -221,16 +232,22 @@ def main():
                 query_object = getattr(module, query_identifier)(
                     scale_factor=scale_factor
                 )
-                root_relation = query_object.root_relation()
+                root_relation = query_object.root_relation(table_definitions)
                 query = QueryInfo(f"Q{query_str}", root_relation, reference_file)
                 if validator := get_query_validator(query_object):
                     query.validator = validator
                 if not args.load_all_data and (storage_kind != "parquet_file"):
                     fix_partial_filter_column_references(root_relation, query_idx)
+                # make sure we call log_physical_plan after calling fix_partial_filter_column_references
+                # so that root_relation is properly updated with column references
+                if physical_plan_folder:
+                    root_relation.log_physical_plan(f"Q{query_str}", physical_plan_folder)
             
             elif query_source == "substrait":
                 substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
                 root_relation = catalog.load_substrait(substrait_file)
+                if physical_plan_folder:
+                    log_physical_plan(f"Q{query_idx}", root_relation, physical_plan_folder)
                 query = QueryInfo(f"Q{query_idx}", root_relation, reference_file)
             
             else:
@@ -249,6 +266,8 @@ def main():
             )
 
     print(f"Finished SQLite file at {edb_file}")
+    if physical_plan_folder:
+        print(f"Finished Physical Plan at the folder {physical_plan_folder}")
 
     if errors:
         print(

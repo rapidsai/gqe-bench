@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR
 from gqe.expression import DateLiteral
 from gqe.benchmark.query import Query
+from gqe.table_definition import TPCHTableDefinitions
 
 '''
 select
@@ -39,9 +40,9 @@ order by
 
 
 class tpch_q4(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         orders = read("orders", ["o_orderkey", "o_orderdate", "o_orderpriority"],
-                      (CR(4) >= DateLiteral("1993-07-01")) & (CR(4) < DateLiteral("1993-10-01")))
+                      (CR(4) >= DateLiteral("1993-07-01")) & (CR(4) < DateLiteral("1993-10-01")), table_defs)
 
         # o_orderdate >= date '1993-07-01' and o_orderdate < date '1993-07-01' + interval '3' month
         # After this operation, `orders` has column ["o_orderkey", "o_orderpriority"]
@@ -50,7 +51,7 @@ class tpch_q4(Query):
 
         # l_commitdate < l_receiptdate
         # After this operation, `lineitem` has column ["l_orderkey"]
-        lineitem = read("lineitem", ["l_orderkey", "l_commitdate", "l_receiptdate"], (CR(11) < CR(12)))
+        lineitem = read("lineitem", ["l_orderkey", "l_commitdate", "l_receiptdate"], (CR(11) < CR(12)), table_defs)
         lineitem = lineitem.filter(CR(1) < CR(2), [0])
 
         # exists (select * from lineitem where l_orderkey = o_orderkey)

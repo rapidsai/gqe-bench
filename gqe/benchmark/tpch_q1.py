@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -61,7 +62,7 @@ List of optimization over substrait plans:
 
 
 class tpch_q1(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         lineitem = read(
             "lineitem",
             [
@@ -73,7 +74,8 @@ class tpch_q1(Query):
                 "l_linestatus",
                 "l_tax",
             ],
-            (CR(10) <= DateLiteral("1998-09-02"))
+            (CR(10) <= DateLiteral("1998-09-02")),
+            table_defs
         )
 
         # After aggregation, the columns in `lineitem` are:

@@ -12,6 +12,7 @@ from gqe import read
 from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -28,14 +29,14 @@ where
 
 
 class tpch_q6(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         lineitem = read(
             "lineitem", ["l_shipdate", "l_discount", "l_quantity", "l_extendedprice"],
             (CR(10) >= DateLiteral("1994-01-01"))
             & (CR(10) < DateLiteral("1995-01-01"))
             & (CR(6) >= Literal(0.05))
             & (CR(6) <= Literal(0.07))
-            & (CR(4) < Literal(24.0))
+            & (CR(4) < Literal(24.0)), table_defs
         )
 
         # l_shipdate >= date '1994-01-01'

@@ -259,10 +259,11 @@ def main():
                 zone_map_partition_size=zone_map_partition_size,
             )
 
+            table_definitions = None
             if load_all_data or (storage_kind == "parquet_file"):
                 catalog = Catalog()
                 try:
-                    catalog.register_tpch(
+                    table_definitions = catalog.register_tpch(
                         args.dataset,
                         storage_kind,
                         num_row_groups,
@@ -287,7 +288,7 @@ def main():
                     if not load_all_data and (storage_kind != "parquet_file"):
                         catalog = Catalog()
                         try:
-                            catalog.register_tpch(
+                            table_definitions = catalog.register_tpch(
                                 args.dataset,
                                 storage_kind,
                                 num_row_groups,
@@ -315,7 +316,7 @@ def main():
                         query_object = getattr(module, query_identifier)(
                             scale_factor=scale_factor
                         )
-                        root_relation = query_object.root_relation()
+                        root_relation = query_object.root_relation(table_definitions)
                         # Fix partial filter column references for handcoded queries
                         if not load_all_data and (storage_kind != "parquet_file"):
                             fix_partial_filter_column_references(

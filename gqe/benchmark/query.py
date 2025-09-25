@@ -10,6 +10,7 @@
 
 from abc import ABC, abstractmethod
 from gqe.relation import Relation
+from gqe.table_definition import TPCHTableDefinitions
 
 
 class Query(ABC):
@@ -26,10 +27,11 @@ class Query(ABC):
         pass
 
     @abstractmethod
-    def root_relation(self) -> Relation:
+    def root_relation(self, table_defs : TPCHTableDefinitions) -> Relation:
         """
         Creates a phyiscal query plan.
 
+        :param table_defs the table defintions to get the column types for better printing physical plan
         Returns:
           Relation: The GQE root relation of the physical query plan.
         """

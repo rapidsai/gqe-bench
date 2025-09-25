@@ -13,6 +13,7 @@ from gqe.expression import ColumnReference as CR
 from gqe.expression import Literal, LikeExpr, DatePartExpr
 from gqe.benchmark.query import Query
 from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 
 '''
@@ -58,25 +59,25 @@ List of optimization over substrait plans:
 
 
 class tpch_q9(Query):
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
 
 
-        partsupp = read("partsupp", ["ps_suppkey", "ps_partkey", "ps_supplycost"])
+        partsupp = read("partsupp", ["ps_suppkey", "ps_partkey", "ps_supplycost"], None, table_defs)
 
         # part has "p_partkey"
-        part = read("part", ["p_partkey", "p_name"]).filter(LikeExpr(CR(1), "%green%"), [0])
+        part = read("part", ["p_partkey", "p_name"], None, table_defs).filter(LikeExpr(CR(1), "%green%"), [0])
 
         # joining: "ps_suppkey", "ps_partkey", "ps_supplycost" with "p_partkey"
         #join1 has "ps_suppkey", "ps_supplycost", "p_partkey""
         join1 = partsupp.broadcast_join(part, CR(1) == CR(3), [0, 2, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
-        supplier = read("supplier", ["s_suppkey", "s_nationkey"])
+        supplier = read("supplier", ["s_suppkey", "s_nationkey"], None, table_defs)
         
         # Joining: "ps_suppkey", "ps_supplycost", "p_partkey"" with "s_suppkey", "s_nationkey"
         #Join2 has "ps_supplycost", "p_partkey", "s_suppkey", "s_nationkey"
         join2 = join1.broadcast_join(supplier, CR(0) == CR(3), [1, 2, 3, 4], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
 
-        lineitem = read("lineitem", ["l_suppkey", "l_partkey", "l_orderkey", "l_extendedprice", "l_discount", "l_quantity"])
+        lineitem = read("lineitem", ["l_suppkey", "l_partkey", "l_orderkey", "l_extendedprice", "l_discount", "l_quantity"], None, table_defs)
 
         # Joining: "l_suppkey", "l_partkey", "l_orderkey", "l_extendedprice", "l_discount", "l_quantity" with 
                         # "ps_supplycost", "p_partkey", "s_suppkey", "s_nationkey"
@@ -87,13 +88,13 @@ class tpch_q9(Query):
         join3_projected = join3.project([CR(0),  CR(1) * Literal(1.0) - CR(1) * CR(2) - CR(4) * CR(3), CR(5)])
 
 
-        orders = read("orders", ["o_orderkey", "o_orderdate"])
+        orders = read("orders", ["o_orderkey", "o_orderdate"], None, table_defs)
 
         # Joining "o_orderkey", "o_orderdate" with "l_orderkey", "amount", "s_nationkey"
         # "o_orderdate", "amount",  "s_nationkey"
         join4 = orders.broadcast_join(join3_projected, CR(0) == CR(2), [1, 3, 4], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True)
 
-        nation = read("nation", ["n_nationkey", "n_name"])
+        nation = read("nation", ["n_nationkey", "n_name"], None, table_defs)
 
         # Joining:  "o_orderdate", "amount",  "s_nationkey" with "n_nationkey", "n_name"
         # "n_name", "o_orderdate", "amount"
