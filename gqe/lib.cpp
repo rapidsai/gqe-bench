@@ -46,8 +46,9 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 #include <gqe/utility/tpch.hpp>
-
 #include <gqe/optimizer/logical_optimization.hpp>
+
+#include <git_revision.h.in>
 
 #include <cudf/datetime.hpp>
 #include <cudf/io/parquet.hpp>
@@ -67,6 +68,7 @@
 #include <chrono>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 
 namespace py = pybind11;
 
@@ -520,6 +522,15 @@ gqe::literal_expression<cudf::timestamp_D> date_from_days(cudf::timestamp_D::rep
 PYBIND11_MODULE(lib, py_module)
 {
   py_module.doc() = "Python binding for GQE library";
+
+  // Version
+  py_module.attr("libgqe_branch") = py::str(std::string(GQE_GIT_BRANCH));
+  py_module.attr("libgqe_commit") = py::str(std::string(GQE_GIT_SHA1));
+#ifdef GQE_GIT_IS_DIRTY
+  py_module.attr("libgqe_is_dirty") = 1;
+#else
+  py_module.attr("libgqe_is_dirty") = 0;
+#endif
 
   // Types
 

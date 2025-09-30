@@ -66,6 +66,7 @@ class DataInfo(exp.DataInfo, GqeDataInfoExt):
 class EdbInfo:
     sut_info_id: int
     hw_info_id: int
+    build_info_id: int
 
 
 @dataclass
@@ -106,8 +107,8 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
 
     sut_info_id = edb.insert_sut_info(exp.SutInfo(name="gqe"))
     hw_info_id = edb.insert_hw_info()
-
-    return EdbInfo(sut_info_id, hw_info_id)
+    build_info_id = edb.insert_build_info(exp.BuildInfo(revision=gqe.lib.libgqe_commit, is_dirty=gqe.lib.libgqe_is_dirty, branch=gqe.lib.libgqe_branch))
+    return EdbInfo(sut_info_id, hw_info_id, build_info_id)
 
 
 def parse_bool(value: str) -> bool:
@@ -322,7 +323,7 @@ def run_tpc(
                 sut_info_id=edb_info.sut_info_id,
                 parameters_id=parameters_id,
                 hw_info_id=edb_info.hw_info_id,
-                build_info_id=None,
+                build_info_id=edb_info.build_info_id,
                 data_info_id=data_info_id,
                 data_info_ext_id=data_info_ext_id,
                 name=query.identifier,

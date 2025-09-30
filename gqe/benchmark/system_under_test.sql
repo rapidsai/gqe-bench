@@ -97,7 +97,7 @@ CREATE VIEW gqe_run_all_info AS
          JOIN hw_info ON h_id = e_hw_info_id
          JOIN data_info ON d_id = e_data_info_id
          JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
-  -- FIXME: JOIN build_info ON b_id = e_build_info_id
+         JOIN build_info ON b_id = e_build_info_id
                 ;
 
 -- Best GQE optimization parameters per query.
