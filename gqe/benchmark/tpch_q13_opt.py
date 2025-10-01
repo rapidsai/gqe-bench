@@ -17,6 +17,7 @@ from gqe.benchmark.hardcoded.bindings.tpch_q13 import (
     Q13GroupjoinProbeRelation,
     Q13GroupjoinRetrieveRelation,
 )
+from gqe.table_definition import TPCHTableDefinitions
 
 
 class tpch_q13_opt(Query):
@@ -72,12 +73,12 @@ class tpch_q13_opt(Query):
 
         self.scale_factor = scale_factor
 
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # Read customer table
-        customer = read("customer", ["c_custkey"])
+        customer = read("customer", ["c_custkey"], None, table_defs)
 
         # Read orders table and filter rows where o_comment does not contain '%special%requests%'
-        orders = read("orders", ["o_custkey", "o_comment"])
+        orders = read("orders", ["o_custkey", "o_comment"], None, table_defs)
         orders = Q13FilterOrdersRelation(orders)
 
         # Build the groupjoin hash map

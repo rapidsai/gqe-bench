@@ -11,6 +11,7 @@
 from gqe import read
 from gqe.expression import ColumnReference as CR, LikeExpr, Literal
 from gqe.benchmark.query import Query
+from gqe.table_definition import TPCHTableDefinitions
 
 
 """
@@ -42,12 +43,12 @@ class tpch_q13(Query):
     Creates a TPC-H Q13 phyiscal query plan.
     """
 
-    def root_relation(self):
+    def root_relation(self, table_defs : TPCHTableDefinitions):
         # Read customer table
-        customer = read("customer", ["c_custkey"])
+        customer = read("customer", ["c_custkey"], None, table_defs)
 
         # Read orders table and filter rows where o_comment does not contain '%special%requests%'
-        orders = read("orders", ["o_custkey", "o_comment"]).filter(
+        orders = read("orders", ["o_custkey", "o_comment"], None, table_defs).filter(
             LikeExpr(CR(1), "%special%requests%") == Literal(False), [0]
         )
 
