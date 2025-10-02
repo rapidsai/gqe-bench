@@ -21,6 +21,9 @@ project(gqe-python LANGUAGES CXX CUDA)
 
 include(cmake/CPM.cmake)
 
+# needed for clang-tidy
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(DEFINED GQE_SOURCE_DIR)
   message(STATUS "Using GQE from local source directory: ${GQE_SOURCE_DIR}")
   CPMAddPackage(
