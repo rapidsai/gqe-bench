@@ -178,6 +178,7 @@ def main():
                 best_parameter["p_read_use_zero_copy"],
                 best_parameter["p_join_use_unique_keys"],
                 best_parameter["p_join_use_perfect_hash"],
+                best_parameter["p_join_use_mark_join"],
                 best_parameter["p_use_partition_pruning"],
                 best_parameter["p_filter_use_like_shift_and"],
                 best_parameter["p_aggregation_use_perfect_hash"],

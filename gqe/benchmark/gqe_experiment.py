@@ -29,6 +29,7 @@ class GqeParameters:
     read_use_zero_copy: bool
     join_use_unique_keys: bool
     join_use_perfect_hash: bool
+    join_use_mark_join: bool
     use_partition_pruning: bool
     filter_use_like_shift_and: bool
     aggregation_use_perfect_hash: bool

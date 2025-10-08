@@ -306,6 +306,7 @@ def run_tpc(
             parameter.read_use_zero_copy,
             parameter.join_use_unique_keys,
             parameter.join_use_perfect_hash,
+            parameter.join_use_mark_join,
             data.compression_format,
             data.compression_data_type,
             data.compression_chunk_size,

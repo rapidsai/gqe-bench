@@ -286,6 +286,7 @@ struct context {
           bool read_use_zero_copy                           = false,
           bool join_use_unique_keys                         = true,
           bool join_use_perfect_hash                        = true,
+          bool join_use_mark_join                           = false,
           bool use_partition_pruning                        = false,
           bool filter_use_like_shift_and                    = false,
           bool aggregation_use_perfect_hash                 = true,
@@ -314,6 +315,7 @@ struct context {
     parameters.read_zero_copy_enable            = read_use_zero_copy;
     parameters.join_use_unique_keys             = join_use_unique_keys;
     parameters.join_use_perfect_hash            = join_use_perfect_hash;
+    parameters.join_use_mark_join               = join_use_mark_join;
     parameters.use_partition_pruning            = use_partition_pruning;
     parameters.zone_map_partition_size          = zone_map_partition_size;
     parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
@@ -733,6 +735,7 @@ PYBIND11_MODULE(lib, py_module)
                   bool,         // read_use_zero_copy
                   bool,         // join_use_unique_keys
                   bool,         // join_use_perfect_hash
+                  bool,         // join_use_mark_join
                   bool,         // use_partition_pruning
                   bool,         // filter_use_like_shift_and
                   bool,         // aggregation_use_perfect_hash
