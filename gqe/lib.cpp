@@ -27,6 +27,7 @@
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
 #include <gqe/logical/from_substrait.hpp>
+#include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
 #include <gqe/physical/fetch.hpp>
@@ -46,7 +47,6 @@
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
 #include <gqe/utility/tpch.hpp>
-#include <gqe/optimizer/logical_optimization.hpp>
 
 #include <git_revision.h.in>
 
@@ -90,7 +90,8 @@ std::shared_ptr<gqe::physical::relation> read(std::string table_name,
       if (columns.count(name)) {
         data_types.push_back(columns[name]);
       } else {
-        throw std::logic_error("unable to find column name " + name + " in the " + table_name + " table definition");
+        throw std::logic_error("unable to find column name " + name + " in the " + table_name +
+                               " table definition");
       }
     }
   }
@@ -262,14 +263,15 @@ void log_physical_plan(std::shared_ptr<gqe::physical::relation> relation, std::s
 
   // Check if the file stream is in a valid state (i.e., the file was opened).
   if (!output_file.is_open()) {
-      // If the file could not be opened, throw an exception.
-      throw std::logic_error("Error: Could not open or create file for writing at path: " + file_path);
+    // If the file could not be opened, throw an exception.
+    throw std::logic_error("Error: Could not open or create file for writing at path: " +
+                           file_path);
   }
 
   // Ensure the relation pointer is not null before dereferencing it.
   if (relation) {
-      // Get the string representation and write it to the file.
-      output_file << relation->to_string() << std::endl;
+    // Get the string representation and write it to the file.
+    output_file << relation->to_string() << std::endl;
   }
 }
 

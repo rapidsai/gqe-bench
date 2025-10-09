@@ -1,0 +1,41 @@
+stages:
+  - test
+
+code_style:
+  stage: test
+  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
+  before_script:
+    - source /conda/bin/activate gqe
+  script:
+    - >
+      find ./gqe -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror ||
+      { find ./gqe -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file -i; git diff | tee format_diff.patch; exit 1; }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  artifacts:
+    paths:
+      - format_diff.patch
+    expire_in: 1 week
+    when: on_failure
+
+tpch_queries:
+  stage: test
+  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
+  before_script:
+    - source /conda/bin/activate gqe
+  script:
+    - hostname
+    - nvidia-smi
+    # The *_DEPLOY_* environment variables are set in the Variables sectionhere: https://gitlab-master.nvidia.com/haog/gqe-python/-/settings/ci_cd
+    # They are created in the Deploy tokens sections of these links:
+    #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
+    #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
+    - sed "s/database-benchmarking-tools @ git+ssh:\/\/git@gitlab-master.nvidia.com:12051/database-benchmarking-tools @ git+https:\/\/${BENCHMARK_DEPLOY_USERNAME}:${BENCHMARK_DEPLOY_TOKEN}@gitlab-master.nvidia.com/" -i pyproject.toml
+    - sed "s/ssh:\/\/git@gitlab-master.nvidia.com:12051/https:\/\/${GQE_DEPLOY_USERNAME}:${GQE_DEPLOY_TOKEN}@gitlab-master.nvidia.com/" -i CMakeLists.txt
+    - pip install -e .
+    # TODO: Fix the below line to run tpch.  We need to mount all those tpch_scratch directories.
+    #- python ./gqe/benchmark/run_tpch_parameter_sweep.py -k pinned_memory -- /tpch_scratch/datasets/sf1_id64/ /tpch_scratch/substrait_plans '/tpch_scratch/reference_results/sf1/%d.parquet'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
