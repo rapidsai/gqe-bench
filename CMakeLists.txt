@@ -12,9 +12,10 @@ cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=-U__ARM_NEON")
 
 if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES "70-real" "80-real" "90-real" "100-real" "120")
+  set(CMAKE_CUDA_ARCHITECTURES "80-real" "90-real" "100-real" "120")
 endif()
 
 project(gqe-python LANGUAGES CXX CUDA)
