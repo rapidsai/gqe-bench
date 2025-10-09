@@ -37,6 +37,7 @@
 #include <gqe/physical/read.hpp>
 #include <gqe/physical/relation.hpp>
 #include <gqe/physical/set.hpp>
+#include <gqe/physical/shuffle.hpp>
 #include <gqe/physical/sort.hpp>
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/write.hpp>
@@ -65,6 +66,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <cassert>
 #include <chrono>
 #include <fstream>
 #include <stdexcept>
@@ -138,6 +140,42 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
     policy,
     unique_keys_pol,
     perfect_hashing);
+}
+
+std::shared_ptr<gqe::physical::relation> shuffle_join(
+  std::shared_ptr<gqe::physical::relation> left_table,
+  std::shared_ptr<gqe::physical::relation> right_table,
+  gqe::expression const* condition,
+  gqe::join_type_type join_type,
+  std::vector<cudf::size_type> projection_indices,
+  gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none,
+  bool perfect_hashing                    = false)
+{
+  return std::make_shared<gqe::physical::shuffle_join_relation>(
+    std::move(left_table),
+    std::move(right_table),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
+    join_type,
+    condition->clone(),
+    std::move(projection_indices),
+    unique_keys_pol,
+    perfect_hashing);
+}
+
+std::shared_ptr<gqe::physical::relation> shuffle(
+  std::shared_ptr<gqe::physical::relation> input,
+  std::vector<std::shared_ptr<gqe::expression>> shuffle_cols)
+{
+  std::vector<std::unique_ptr<gqe::expression>> cloned_cols;
+  for (auto const& expr : shuffle_cols) {
+    assert(expr->type() == gqe::expression::expression_type::column_reference);
+    cloned_cols.push_back(expr->clone());
+  }
+
+  return std::make_shared<gqe::physical::shuffle_relation>(
+    std::move(input),
+    std::vector<std::shared_ptr<gqe::physical::relation>>(),
+    std::move(cloned_cols));
 }
 
 std::shared_ptr<gqe::physical::relation> aggregate(
@@ -615,11 +653,13 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("read", &lib::read);
   py_module.def("filter", &lib::filter);
   py_module.def("broadcast_join", &lib::broadcast_join);
+  py_module.def("shuffle_join", &lib::shuffle_join);
   py_module.def("aggregate", &lib::aggregate);
   py_module.def("project", &lib::project);
   py_module.def("sort", &lib::sort);
   py_module.def("fetch", &lib::fetch);
   py_module.def("union_all", &lib::union_all);
+  py_module.def("shuffle", &lib::shuffle);
   py_module.def("load_substrait", &lib::load_substrait);
   py_module.def("log_physical_plan", &lib::log_physical_plan);
   py_module.def("q13_groupjoin_build", &gqe_python::benchmark::q13::groupjoin_build);

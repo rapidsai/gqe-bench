@@ -18,6 +18,7 @@ from gqe.relation import (
     FilterRelation,
     AggregateRelation,
     BroadcastJoinRelation,
+    ShuffleJoinRelation,
 )
 from gqe.expression import (
     Expression,
@@ -246,7 +247,7 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
         fix_column_references(relation.input.partial_filter, relation.input)
 
     # Recursively descent to child relations
-    elif isinstance(relation, BroadcastJoinRelation):
+    elif isinstance(relation, (BroadcastJoinRelation, ShuffleJoinRelation)):
         fix_partial_filter_column_references(relation.left_table, query)
         fix_partial_filter_column_references(relation.right_table, query)
     # Only check instance is not enough as import_module would create different class objects.

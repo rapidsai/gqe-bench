@@ -79,6 +79,39 @@ class Relation(ABC):
             self, right_table, condition, projection_indices, type, broadcast_left, unique_keys_policy, perfect_hashing
         )
 
+    def shuffle_join(
+        self,
+        right_table: Relation,
+        condition: Expression,
+        projection_indices: list[int],
+        type: str = "inner",
+        unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
+        perfect_hashing: bool = False
+    ) -> Relation:
+        """
+        Join with another table by repartitioning both inputs
+
+        :param right_table: The right-hand side of the join.
+        :param condition: `condition` determines when a left row matches a right row. Note that the
+            column index of `other` starts after `self`, so if `self` has `n` column, the `i`-th
+            column of `other` is referred as `ColumnReference(n+i)`.
+        :param projection_indices: Columns to materialize for the output. The output table will have
+            the same number of columns as `len(projection_indices)`.
+        :param type: Type of the join. Acceptable values are `"inner"`, `"left"`, `"left_semi"`,
+            `"left_anti"` and `"full"`.
+        """
+        return ShuffleJoinRelation(
+            self, right_table, condition, projection_indices, type, unique_keys_policy, perfect_hashing
+        )
+
+    def shuffle(self, shuffle_cols: list[Expression]) -> Relation:
+        """
+        Repartition the input table based on the shuffle_cols
+
+        :param shuffle_cols: The shuffle columns that are used for hash repartitioning.
+        """
+        return ShuffleRelation(self, shuffle_cols)
+
     def aggregate(
         self, keys: list[Expression], measures: list[tuple[str, Expression]], condition: Expression = None, perfect_hashing: bool = False
     ) -> Relation:
@@ -250,6 +283,59 @@ class BroadcastJoinRelation(Relation):
             self.unique_keys_policy,
             self.perfect_hashing,
         )
+
+
+class ShuffleJoinRelation(Relation):
+    """
+    A join relation performs a join operation on the two input tables in relational algebra, and
+    output the join result.
+    """
+
+    def __init__(
+        self,
+        left_table: Relation,
+        right_table: Relation,
+        condition: Expression,
+        projection_indices: list[int],
+        type: str = "inner",
+        unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
+        perfect_hashing: bool = False
+    ):
+        self.left_table = left_table
+        self.right_table = right_table
+        self.condition = condition
+        self.projection_indices = projection_indices
+        self.unique_keys_policy = unique_keys_policy
+        self.perfect_hashing = perfect_hashing
+
+        if type not in _join_type_to_cpp:
+            raise ValueError(f"Unknown join type: {type}")
+        else:
+            self.type = type
+
+    def _to_cpp(self):
+        return gqe.lib.shuffle_join(
+            self.left_table._cpp,
+            self.right_table._cpp,
+            self.condition._cpp,
+            _join_type_to_cpp[self.type],
+            self.projection_indices,
+            self.unique_keys_policy,
+            self.perfect_hashing,
+        )
+
+
+class ShuffleRelation(Relation):
+    """
+    A shuffle relation that does hash paritioning on the input table based on the shuffle columns.
+    """
+
+    def __init__(self, input: Relation, shuffle_cols: list[Expression]):
+        self.input = input
+        self.shuffle_cols = shuffle_cols
+
+    def _to_cpp(self):
+        return gqe.lib.shuffle(self.input._cpp, [expr._cpp for expr in self.shuffle_cols])
 
 
 _aggregation_kind_to_cpp: dict[str, gqe.lib.AggregationKind] = {
