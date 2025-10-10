@@ -90,11 +90,9 @@ struct filter_orders_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<identifier_type, int32_t> ||
                   std::is_same_v<identifier_type, int64_t>) {
-      auto grid_size = gqe::utility::detect_launch_grid_size(
-        ctx_ref._task_manager_context->get_device_properties(),
-        filter_orders_kernel<identifier_type>,
-        utility::block_dim,
-        /* dynamic_shared_memory_bytes = */ 0);
+      auto grid_size = gqe::utility::detect_launch_grid_size(filter_orders_kernel<identifier_type>,
+                                                             utility::block_dim,
+                                                             /* dynamic_shared_memory_bytes = */ 0);
       filter_orders_kernel<identifier_type><<<grid_size, utility::block_dim, 0, stream>>>(
         o_custkey, o_comment, d_global_offset, out_o_custkey);
     } else {

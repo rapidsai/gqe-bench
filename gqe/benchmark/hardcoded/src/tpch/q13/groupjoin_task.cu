@@ -228,19 +228,17 @@ struct groupjoin_probe_functor {
       auto hash_map_ref = hash_map.ref(cuco::find, cuco::for_each);
 
       if (o_comment.has_value()) {
-        auto grid_size = gqe::utility::detect_launch_grid_size(
-          ctx_ref._task_manager_context->get_device_properties(),
-          fused_filter_probe_kernel<Identifier>,
-          utility::block_dim,
-          /* dynamic_shared_memory_bytes = */ 0);
+        auto grid_size =
+          gqe::utility::detect_launch_grid_size(fused_filter_probe_kernel<Identifier>,
+                                                utility::block_dim,
+                                                /* dynamic_shared_memory_bytes = */ 0);
         fused_filter_probe_kernel<Identifier><<<grid_size, utility::block_dim, 0, stream>>>(
           hash_map_ref, o_custkey, o_comment.value());
       } else {
-        auto grid_size = gqe::utility::detect_launch_grid_size(
-          ctx_ref._task_manager_context->get_device_properties(),
-          groupjoin_probe_kernel<Identifier>,
-          utility::block_dim,
-          /* dynamic_shared_memory_bytes = */ 0);
+        auto grid_size =
+          gqe::utility::detect_launch_grid_size(groupjoin_probe_kernel<Identifier>,
+                                                utility::block_dim,
+                                                /* dynamic_shared_memory_bytes = */ 0);
         groupjoin_probe_kernel<Identifier>
           <<<grid_size, utility::block_dim, 0, stream>>>(hash_map_ref, o_custkey);
       }
@@ -268,11 +266,9 @@ struct groupjoin_retrieve_functor {
       auto& hash_map    = hash_map_wrapper.get<Identifier>();
       auto hash_map_ref = hash_map.ref(cuco::find, cuco::for_each);
 
-      auto grid_size = gqe::utility::detect_launch_grid_size(
-        ctx_ref._task_manager_context->get_device_properties(),
-        groupjoin_retrieve_kernel<Identifier>,
-        utility::block_dim,
-        /* dynamic_shared_memory_bytes = */ 0);
+      auto grid_size = gqe::utility::detect_launch_grid_size(groupjoin_retrieve_kernel<Identifier>,
+                                                             utility::block_dim,
+                                                             /* dynamic_shared_memory_bytes = */ 0);
       groupjoin_retrieve_kernel<Identifier><<<grid_size, utility::block_dim, 0, stream>>>(
         hash_map_ref, d_global_offset, out_c_custkey, out_c_count);
     } else {
