@@ -10,4 +10,4 @@
 
 from .relation import read
 from .catalog import Catalog
-from .execute import Context
+from .execute import Context, MultiProcessContext

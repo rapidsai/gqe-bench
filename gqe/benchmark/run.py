@@ -8,7 +8,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import Context
+from gqe import Context, MultiProcessContext
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
 from gqe.benchmark.gqe_experiment import GqeParameters, GqeDataInfoExt
@@ -108,7 +108,13 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
 
     sut_info_id = edb.insert_sut_info(exp.SutInfo(name="gqe"))
     hw_info_id = edb.insert_hw_info()
-    build_info_id = edb.insert_build_info(exp.BuildInfo(revision=gqe.lib.libgqe_commit, is_dirty=gqe.lib.libgqe_is_dirty, branch=gqe.lib.libgqe_branch))
+    build_info_id = edb.insert_build_info(
+        exp.BuildInfo(
+            revision=gqe.lib.libgqe_commit,
+            is_dirty=gqe.lib.libgqe_is_dirty,
+            branch=gqe.lib.libgqe_branch,
+        )
+    )
     return EdbInfo(sut_info_id, hw_info_id, build_info_id)
 
 
@@ -146,8 +152,10 @@ def parse_identifier_type(path: str) -> gqe.lib.TypeId:
     elif has_id64 and not has_id32:
         identifier_type = gqe.lib.TypeId.int64
     else:
-        scale_factor = parse_scale_factor(path)   
-        identifier_type = gqe.lib.TypeId.int32 if scale_factor < 357 else gqe.lib.TypeId.int64
+        scale_factor = parse_scale_factor(path)
+        identifier_type = (
+            gqe.lib.TypeId.int32 if scale_factor < 357 else gqe.lib.TypeId.int64
+        )
     return identifier_type
 
 
@@ -363,4 +371,102 @@ def run_tpc(
                 )
             )
 
+        del context
+
+
+def run_tpc_multiprocess(
+    catalog,
+    data: DataInfo,
+    query: QueryInfo,
+    scale_factor: int,
+    parameters: list[Parameter],
+    edb: exp.ExperimentDB,
+    edb_info: EdbInfo,
+    errors: list,
+    query_source: str,
+    is_root_rank: bool,
+):
+    repeat = 6
+
+    if is_root_rank:
+        data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
+
+        data.data_info_id = data_info_id
+        data_info_ext_id = edb.insert_gqe_data_info_ext(
+            upcast_to_super(data, GqeDataInfoExt)
+        )
+
+    for parameter in parameters:
+        if is_root_rank:
+            print(
+                f"Running query from {query_source} with parameters "
+                f"{ parameter }, {data}"
+            )
+            parameter.sut_info_id = edb_info.sut_info_id
+            parameters_id = edb.insert_gqe_parameters(parameter)
+
+            print(f"Running {query.identifier}...")
+
+            experiment_id = edb.insert_experiment(
+                Experiment(
+                    sut_info_id=edb_info.sut_info_id,
+                    parameters_id=parameters_id,
+                    hw_info_id=edb_info.hw_info_id,
+                    build_info_id=edb_info.build_info_id,
+                    data_info_id=data_info_id,
+                    data_info_ext_id=data_info_ext_id,
+                    name=query.identifier,
+                    suite="TPC-H",
+                    scale_factor=scale_factor,
+                    query_source=query_source,
+                )
+            )
+
+        context = MultiProcessContext(
+            parameter.num_workers,
+            parameter.num_partitions,
+            data.char_type == "char",
+            parameter.use_overlap_mtx,
+            parameter.join_use_hash_map_cache,
+            parameter.read_use_zero_copy,
+            parameter.join_use_unique_keys,
+            parameter.join_use_perfect_hash,
+            data.compression_format,
+            data.compression_data_type,
+            data.compression_chunk_size,
+            parameter.use_partition_pruning,
+            data.zone_map_partition_size,
+            parameter.filter_use_like_shift_and,
+            parameter.aggregation_use_perfect_hash,
+        )            
+
+        for count in range(repeat):
+            out_file = f"{query.identifier}_out.parquet"
+
+            with nvtx.annotate(f"Run {query.identifier}"):
+                try:
+                    elapsed_time = context.execute(
+                        catalog, query.root_relation, out_file
+                    )
+                except Exception as error:
+                    print(error)
+                    break
+
+            if is_root_rank:
+                try:
+                    verify_parquet(out_file, query.reference_solution, query.validator)
+                except Exception as error:
+                    print(error)
+                    errors.append((query.identifier, parameter))
+                    break
+
+                edb.insert_run(
+                    exp.Run(
+                        experiment_id=experiment_id,
+                        number=count,
+                        nvtx_marker=None,
+                        duration_s=elapsed_time / 1000,
+                    )
+                )
+        context.finalize()
         del context

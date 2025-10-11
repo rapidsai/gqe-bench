@@ -14,6 +14,7 @@ from gqe import Catalog
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe.benchmark.run import (
     run_tpc,
+    run_tpc_multiprocess,
     DataInfo,
     QueryInfo,
     Parameter,
@@ -73,9 +74,11 @@ def get_best_parameters_folder(df_folder: str):
 
     return sorted(best_param_dict.values(), key=lambda x: int(x["e_name"].lstrip("Q")))
 
-def log_physical_plan(query_str : str, relation : lib.Relation, folder_path : str):
+
+def log_physical_plan(query_str: str, relation: lib.Relation, folder_path: str):
     file_path = os.path.join(folder_path, query_str + "_plan.json")
     lib.log_physical_plan(relation, file_path)
+
 
 def main():
     arg_parser = argparse.ArgumentParser()
@@ -92,7 +95,9 @@ def main():
         "--swept-sqlite-folder", help="Folder that has the parameter sweep results"
     )
     arg_parser.add_argument("--output", "-o", help="Output file path")
-    arg_parser.add_argument("--output-physical-plan", help="Output file folder of physical plans")
+    arg_parser.add_argument(
+        "--output-physical-plan", help="Output file folder of physical plans"
+    )
     arg_parser.add_argument(
         "--queries",
         "-q",
@@ -109,6 +114,9 @@ def main():
         choices=[0, 1],
         default=0,
     )
+    arg_parser.add_argument(
+        "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
+    )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
 
@@ -117,19 +125,9 @@ def main():
 
     set_eager_module_loading()
 
-    edb_file = (
-        args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
-    )
-    edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
-        GqeExperimentConnection
-    )
-    print(f"Writing SQLite file to {edb_file}")
-
     physical_plan_folder = (
         args.output_physical_plan if args.output_physical_plan else None
     )
-    if physical_plan_folder:
-        print(f"Writing Physical Plan to the folder {physical_plan_folder}")
 
     errors = []
 
@@ -142,9 +140,34 @@ def main():
             "Either --swept_sqlite_file or --swept_sqlite_folder must be specified"
         )
 
-    with edb_config as edb:
-        edb_info = setup_db(edb)
+    # TODO: Multiprocess mode needs to check if spawned ranks is equal to that in the best parameters
+    # https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/13
+    if args.multiprocess:
+        # Validate that all runs use parquet_file storage before initializing MPI
+        for bp in best_parameters:
+            if bp.get("d_storage_device_kind") != "parquet_file":
+                raise ValueError(
+                    "Multiprocess mode is only supported with parquet_file storage kind"
+                )
+        lib.mpi_init()
 
+    is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
+    edb_file = None
+    edb_config = None
+    if is_root_rank:
+        edb_file = (
+            args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
+        )
+        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
+            GqeExperimentConnection
+        )
+        print(f"Writing SQLite file to {edb_file}")
+
+    if physical_plan_folder and is_root_rank:
+        print(f"Writing Physical Plan to the folder {physical_plan_folder}")
+
+    def run_all(edb, edb_info):
+        errors_local = []
         for best_parameter in best_parameters:
             query_str = best_parameter["e_name"].lstrip("Q")
             query_idx = int(query_str.split("_")[0])
@@ -241,40 +264,70 @@ def main():
                     fix_partial_filter_column_references(root_relation, query_idx)
                 # make sure we call log_physical_plan after calling fix_partial_filter_column_references
                 # so that root_relation is properly updated with column references
-                if physical_plan_folder:
-                    root_relation.log_physical_plan(f"Q{query_str}", physical_plan_folder)
-            
+                if physical_plan_folder and is_root_rank:
+                    root_relation.log_physical_plan(
+                        f"Q{query_str}", physical_plan_folder
+                    )
+
             elif query_source == "substrait":
                 substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
                 root_relation = catalog.load_substrait(substrait_file)
-                if physical_plan_folder:
-                    log_physical_plan(f"Q{query_idx}", root_relation, physical_plan_folder)
+                if physical_plan_folder and is_root_rank:
+                    log_physical_plan(
+                        f"Q{query_idx}", root_relation, physical_plan_folder
+                    )
                 query = QueryInfo(f"Q{query_idx}", root_relation, reference_file)
-            
+
             else:
                 raise ValueError(f"Invalid query source: {query_source}")
 
-            run_tpc(
-                catalog,
-                data_info,
-                query,
-                scale_factor,
-                [gqe_parameter],
-                edb,
-                edb_info,
-                errors,
-                query_source,
-            )
+            if args.multiprocess:
+                run_tpc_multiprocess(
+                    catalog,
+                    data_info,
+                    query,
+                    scale_factor,
+                    [gqe_parameter],
+                    edb,
+                    edb_info,
+                    errors_local,
+                    query_source,
+                    is_root_rank,
+                )
+            else:
+                run_tpc(
+                    catalog,
+                    data_info,
+                    query,
+                    scale_factor,
+                    [gqe_parameter],
+                    edb,
+                    edb_info,
+                    errors_local,
+                    query_source,
+                )
 
-    print(f"Finished SQLite file at {edb_file}")
-    if physical_plan_folder:
-        print(f"Finished Physical Plan at the folder {physical_plan_folder}")
+        return errors_local
 
-    if errors:
-        print(
+    if is_root_rank:
+        with edb_config as edb:
+            edb_info = setup_db(edb)
+            errors = run_all(edb, edb_info)
+
+        print(f"Finished SQLite file at {edb_file}")
+        if physical_plan_folder:
+            print(f"Finished Physical Plan at the folder {physical_plan_folder}")
+        
+        if errors:
+            print(
             "The following configurations run successfully but produce incorrect results"
         )
         print(errors)
+    else:
+        errors = run_all(None, None) 
+
+    if args.multiprocess:
+        lib.mpi_finalize()
 
 
 if __name__ == "__main__":

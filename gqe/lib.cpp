@@ -63,6 +63,7 @@
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
+#include <mpi.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -443,6 +444,145 @@ struct context {
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
 };
 
+void mpi_init() { GQE_MPI_TRY(MPI_Init(nullptr, nullptr)); }
+
+int mpi_rank()
+{
+  int rank;
+  GQE_MPI_TRY(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+  return rank;
+}
+
+void mpi_finalize() { GQE_MPI_TRY(MPI_Finalize()); }
+
+// FIXME: multiprocess context duplicates a lot of code from context class.
+// We should encapsulate parameters into a an object.
+struct multi_process_context {
+  multi_process_context(int32_t max_num_workers                           = 1,
+                        int32_t max_num_partitions                        = 8,
+                        std::string in_memory_table_compression_format    = "none",
+                        std::string in_memory_table_compression_data_type = "char",
+                        int32_t compression_chunk_size                    = 65536,
+                        size_t zone_map_partition_size                    = 100000,
+                        bool use_opt_type_for_single_char_col             = true,
+                        bool use_overlap_mtx                              = true,
+                        bool join_use_hash_map_cache                      = false,
+                        bool read_use_zero_copy                           = false,
+                        bool join_use_unique_keys                         = true,
+                        bool join_use_perfect_hash                        = true,
+                        bool use_partition_pruning                        = false,
+                        bool filter_use_like_shift_and                    = false,
+                        bool aggregation_use_perfect_hash                 = true)
+  {
+    _task_manager_ctx = gqe::multi_process_task_manager_context::default_init(MPI_COMM_WORLD);
+    ;
+
+    gqe::optimization_parameters parameters(false);
+    parameters.max_num_workers                  = max_num_workers;
+    parameters.max_num_partitions               = max_num_partitions;
+    parameters.use_opt_type_for_single_char_col = use_opt_type_for_single_char_col;
+    parameters.use_overlap_mtx                  = use_overlap_mtx;
+    parameters.join_use_hash_map_cache          = join_use_hash_map_cache;
+    parameters.read_zero_copy_enable            = read_use_zero_copy;
+    parameters.join_use_unique_keys             = join_use_unique_keys;
+    parameters.join_use_perfect_hash            = join_use_perfect_hash;
+    parameters.use_partition_pruning            = use_partition_pruning;
+    parameters.zone_map_partition_size          = zone_map_partition_size;
+    parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
+    parameters.aggregation_use_perfect_hash     = aggregation_use_perfect_hash;
+
+    // FIXME: DRY compression format
+    if (in_memory_table_compression_format == "none") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::none;
+    } else if (in_memory_table_compression_format == "ans") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::ans;
+    } else if (in_memory_table_compression_format == "lz4") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::lz4;
+    } else if (in_memory_table_compression_format == "snappy") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::snappy;
+    } else if (in_memory_table_compression_format == "gdeflate") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::gdeflate;
+    } else if (in_memory_table_compression_format == "deflate") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::deflate;
+    } else if (in_memory_table_compression_format == "cascaded") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::cascaded;
+    } else if (in_memory_table_compression_format == "zstd") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::zstd;
+    } else if (in_memory_table_compression_format == "gzip") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::gzip;
+    } else if (in_memory_table_compression_format == "bitcomp") {
+      parameters.in_memory_table_compression_format = gqe::compression_format::bitcomp;
+    } else if (in_memory_table_compression_format == "best_compression_ratio") {
+      parameters.in_memory_table_compression_format =
+        gqe::compression_format::best_compression_ratio;
+    } else if (in_memory_table_compression_format == "best_decompression_speed") {
+      parameters.in_memory_table_compression_format =
+        gqe::compression_format::best_decompression_speed;
+    } else {
+      throw std::logic_error("Unrecognized compression format");
+    }
+
+    // FIXME: DRY compression data type
+    if (in_memory_table_compression_data_type == "char") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_CHAR;
+    } else if (in_memory_table_compression_data_type == "short") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_SHORT;
+    } else if (in_memory_table_compression_data_type == "int") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_INT;
+    } else if (in_memory_table_compression_data_type == "longlong") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_LONGLONG;
+    } else if (in_memory_table_compression_data_type == "bits") {
+      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_BITS;
+    } else {
+      throw std::logic_error("Unrecognized data type format");
+    }
+
+    parameters.compression_chunk_size = compression_chunk_size;
+
+    _query_ctx = std::make_unique<gqe::query_context>(parameters);
+  }
+
+  void finalize() { _task_manager_ctx->finalize(); }
+
+  // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
+  // Return execution time in ms.
+  float execute(gqe::catalog* catalog,
+                std::shared_ptr<gqe::physical::relation> relation,
+                std::optional<std::string> output_path = std::nullopt)
+  {
+    gqe::task_graph_builder graph_builder(
+      gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
+    auto task_graph = graph_builder.build(relation.get());
+
+    // Barrier sync to ensure all processes are ready to execute
+    GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    execute_task_graph_multi_process(
+      gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, task_graph.get());
+    // Wait for all ranks to finish execution
+    GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float, std::milli> elapsed_time_ms = end_time - start_time;
+
+    // Output the result to disk
+    if (output_path && _task_manager_ctx->comm->rank() == 0) {
+      auto destination = cudf::io::sink_info(output_path.value());
+      auto options     = cudf::io::parquet_writer_options::builder(
+        destination, task_graph->root_tasks[0]->result().value());
+      cudf::io::write_parquet(options);
+    }
+
+    // Wait for result to be written to disk
+    GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
+
+    return elapsed_time_ms.count();
+  }
+
+  std::unique_ptr<gqe::query_context> _query_ctx;
+  std::unique_ptr<gqe::multi_process_task_manager_context> _task_manager_ctx;
+};
+
 void register_tpch_parquet(
   gqe::catalog* catalog,
   std::string dataset_location,
@@ -763,7 +903,6 @@ PYBIND11_MODULE(lib, py_module)
 
   py_module.def("date_from_days", &lib::date_from_days);
 
-  // Execution
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
     .def(py::init<int32_t,      // max_num_workers
                   int32_t,      // max_num_partitions
@@ -784,4 +923,29 @@ PYBIND11_MODULE(lib, py_module)
                   bool          // debug_mem_usage
                   >())
     .def("execute", &lib::context::execute);
+
+  py::class_<lib::multi_process_context, std::shared_ptr<lib::multi_process_context>>(
+    py_module, "MultiProcessContext")
+    .def(py::init<int32_t,      // max_num_workers
+                  int32_t,      // max_num_partitions
+                  std::string,  // in_memory_table_compression_format
+                  std::string,  // in_memory_table_compression_data_type
+                  int32_t,      // compression_chunk_size
+                  size_t,       // zone_map_partition_size
+                  bool,         // use_opt_type_for_single_char_col
+                  bool,         // use_overlap_mtx
+                  bool,         // join_use_hash_map_cache
+                  bool,         // read_use_zero_copy
+                  bool,         // join_use_unique_keys
+                  bool,         // join_use_perfect_hash
+                  bool,         // use_partition_pruning
+                  bool,         // filter_use_like_shift_and
+                  bool          // aggregation_use_perfect_hash
+                  >())
+    .def("execute", &lib::multi_process_context::execute)
+    .def("finalize", &lib::multi_process_context::finalize);
+
+  py_module.def("mpi_init", &lib::mpi_init);
+  py_module.def("mpi_finalize", &lib::mpi_finalize);
+  py_module.def("mpi_rank", &lib::mpi_rank);
 }

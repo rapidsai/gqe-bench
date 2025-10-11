@@ -14,6 +14,7 @@ from gqe import Catalog
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe.benchmark.run import (
     run_tpc,
+    run_tpc_multiprocess,
     DataInfo,
     QueryInfo,
     Parameter,
@@ -39,12 +40,52 @@ import os
 
 
 def get_queries(query_source: str, queries: list[str] = None):
-    handcoded_queries = ["1", "2", "3", "4", "5", "6", "7", "9", "10", "11", "12", "13", "13_opt", "13_fused", "15", "17", "18", "19", "20", "21", "22", "22_opt"]
+    handcoded_queries = [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "13_opt",
+        "13_fused",
+        "15",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "22_opt",
+    ]
 
     # 1, 15, 18, 21 removed as per previous run-script
     # Q11 FIXME: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/141
     # Q4 removed as the substrait plan fails for SF1k
-    substrait_queries = ["2", "3", "5", "6", "7", "8", "9", "10", "12", "13", "14", "16", "17", "19", "20", "22"]
+    substrait_queries = [
+        "2",
+        "3",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "12",
+        "13",
+        "14",
+        "16",
+        "17",
+        "19",
+        "20",
+        "22",
+    ]
 
     if queries:
         handcoded_queries = sorted(set(handcoded_queries) & set(queries))
@@ -171,7 +212,17 @@ def main():
         nargs="+",
         default=["numa_pinned_memory"],
     )
+    arg_parser.add_argument(
+        "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
+    )
     args = arg_parser.parse_args()
+
+    if args.multiprocess:
+        if args.storage_kind != ["parquet_file"]:
+            raise ValueError(
+                "Multiprocess mode is only supported with parquet_file storage kind"
+            )
+        lib.mpi_init()
 
     gqe_host = "localhost"
     scale_factor = parse_scale_factor(args.dataset)
@@ -190,21 +241,25 @@ def main():
 
     set_eager_module_loading()
 
-    edb_file = (
-        args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
-    )
-    edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
-        GqeExperimentConnection
-    )
-    print(f"Writing SQLite file to {edb_file}")
+    edb_file = None
+    edb_config = None
+    is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
+    if is_root_rank:
+        edb_file = (
+            args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
+        )
 
-    errors = []
+        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
+            GqeExperimentConnection
+        )
+
+        print(f"Writing SQLite file to {edb_file}")
 
     handcoded_queries, substrait_queries = get_queries(args.query_source, args.queries)
 
-    with edb_config as edb:
-        edb_info = setup_db(edb)
-
+    def run_sweep(edb, edb_info, args):
+        nonlocal identifier_type
+        errors = []
         num_row_group_list = []
         if args.row_groups:
             num_row_group_list = args.row_groups
@@ -273,7 +328,7 @@ def main():
                         compression_format,
                         compression_data_type,
                         compression_chunk_size,
-                        zone_map_partition_size
+                        zone_map_partition_size,
                     )
                 except Exception as e:
                     print(f"Error registering table: {e}")
@@ -363,38 +418,54 @@ def main():
                     ):
                         # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                         if read_use_zero_copy and (num_partitions != num_row_groups):
-                            print(f"Skipping read_use_zero_copy: {read_use_zero_copy}, num_partitions: {num_partitions}, num_row_groups: {num_row_groups} because zero copy requires row groups to be equal to partitions")
+                            print(
+                                f"Skipping read_use_zero_copy: {read_use_zero_copy}, num_partitions: {num_partitions}, num_row_groups: {num_row_groups} because zero copy requires row groups to be equal to partitions"
+                            )
                             continue
 
                         # Zero copy can only be used for in-memory tables.
                         if read_use_zero_copy and storage_kind == "parquet_file":
-                            print(f"Skipping read_use_zero_copy: {read_use_zero_copy}, storage_kind: {storage_kind} because zero copy is not supported for parquet files")
+                            print(
+                                f"Skipping read_use_zero_copy: {read_use_zero_copy}, storage_kind: {storage_kind} because zero copy is not supported for parquet files"
+                            )
                             continue
 
                         # Skip zero copy for compression, as compression takes precedence over zero copy in GQE read task.
                         #
                         # Note: Revisit if GQE behavior changes in future.
                         if read_use_zero_copy and compression_format != "none":
-                            print(f"Skipping read_use_zero_copy: {read_use_zero_copy}, compression_format: {compression_format} because zero copy is not supported with compression")
+                            print(
+                                f"Skipping read_use_zero_copy: {read_use_zero_copy}, compression_format: {compression_format} because zero copy is not supported with compression"
+                            )
                             continue
 
                         if num_workers > num_partitions:
-                            print(f"Skipping num_workers: {num_workers}, num_partitions: {num_partitions} because num_workers greater than num_partitions")
+                            print(
+                                f"Skipping num_workers: {num_workers}, num_partitions: {num_partitions} because num_workers greater than num_partitions"
+                            )
                             continue
 
                         if compression_format != "none" and use_overlap_mtx:
-                            print(f"Skipping compression_format: {compression_format}, use_overlap_mtx: {use_overlap_mtx} because its not optimal to use overlap matrix with compression")
+                            print(
+                                f"Skipping compression_format: {compression_format}, use_overlap_mtx: {use_overlap_mtx} because its not optimal to use overlap matrix with compression"
+                            )
                             continue
 
-                        # We want to always use hash map caching except when perfect hashing is used 
+                        # We want to always use hash map caching except when perfect hashing is used
                         # Because perfect join doesn't support hash map cache, see: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/161
                         if join_use_perfect_hash == join_use_hash_map_cache:
-                            print(f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, join_use_hash_map_cache: {join_use_hash_map_cache} because hash map caching should always be used except with perfect hashing")
+                            print(
+                                f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, join_use_hash_map_cache: {join_use_hash_map_cache} because hash map caching should always be used except with perfect hashing"
+                            )
                             continue
 
                         # Perfect hash join is disabled for substrait plans, see: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/161
-                        if query_source == "substrait" and (join_use_perfect_hash or aggregation_use_perfect_hash):
-                            print(f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans")
+                        if query_source == "substrait" and (
+                            join_use_perfect_hash or aggregation_use_perfect_hash
+                        ):
+                            print(
+                                f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans"
+                            )
                             continue
 
                         parameters.append(
@@ -413,25 +484,50 @@ def main():
                             )
                         )
 
-                    run_tpc(
-                        catalog,
-                        data_info,
-                        query,
-                        scale_factor,
-                        parameters,
-                        edb,
-                        edb_info,
-                        errors,
-                        query_source,
-                    )
+                    if args.multiprocess:
+                        run_tpc_multiprocess(
+                            catalog,
+                            data_info,
+                            query,
+                            scale_factor,
+                            parameters,
+                            edb,
+                            edb_info,
+                            errors,
+                            query_source,
+                            is_root_rank,
+                        )
+                    else:
+                        run_tpc(
+                            catalog,
+                            data_info,
+                            query,
+                            scale_factor,
+                            parameters,
+                            edb,
+                            edb_info,
+                            errors,
+                            query_source,
+                        )
+        return errors
 
-    print(f"Finished SQLite file at {edb_file}")
+    errors = []
+    if is_root_rank:
+        with edb_config as edb:
+            edb_info = setup_db(edb)
+            errors = run_sweep(edb, edb_info, args)
+        print(f"Finished SQLite file at {edb_file}")
+    else:
+        errors = run_sweep(None, None, args)
 
     if errors:
         print(
             "The following configurations run successfully but produce incorrect results"
         )
         print(errors)
+
+    if args.multiprocess:
+        lib.mpi_finalize()
 
 
 if __name__ == "__main__":
