@@ -529,6 +529,9 @@ def main():
     if args.multiprocess:
         lib.mpi_finalize()
 
+    if errors:
+        exit(1)
+
 
 if __name__ == "__main__":
     main()
