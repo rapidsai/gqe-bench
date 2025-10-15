@@ -12,6 +12,9 @@
 
 #pragma once
 
+#include <gqe/context_reference.hpp>
+#include <gqe/executor/concatenate.hpp>
+#include <gqe/executor/task.hpp>
 #include <gqe/utility/error.hpp>
 
 #include <cuda/functional>
@@ -36,7 +39,7 @@ template <typename filter_type>
 cuco::extent<std::size_t> get_bloom_filter_blocks(std::size_t filter_bytes)
 {
   std::size_t num_sub_filters =
-    filter_bytes / (sizeof(typename filter_type::word_type) * filter_type::words_per_block);
+    filter_bytes * filter_type::words_per_block / (sizeof(typename filter_type::word_type));
 
   return num_sub_filters;
 }
@@ -80,6 +83,30 @@ __device__ inline int warp_id() noexcept { return threadIdx.x / warp_size; }
  * @brief Number of warps in a thread block.
  */
 __device__ inline int num_warps() noexcept { return blockDim.x / warp_size; };
+
+/**
+ * @brief Concatenate a list of tasks into one task. If there is only one task, return it directly.
+ *
+ * @param[in] ctx_ref The context in which the current task is running in.
+ * @param[in] task_id Globally unique identifier of the task.
+ * @param[in] stage_id Stage of the current task.
+ * @param[in] tasks The list of tasks to be concatenated.
+ */
+
+inline std::shared_ptr<gqe::task> concatenate_tasks(gqe::context_reference ctx_ref,
+                                                    int32_t& task_id,
+                                                    int32_t stage_id,
+                                                    std::vector<std::shared_ptr<gqe::task>> tasks)
+{
+  std::shared_ptr<gqe::task> concatenated_task;
+  if (tasks.size() == 1) {
+    concatenated_task = tasks[0];
+  } else {
+    concatenated_task = std::make_shared<gqe::concatenate_task>(ctx_ref, task_id, stage_id, tasks);
+    task_id++;
+  }
+  return concatenated_task;
+}
 
 }  // namespace utility
 }  // namespace gqe_python

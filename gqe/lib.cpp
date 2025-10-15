@@ -12,6 +12,7 @@
 
 #include <tpch/q13/filter_orders_task.hpp>
 #include <tpch/q13/groupjoin_task.hpp>
+#include <tpch/q16/task.hpp>
 #include <tpch/q22/task.hpp>
 
 #include <gqe/catalog.hpp>
@@ -807,6 +808,8 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("q13_groupjoin_retrieve", &gqe_python::benchmark::q13::groupjoin_retrieve);
   py_module.def("q13_filter_orders", &gqe_python::benchmark::q13::filter_orders);
   py_module.def("q13_fused_filter_probe", &gqe_python::benchmark::q13::fused_filter_probe);
+  py_module.def("q16_fused_filter_join", &gqe_python::benchmark::q16::fused_filter_join);
+  py_module.def("q16_aggregate", &gqe_python::benchmark::q16::aggregate);
   py_module.def("q22_fused_project_filter", &gqe_python::benchmark::q22::fused_project_filter);
   py_module.def("q22_mark_join", &gqe_python::benchmark::q22::mark_join);
 

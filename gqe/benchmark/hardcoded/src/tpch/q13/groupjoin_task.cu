@@ -47,6 +47,9 @@ namespace q13 {
 
 namespace {
 
+template <typename T>
+using groupjoin_map_type = utility::map_type<T, cudf::size_type>;
+
 /**
  * @brief A task for the groupjoin build.
  */
@@ -168,7 +171,7 @@ struct groupjoin_build_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
       // Lazy thread-safe instantiation of CuCo hash map.
-      auto& hash_map = hash_map_wrapper.get<Identifier>();
+      auto& hash_map = hash_map_wrapper.get_map<Identifier, groupjoin_map_type<Identifier>>();
 
       thrust::for_each(
         thrust::make_counting_iterator<cudf::size_type>(0),
@@ -224,7 +227,7 @@ struct groupjoin_probe_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
       // Lazy thread-safe instantiation of CuCo hash map.
-      auto& hash_map    = hash_map_wrapper.get<Identifier>();
+      auto& hash_map    = hash_map_wrapper.get_map<Identifier, groupjoin_map_type<Identifier>>();
       auto hash_map_ref = hash_map.ref(cuco::find, cuco::for_each);
 
       if (o_comment.has_value()) {
@@ -263,7 +266,7 @@ struct groupjoin_retrieve_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
       // Lazy thread-safe instantiation of CuCo hash map.
-      auto& hash_map    = hash_map_wrapper.get<Identifier>();
+      auto& hash_map    = hash_map_wrapper.get_map<Identifier, groupjoin_map_type<Identifier>>();
       auto hash_map_ref = hash_map.ref(cuco::find, cuco::for_each);
 
       auto grid_size = gqe::utility::detect_launch_grid_size(groupjoin_retrieve_kernel<Identifier>,

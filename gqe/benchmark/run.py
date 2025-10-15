@@ -265,6 +265,10 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
     elif relation.__class__.__name__ == "Q13FusedFilterProbeRelation":
         fix_partial_filter_column_references(relation.groupjoin_build, query)
         fix_partial_filter_column_references(relation.orders, query)
+    elif relation.__class__.__name__ == "Q16FusedFilterJoinRelation":
+        fix_partial_filter_column_references(relation.supplier_table, query)
+        fix_partial_filter_column_references(relation.part_table, query)
+        fix_partial_filter_column_references(relation.partsupp_table, query)
     elif relation.__class__.__name__ == "Q22MarkJoinRelation":
         fix_partial_filter_column_references(relation.customer_table, query)
         fix_partial_filter_column_references(relation.orders_table, query)

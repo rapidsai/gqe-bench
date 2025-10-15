@@ -56,6 +56,8 @@ def get_queries(query_source: str, queries: list[str] = None):
         "13_opt",
         "13_fused",
         "15",
+        "16",
+        "16_opt",
         "17",
         "18",
         "19",

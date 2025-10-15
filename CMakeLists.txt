@@ -63,6 +63,9 @@ pybind11_add_module(lib
   gqe/benchmark/hardcoded/src/tpch/q22/task.cu
   gqe/benchmark/hardcoded/src/tpch/q22/fused_project_filter.cu
   gqe/benchmark/hardcoded/src/tpch/q22/mark_join.cu
+  gqe/benchmark/hardcoded/src/tpch/q16/join_task.cu
+  gqe/benchmark/hardcoded/src/tpch/q16/aggregate_task.cu
+  gqe/benchmark/hardcoded/src/tpch/q16/fused_filter_join.cu
 )
 
 # Include the GQE build directory to get the git revision header
