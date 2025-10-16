@@ -24,6 +24,7 @@ from gqe.benchmark.run import (
     is_valid_identifier_type,
     fix_partial_filter_column_references,
     get_query_validator,
+    boost_shared_memory_pool_size
 )
 from gqe import lib
 
@@ -117,6 +118,8 @@ def main():
     arg_parser.add_argument(
         "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
     )
+    arg_parser.add_argument("--boost_pool_size", help="Boost pool size in GBs", type=int, default=None)
+
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
 
@@ -142,14 +145,24 @@ def main():
 
     # TODO: Multiprocess mode needs to check if spawned ranks is equal to that in the best parameters
     # https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/13
-    if args.multiprocess:
-        # Validate that all runs use parquet_file storage before initializing MPI
-        for bp in best_parameters:
-            if bp.get("d_storage_device_kind") != "parquet_file":
-                raise ValueError(
-                    "Multiprocess mode is only supported with parquet_file storage kind"
-                )
+    if args.multiprocess: 
         lib.mpi_init()
+
+        all_storage_kind_is = lambda params, kind: all(
+            bp.get("d_storage_device_kind") == kind for bp in params
+        )   
+        
+        all_storage_kind = best_parameters[0].get("d_storage_device_kind")
+        if all_storage_kind_is(best_parameters, "boost_shared_memory"):
+            pool_size = boost_shared_memory_pool_size(args.boost_pool_size, scale_factor, args.load_all_data)
+            print(f"Initializing CPU shared memory with pool size {pool_size}")
+            lib.initialize_shared_memory(pool_size)
+        elif not all_storage_kind_is(best_parameters, "parquet_file"):
+            raise ValueError(
+                "Multiprocess mode is only supported with parquet_file storage kind or boost_shared_memory storage kind"
+            )
+        multiprocess_runtime_context = lib.MultiProcessRuntimeContext(lib.scheduler_type.ROUND_ROBIN, all_storage_kind)
+        
 
     is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
     edb_file = None
@@ -242,6 +255,7 @@ def main():
                     compression_data_type,
                     compression_chunk_size,
                     zone_map_partition_size,
+                    multiprocess_runtime_context if args.multiprocess else None,
                 )
 
             except Exception as e:
@@ -271,7 +285,7 @@ def main():
 
             elif query_source == "substrait":
                 substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
-                root_relation = catalog.load_substrait(substrait_file)
+                root_relation = catalog.load_substrait(substrait_file, True, multiprocess_runtime_context if args.multiprocess else None)
                 if physical_plan_folder and is_root_rank:
                     log_physical_plan(
                         f"Q{query_idx}", root_relation, physical_plan_folder
@@ -283,6 +297,7 @@ def main():
 
             if args.multiprocess:
                 run_tpc_multiprocess(
+                    multiprocess_runtime_context,
                     catalog,
                     data_info,
                     query,
@@ -327,6 +342,9 @@ def main():
         errors = run_all(None, None) 
 
     if args.multiprocess:
+        multiprocess_runtime_context.finalize()
+        if all_storage_kind == "boost_shared_memory" and lib.mpi_rank() == 0:
+            lib.finalize_shared_memory()
         lib.mpi_finalize()
 
 

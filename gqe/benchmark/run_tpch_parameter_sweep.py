@@ -26,6 +26,7 @@ from gqe.benchmark.run import (
     is_valid_identifier_type,
     fix_partial_filter_column_references,
     get_query_validator,
+    boost_shared_memory_pool_size,
 )
 from gqe import lib
 
@@ -209,6 +210,7 @@ def main():
             "device_memory",
             "managed_memory",
             "numa_pinned_memory",
+            "boost_shared_memory",
             "parquet_file",
         ],
         nargs="+",
@@ -217,14 +219,9 @@ def main():
     arg_parser.add_argument(
         "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
     )
-    args = arg_parser.parse_args()
+    arg_parser.add_argument("--boost_pool_size", help="Boost pool size in GBs", type=int, default=None)
 
-    if args.multiprocess:
-        if args.storage_kind != ["parquet_file"]:
-            raise ValueError(
-                "Multiprocess mode is only supported with parquet_file storage kind"
-            )
-        lib.mpi_init()
+    args = arg_parser.parse_args()
 
     gqe_host = "localhost"
     scale_factor = parse_scale_factor(args.dataset)
@@ -233,6 +230,25 @@ def main():
         if args.load_all_data is not None
         else (1 if scale_factor <= 200 else 0)
     )
+
+    if args.multiprocess:
+        if args.storage_kind != ["parquet_file"] and args.storage_kind != ["boost_shared_memory"]:
+            raise ValueError(
+                "Multiprocess mode is only supported with parquet_file storage kind or boost_shared_memory storage kind"
+            )
+        
+        lib.mpi_init()
+        
+        if args.storage_kind == ["boost_shared_memory"]:
+            pool_size = boost_shared_memory_pool_size(args.boost_pool_size, scale_factor, load_all_data)
+            print(f"Initializing CPU shared memory with pool size {pool_size}")
+            lib.initialize_shared_memory(pool_size)
+        
+        multiprocess_runtime_context = lib.MultiProcessRuntimeContext(lib.scheduler_type.ROUND_ROBIN, args.storage_kind[0])
+        
+        
+
+
 
     if not args.identifier_type:
         identifier_type = [parse_identifier_type(args.dataset)]
@@ -331,6 +347,7 @@ def main():
                         compression_data_type,
                         compression_chunk_size,
                         zone_map_partition_size,
+                        multiprocess_runtime_context if args.multiprocess else None,
                     )
                 except Exception as e:
                     print(f"Error registering table: {e}")
@@ -356,6 +373,7 @@ def main():
                                 compression_data_type,
                                 compression_chunk_size,
                                 zone_map_partition_size,
+                                multiprocess_runtime_context if args.multiprocess else None
                             )
                         except Exception as e:
                             print(
@@ -387,7 +405,7 @@ def main():
 
                     elif query_source == "substrait":
                         substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
-                        root_relation = catalog.load_substrait(substrait_file)
+                        root_relation = catalog.load_substrait(substrait_file, True, multiprocess_runtime_context if args.multiprocess else None)
                         query = QueryInfo(
                             f"Q{query_idx}", root_relation, reference_file
                         )
@@ -488,6 +506,7 @@ def main():
 
                     if args.multiprocess:
                         run_tpc_multiprocess(
+                            multiprocess_runtime_context,
                             catalog,
                             data_info,
                             query,
@@ -511,6 +530,8 @@ def main():
                             errors,
                             query_source,
                         )
+                    
+        
         return errors
 
     errors = []
@@ -529,10 +550,15 @@ def main():
         print(errors)
 
     if args.multiprocess:
+        multiprocess_runtime_context.finalize()
+        if args.storage_kind == "boost_shared_memory" and lib.mpi_rank() == 0:
+            lib.finalize_shared_memory()
         lib.mpi_finalize()
 
     if errors:
         exit(1)
+
+
 
 
 if __name__ == "__main__":

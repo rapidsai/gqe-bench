@@ -30,6 +30,7 @@ from gqe.expression import (
     Cast,
 )
 from gqe.table_definition import TPCHTableDefinitions
+from gqe.execute import MultiProcessContext, MultiProcessRuntimeContext
 
 from database_benchmarking_tools import experiment as exp
 
@@ -42,6 +43,7 @@ from dataclasses import dataclass, asdict, fields
 from typing import Optional
 from collections.abc import Callable
 import copy
+import gqe.lib as lib
 
 
 # Extended Experiment
@@ -198,6 +200,17 @@ def get_query_validator(query_object):
 # program is already running.
 def set_eager_module_loading():
     os.environ["CUDA_MODULE_LOADING"] = "EAGER"
+
+
+def boost_shared_memory_pool_size(input_pool_size: int, scale_factor: int, load_all_data: bool) -> int:
+    if input_pool_size:
+        return input_pool_size * 1024 * 1024 * 1024
+    # Found through experiments 50 GBs fits SF100
+    if not load_all_data:
+        return int(scale_factor * (1/2) * 1024 * 1024 * 1024)
+    # Found through experiments 70GBs fits SF100 
+    if load_all_data:
+        return int(scale_factor * (7/10) * 1024 * 1024 * 1024)
 
 
 def fix_partial_filter_column_references(relation: Relation, query: int):
@@ -379,6 +392,7 @@ def run_tpc(
 
 
 def run_tpc_multiprocess(
+    runtime_context: MultiProcessRuntimeContext,
     catalog,
     data: DataInfo,
     query: QueryInfo,
@@ -426,23 +440,31 @@ def run_tpc_multiprocess(
                 )
             )
 
-        context = MultiProcessContext(
-            parameter.num_workers,
-            parameter.num_partitions,
-            data.char_type == "char",
-            parameter.use_overlap_mtx,
-            parameter.join_use_hash_map_cache,
-            parameter.read_use_zero_copy,
-            parameter.join_use_unique_keys,
-            parameter.join_use_perfect_hash,
-            data.compression_format,
-            data.compression_data_type,
-            data.compression_chunk_size,
-            parameter.use_partition_pruning,
-            data.zone_map_partition_size,
-            parameter.filter_use_like_shift_and,
-            parameter.aggregation_use_perfect_hash,
-        )            
+        try:
+            context = MultiProcessContext(
+                runtime_context,
+                parameter.num_workers,
+                parameter.num_partitions,
+                data.char_type == "char",
+                parameter.use_overlap_mtx,
+                parameter.join_use_hash_map_cache,
+                parameter.read_use_zero_copy,
+                parameter.join_use_unique_keys,
+                parameter.join_use_perfect_hash,
+                parameter.join_use_mark_join,
+                data.compression_format,
+                data.compression_data_type,
+                data.compression_chunk_size,
+                parameter.use_partition_pruning,
+                data.zone_map_partition_size,
+                parameter.filter_use_like_shift_and,
+                parameter.aggregation_use_perfect_hash,
+                lib.scheduler_type.ROUND_ROBIN,
+            )  
+        except Exception as error:
+            print("Error creating MultiProcessContext:", error)
+            break
+
 
         for count in range(repeat):
             out_file = f"{query.identifier}_out.parquet"
@@ -456,14 +478,16 @@ def run_tpc_multiprocess(
                     print(error)
                     break
 
-            if is_root_rank:
-                try:
-                    verify_parquet(out_file, query.reference_solution, query.validator)
-                except Exception as error:
+            # All ranks verify result, alternatively we need to communicate if there is an error
+            try:
+                verify_parquet(out_file, query.reference_solution, query.validator)
+            except Exception as error:
+                if is_root_rank:
                     print(error)
                     errors.append((query.identifier, parameter))
-                    break
-
+                break
+            
+            if is_root_rank:
                 edb.insert_run(
                     exp.Run(
                         experiment_id=experiment_id,
@@ -472,5 +496,5 @@ def run_tpc_multiprocess(
                         duration_s=elapsed_time / 1000,
                     )
                 )
-        context.finalize()
+
         del context

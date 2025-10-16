@@ -20,7 +20,7 @@ in the future.
 
 import gqe.lib
 from .table_definition import TPCHTableDefinitions
-
+from .execute import MultiProcessRuntimeContext
 
 class Catalog:
     def __init__(self) -> None:
@@ -38,6 +38,7 @@ class Catalog:
         in_memory_table_compression_data_type="char",
         compression_chunk_size=2**16,
         zone_map_partition_size=100000,
+        multiprocess_task_manager_context: MultiProcessRuntimeContext = None,
     ) -> TPCHTableDefinitions:
         """
         Register TPC-H dataset in the catalog.
@@ -45,7 +46,7 @@ class Catalog:
         :arg dataset: Location of the TPC-H dataset.
         :arg storage_kind: Storage kind for tables. Can be either `"pinned_memory"`,
             `"system_memory"`, `"numa_memory"`, `"device_memory"`, or `"managed_memory"` or
-            `"parquet_file"`.
+            `"parquet_file"`, or `"boost_shared_memory"`.
         :arg num_row_groups: Number of row groups for in-memory storage.
         :arg load_data_of_query: For in-memory storage,
             if `load_data_of_query = 0` loads entire dataset,
@@ -57,9 +58,9 @@ class Catalog:
         :arg in_memory_table_compression_data_type: Determines how input data is viewed as for compression.
         :arg compression_chunk_size: Size of each chunk for nvcomp compression.
         :arg zone_map_partition_size: Number of rows per zone map partition.
+        :arg multiprocess_task_manager_context: Context reused for multiprocess tasks execution.
         """
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
-
         if storage_kind == "parquet_file":
             gqe.lib.register_tpch_parquet(
                 self._catalog, dataset, table_definitions.query_table_definitions(0)
@@ -71,7 +72,9 @@ class Catalog:
             "device_memory",
             "managed_memory",
             "numa_pinned_memory",
+            "boost_shared_memory",
         ]:
+            
             gqe.lib.register_tpch_in_memory(
                 self._catalog,
                 dataset,
@@ -82,12 +85,13 @@ class Catalog:
                 zone_map_partition_size,
                 table_definitions.query_table_definitions(load_data_of_query),
                 storage_kind,
+                multiprocess_task_manager_context
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")
         return table_definitions
 
     def load_substrait(
-        self, substrait_file: str, optimized: bool = True
+        self, substrait_file: str, optimized: bool = True, multiprocess_task_manager_context: MultiProcessRuntimeContext = None
     ) -> gqe.lib.Relation:
-        return gqe.lib.load_substrait(self._catalog, substrait_file, optimized)
+        return gqe.lib.load_substrait(self._catalog, substrait_file, optimized, multiprocess_task_manager_context)

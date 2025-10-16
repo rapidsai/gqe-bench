@@ -8,9 +8,15 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from gqe.relation import Relation
-from gqe import Catalog
 import gqe.lib
+
+# Circular import of between execute and catalog 
+if TYPE_CHECKING:
+    from gqe.catalog import Catalog
 
 
 class Context:
@@ -78,9 +84,21 @@ class Context:
         return self._context.execute(catalog._catalog, relation, output_path)
 
 
+
+class MultiProcessRuntimeContext:
+    def __init__(self, scheduler_type: gqe.lib.scheduler_type, storage_kind: str):
+        self._context = gqe.lib.MultiProcessRuntimeContext(scheduler_type, storage_kind)
+
+    def get(self):
+        return self._context.get()
+
+    def finalize(self):
+        self._context.finalize()
+
 class MultiProcessContext:
     def __init__(
         self,
+        runtime_context: MultiProcessRuntimeContext,
         max_num_workers: int = 1,
         max_num_partitions: int = 8,
         use_opt_type_for_single_char_col: bool = False,
@@ -89,6 +107,7 @@ class MultiProcessContext:
         read_use_zero_copy: bool = False,
         join_use_unique_keys: bool = False,
         join_use_perfect_hash: bool = False,
+        join_use_mark_join: bool = False,
         in_memory_table_compression_format: str = "none",
         in_memory_table_compression_data_type: str = "char",
         compression_chunk_size: int = 65536,
@@ -96,23 +115,27 @@ class MultiProcessContext:
         zone_map_partition_size: int = 100000,
         filter_use_like_shift_and: bool = False,
         aggregation_use_perfect_hash: bool = False,
+        scheduler_type: gqe.lib.scheduler_type = gqe.lib.scheduler_type.ROUND_ROBIN,
     ):
         self._context = gqe.lib.MultiProcessContext(
+            runtime_context,
             max_num_workers,
             max_num_partitions,
             in_memory_table_compression_format,
             in_memory_table_compression_data_type,
             compression_chunk_size,
             zone_map_partition_size,
+            scheduler_type,
             use_opt_type_for_single_char_col,
             use_overlap_mtx,
             join_use_hash_map_cache,
             read_use_zero_copy,
             join_use_unique_keys,
             join_use_perfect_hash,
+            join_use_mark_join,
             use_partition_pruning,
             filter_use_like_shift_and,
-            aggregation_use_perfect_hash,
+            aggregation_use_perfect_hash
         )
 
     def execute(
@@ -137,6 +160,3 @@ class MultiProcessContext:
             relation = relation._to_cpp()
 
         return self._context.execute(catalog._catalog, relation, output_path)
-
-    def finalize(self):
-        self._context.finalize()

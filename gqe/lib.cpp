@@ -28,6 +28,7 @@
 #include <gqe/expression/literal.hpp>
 #include <gqe/expression/scalar_function.hpp>
 #include <gqe/logical/from_substrait.hpp>
+#include <gqe/memory_resource/boost_shared_memory_resource.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
@@ -52,21 +53,23 @@
 
 #include <git_revision.h.in>
 
+#include <boost/interprocess/managed_shared_memory.hpp>
+#include <boost/interprocess/shared_memory_object.hpp>
+
 #include <cudf/datetime.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
 
+#include <mpi.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
-
-#include <mpi.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
 
 #include <cassert>
 #include <chrono>
@@ -255,9 +258,110 @@ std::shared_ptr<gqe::physical::relation> union_all(std::shared_ptr<gqe::physical
   return std::make_shared<gqe::physical::union_all_relation>(std::move(lhs), std::move(rhs));
 }
 
-std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
-                                                        std::string substrait_file,
-                                                        bool optimize = true)
+void mpi_init() { GQE_MPI_TRY(MPI_Init(nullptr, nullptr)); }
+
+int mpi_rank()
+{
+  int rank;
+  GQE_MPI_TRY(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+  return rank;
+}
+
+void mpi_finalize() { GQE_MPI_TRY(MPI_Finalize()); }
+
+void mpi_barrier() { GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD)); }
+
+/*
+  Multi process runtime context stores the multiprocess task manager context which is used
+  manages the nvshmem initialization, scheduler, communicator and device memory resource.
+  It also stores the whether to use shared in-memory table, and initializes the shared memory if
+  needed.
+
+  We currently only initialize the multi_process_runtime_context once throughout the
+  benchmarking for the following reasons:
+  1. There is bug which prevents us from initializing nvshmem after pinning boost_shared_memory
+  Issue: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/190
+  2. Allocation and pinning of shared memory take considerable time on systems like A100 (approx for
+  SF1k - 5 mins) hence, we only want to do allocating and pinning the memory once.
+*/
+
+struct multi_process_runtime_context {
+  multi_process_runtime_context(gqe::SCHEDULER_TYPE scheduler_type, std::string storage_kind)
+  {
+    _task_manager_ctx =
+      gqe::multi_process_task_manager_context::default_init(MPI_COMM_WORLD, scheduler_type);
+
+    if (storage_kind != "boost_shared_memory") { return; }
+
+    use_in_memory_table_multigpu = true;
+    mr = std::make_shared<gqe::memory_resource::boost_shared_memory_resource>();
+  }
+
+  gqe::multi_process_task_manager_context* get_task_manager_ctx()
+  {
+    return _task_manager_ctx.get();
+  }
+
+  void finalize() { _task_manager_ctx->finalize(); }
+
+  std::unique_ptr<gqe::multi_process_task_manager_context> _task_manager_ctx;
+  std::shared_ptr<gqe::memory_resource::boost_shared_memory_resource> mr;
+  bool use_in_memory_table_multigpu = false;
+};
+
+/*
+ We share the statistics after table registration (in-memory-write-tasks), this is the best way
+ without requiring extra synchronization during the in-memory-write-tasks. As, other ranks
+ would have to wait for the root rank to finish the in-memory-write-tasks, before reading the
+ statistics.
+*/
+void share_statistics_interprocess(
+  gqe::catalog* catalog,
+  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx)
+{
+  int rank;
+  GQE_MPI_TRY(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+
+  auto& segment = multi_process_runtime_ctx->mr->segment();
+
+  if (rank == 0) {
+    for (auto const& table_name : catalog->table_names()) {
+      if (table_name.find("_parquet") != std::string::npos) { continue; }
+      auto table_statistics_manager = catalog->statistics(table_name);
+      segment.construct<gqe::table_statistics>(table_name.c_str())(
+        table_statistics_manager->statistics());
+      GQE_LOG_TRACE("Table on rank 0: {} has {} rows",
+                    table_name,
+                    table_statistics_manager->statistics().num_rows);
+    }
+  }
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (rank != 0) {
+    for (auto const& table_name : catalog->table_names()) {
+      if (table_name.find("_parquet") != std::string::npos) { continue; }
+      auto table_statistics_manager = catalog->statistics(table_name);
+      auto statistics               = segment.find<gqe::table_statistics>(table_name.c_str()).first;
+      table_statistics_manager->add_rows(statistics->num_rows);
+      GQE_LOG_TRACE("Table on rank {} has {} rows", rank, statistics->num_rows);
+    }
+  }
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (rank == 0) {
+    for (auto const& table_name : catalog->table_names()) {
+      if (table_name.find("_parquet") != std::string::npos) { continue; }
+      segment.destroy<gqe::table_statistics>(table_name.c_str());
+      GQE_LOG_TRACE("Table on rank {} destroyed: {}", rank, table_name);
+    }
+  }
+}
+
+std::shared_ptr<gqe::physical::relation> load_substrait(
+  gqe::catalog* catalog,
+  std::string substrait_file,
+  bool optimize                                                                 = true,
+  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr)
 {
   gqe::substrait_parser parser(catalog);
   auto logical_plan_vector = parser.from_file(substrait_file);
@@ -280,6 +384,12 @@ std::shared_ptr<gqe::physical::relation> load_substrait(gqe::catalog* catalog,
     logical_plan = optimizer->optimize(logical_plan);
     GQE_LOG_TRACE("Optimized logical plan: \n {}", logical_plan->to_string());
   }
+
+  if (multi_process_runtime_ctx && multi_process_runtime_ctx->use_in_memory_table_multigpu) {
+    GQE_LOG_TRACE("Sharing statistics among processes");
+    share_statistics_interprocess(catalog, multi_process_runtime_ctx);
+  }
+
   gqe::physical_plan_builder plan_builder(catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
   GQE_LOG_TRACE("Generated physical plan: \n {}", physical_plan->to_string());
@@ -312,6 +422,56 @@ void log_physical_plan(std::shared_ptr<gqe::physical::relation> relation, std::s
   if (relation) {
     // Get the string representation and write it to the file.
     output_file << relation->to_string() << std::endl;
+  }
+}
+
+gqe::compression_format parse_compression_format(std::string compression_format)
+{
+  // FIXME: DRY compression format
+  if (compression_format == "none") {
+    return gqe::compression_format::none;
+  } else if (compression_format == "ans") {
+    return gqe::compression_format::ans;
+  } else if (compression_format == "lz4") {
+    return gqe::compression_format::lz4;
+  } else if (compression_format == "snappy") {
+    return gqe::compression_format::snappy;
+  } else if (compression_format == "gdeflate") {
+    return gqe::compression_format::gdeflate;
+  } else if (compression_format == "deflate") {
+    return gqe::compression_format::deflate;
+  } else if (compression_format == "cascaded") {
+    return gqe::compression_format::cascaded;
+  } else if (compression_format == "zstd") {
+    return gqe::compression_format::zstd;
+  } else if (compression_format == "gzip") {
+    return gqe::compression_format::gzip;
+  } else if (compression_format == "bitcomp") {
+    return gqe::compression_format::bitcomp;
+  } else if (compression_format == "best_compression_ratio") {
+    return gqe::compression_format::best_compression_ratio;
+  } else if (compression_format == "best_decompression_speed") {
+    return gqe::compression_format::best_decompression_speed;
+  } else {
+    throw std::logic_error("Unrecognized compression format");
+  }
+}
+
+nvcompType_t parse_compression_data_type(std::string compression_data_type)
+{
+  // FIXME: DRY compression data type
+  if (compression_data_type == "char") {
+    return NVCOMP_TYPE_CHAR;
+  } else if (compression_data_type == "short") {
+    return NVCOMP_TYPE_SHORT;
+  } else if (compression_data_type == "int") {
+    return NVCOMP_TYPE_INT;
+  } else if (compression_data_type == "longlong") {
+    return NVCOMP_TYPE_LONGLONG;
+  } else if (compression_data_type == "bits") {
+    return NVCOMP_TYPE_BITS;
+  } else {
+    throw std::logic_error("Unrecognized data type format");
   }
 }
 
@@ -363,52 +523,10 @@ struct context {
     parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
     parameters.aggregation_use_perfect_hash     = aggregation_use_perfect_hash;
 
-    // FIXME: DRY compression format
-    if (in_memory_table_compression_format == "none") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::none;
-    } else if (in_memory_table_compression_format == "ans") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::ans;
-    } else if (in_memory_table_compression_format == "lz4") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::lz4;
-    } else if (in_memory_table_compression_format == "snappy") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::snappy;
-    } else if (in_memory_table_compression_format == "gdeflate") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::gdeflate;
-    } else if (in_memory_table_compression_format == "deflate") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::deflate;
-    } else if (in_memory_table_compression_format == "cascaded") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::cascaded;
-    } else if (in_memory_table_compression_format == "zstd") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::zstd;
-    } else if (in_memory_table_compression_format == "gzip") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::gzip;
-    } else if (in_memory_table_compression_format == "bitcomp") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::bitcomp;
-    } else if (in_memory_table_compression_format == "best_compression_ratio") {
-      parameters.in_memory_table_compression_format =
-        gqe::compression_format::best_compression_ratio;
-    } else if (in_memory_table_compression_format == "best_decompression_speed") {
-      parameters.in_memory_table_compression_format =
-        gqe::compression_format::best_decompression_speed;
-    } else {
-      throw std::logic_error("Unrecognized compression format");
-    }
-
-    // FIXME: DRY compression data type
-    if (in_memory_table_compression_data_type == "char") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_CHAR;
-    } else if (in_memory_table_compression_data_type == "short") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_SHORT;
-    } else if (in_memory_table_compression_data_type == "int") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_INT;
-    } else if (in_memory_table_compression_data_type == "longlong") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_LONGLONG;
-    } else if (in_memory_table_compression_data_type == "bits") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_BITS;
-    } else {
-      throw std::logic_error("Unrecognized data type format");
-    }
-
+    parameters.in_memory_table_compression_format =
+      parse_compression_format(in_memory_table_compression_format);
+    parameters.in_memory_table_compression_data_type =
+      parse_compression_data_type(in_memory_table_compression_data_type);
     parameters.compression_chunk_size = compression_chunk_size;
 
     _query_ctx = std::make_unique<gqe::query_context>(parameters);
@@ -445,38 +563,30 @@ struct context {
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
 };
 
-void mpi_init() { GQE_MPI_TRY(MPI_Init(nullptr, nullptr)); }
-
-int mpi_rank()
-{
-  int rank;
-  GQE_MPI_TRY(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-  return rank;
-}
-
-void mpi_finalize() { GQE_MPI_TRY(MPI_Finalize()); }
-
 // FIXME: multiprocess context duplicates a lot of code from context class.
 // We should encapsulate parameters into a an object.
 struct multi_process_context {
-  multi_process_context(int32_t max_num_workers                           = 1,
+  multi_process_context(std::shared_ptr<lib::multi_process_runtime_context> runtime_ctx,
+                        int32_t max_num_workers                           = 1,
                         int32_t max_num_partitions                        = 8,
                         std::string in_memory_table_compression_format    = "none",
                         std::string in_memory_table_compression_data_type = "char",
                         int32_t compression_chunk_size                    = 65536,
                         size_t zone_map_partition_size                    = 100000,
-                        bool use_opt_type_for_single_char_col             = true,
-                        bool use_overlap_mtx                              = true,
-                        bool join_use_hash_map_cache                      = false,
-                        bool read_use_zero_copy                           = false,
-                        bool join_use_unique_keys                         = true,
-                        bool join_use_perfect_hash                        = true,
-                        bool use_partition_pruning                        = false,
-                        bool filter_use_like_shift_and                    = false,
-                        bool aggregation_use_perfect_hash                 = true)
+                        gqe::SCHEDULER_TYPE scheduler_type    = gqe::SCHEDULER_TYPE::ROUND_ROBIN,
+                        bool use_opt_type_for_single_char_col = true,
+                        bool use_overlap_mtx                  = true,
+                        bool join_use_hash_map_cache          = false,
+                        bool read_use_zero_copy               = false,
+                        bool join_use_unique_keys             = true,
+                        bool join_use_perfect_hash            = true,
+                        bool join_use_mark_join               = false,
+                        bool use_partition_pruning            = false,
+                        bool filter_use_like_shift_and        = false,
+                        bool aggregation_use_perfect_hash     = true)
   {
-    _task_manager_ctx = gqe::multi_process_task_manager_context::default_init(MPI_COMM_WORLD);
-    ;
+    _task_manager_ctx = runtime_ctx->get_task_manager_ctx();
+    _task_manager_ctx->update_scheduler(scheduler_type);
 
     gqe::optimization_parameters parameters(false);
     parameters.max_num_workers                  = max_num_workers;
@@ -487,63 +597,21 @@ struct multi_process_context {
     parameters.read_zero_copy_enable            = read_use_zero_copy;
     parameters.join_use_unique_keys             = join_use_unique_keys;
     parameters.join_use_perfect_hash            = join_use_perfect_hash;
+    parameters.join_use_mark_join               = join_use_mark_join;
     parameters.use_partition_pruning            = use_partition_pruning;
     parameters.zone_map_partition_size          = zone_map_partition_size;
     parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
     parameters.aggregation_use_perfect_hash     = aggregation_use_perfect_hash;
 
-    // FIXME: DRY compression format
-    if (in_memory_table_compression_format == "none") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::none;
-    } else if (in_memory_table_compression_format == "ans") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::ans;
-    } else if (in_memory_table_compression_format == "lz4") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::lz4;
-    } else if (in_memory_table_compression_format == "snappy") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::snappy;
-    } else if (in_memory_table_compression_format == "gdeflate") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::gdeflate;
-    } else if (in_memory_table_compression_format == "deflate") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::deflate;
-    } else if (in_memory_table_compression_format == "cascaded") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::cascaded;
-    } else if (in_memory_table_compression_format == "zstd") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::zstd;
-    } else if (in_memory_table_compression_format == "gzip") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::gzip;
-    } else if (in_memory_table_compression_format == "bitcomp") {
-      parameters.in_memory_table_compression_format = gqe::compression_format::bitcomp;
-    } else if (in_memory_table_compression_format == "best_compression_ratio") {
-      parameters.in_memory_table_compression_format =
-        gqe::compression_format::best_compression_ratio;
-    } else if (in_memory_table_compression_format == "best_decompression_speed") {
-      parameters.in_memory_table_compression_format =
-        gqe::compression_format::best_decompression_speed;
-    } else {
-      throw std::logic_error("Unrecognized compression format");
-    }
-
-    // FIXME: DRY compression data type
-    if (in_memory_table_compression_data_type == "char") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_CHAR;
-    } else if (in_memory_table_compression_data_type == "short") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_SHORT;
-    } else if (in_memory_table_compression_data_type == "int") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_INT;
-    } else if (in_memory_table_compression_data_type == "longlong") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_LONGLONG;
-    } else if (in_memory_table_compression_data_type == "bits") {
-      parameters.in_memory_table_compression_data_type = NVCOMP_TYPE_BITS;
-    } else {
-      throw std::logic_error("Unrecognized data type format");
-    }
-
-    parameters.compression_chunk_size = compression_chunk_size;
+    parameters.in_memory_table_compression_format =
+      parse_compression_format(in_memory_table_compression_format);
+    parameters.in_memory_table_compression_data_type =
+      parse_compression_data_type(in_memory_table_compression_data_type);
+    parameters.compression_chunk_size       = compression_chunk_size;
+    parameters.use_in_memory_table_multigpu = runtime_ctx->use_in_memory_table_multigpu;
 
     _query_ctx = std::make_unique<gqe::query_context>(parameters);
   }
-
-  void finalize() { _task_manager_ctx->finalize(); }
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
   // Return execution time in ms.
@@ -552,17 +620,15 @@ struct multi_process_context {
                 std::optional<std::string> output_path = std::nullopt)
   {
     gqe::task_graph_builder graph_builder(
-      gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
+      gqe::context_reference{_task_manager_ctx, _query_ctx.get()}, catalog);
     auto task_graph = graph_builder.build(relation.get());
 
     // Barrier sync to ensure all processes are ready to execute
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    execute_task_graph_multi_process(
-      gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, task_graph.get());
-    // Wait for all ranks to finish execution
-    GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
+    execute_task_graph_multi_process(gqe::context_reference{_task_manager_ctx, _query_ctx.get()},
+                                     task_graph.get());
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<float, std::milli> elapsed_time_ms = end_time - start_time;
 
@@ -581,7 +647,7 @@ struct multi_process_context {
   }
 
   std::unique_ptr<gqe::query_context> _query_ctx;
-  std::unique_ptr<gqe::multi_process_task_manager_context> _task_manager_ctx;
+  gqe::multi_process_task_manager_context* _task_manager_ctx;
 };
 
 void register_tpch_parquet(
@@ -600,8 +666,10 @@ void register_tpch_parquet(
 }
 
 // TODO: duplicate code with tpc.cpp
-gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_description,
-                                           const std::vector<std::string>& file_paths)
+gqe::storage_kind::type parse_storage_kind(
+  const std::string& storage_kind_description,
+  const std::vector<std::string>& file_paths,
+  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr)
 {
   std::string normalized_description;
   normalized_description.reserve(storage_kind_description.size());
@@ -609,37 +677,50 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
                  storage_kind_description.end(),
                  std::back_inserter(normalized_description),
                  [](auto c) { return std::tolower(c); });
-  std::map<std::string, gqe::storage_kind::type> const storage_kinds{
-    {"system_memory", gqe::storage_kind::system_memory{}},
-    {"numa_memory", gqe::storage_kind::numa_memory{gqe::cpu_set(0)}},
-    {"pinned_memory", gqe::storage_kind::pinned_memory{}},
-    {"numa_pinned_memory", gqe::storage_kind::numa_pinned_memory{gqe::cpu_set(0)}},
-    {"device_memory", gqe::storage_kind::device_memory{rmm::cuda_device_id(0)}},
-    {"managed_memory", gqe::storage_kind::managed_memory{}},
-    {"parquet_file", gqe::storage_kind::parquet_file{file_paths}}};
-  return storage_kinds.at(normalized_description);
+  if (normalized_description == "system_memory") {
+    return gqe::storage_kind::system_memory{};
+  } else if (normalized_description == "numa_memory") {
+    return gqe::storage_kind::numa_memory{gqe::cpu_set(0)};
+  } else if (normalized_description == "pinned_memory") {
+    return gqe::storage_kind::pinned_memory{};
+  } else if (normalized_description == "numa_pinned_memory") {
+    return gqe::storage_kind::numa_pinned_memory{gqe::cpu_set(0)};
+  } else if (normalized_description == "device_memory") {
+    return gqe::storage_kind::device_memory{rmm::cuda_device_id(0)};
+  } else if (normalized_description == "managed_memory") {
+    return gqe::storage_kind::managed_memory{};
+  } else if (normalized_description == "parquet_file") {
+    return gqe::storage_kind::parquet_file{file_paths};
+  } else if (normalized_description == "boost_shared_memory") {
+    if (multi_process_runtime_ctx == nullptr ||
+        !multi_process_runtime_ctx->use_in_memory_table_multigpu) {
+      throw std::runtime_error(
+        "Multi process task manager context is not set or is not using boost_shared_memory");
+    }
+    return gqe::storage_kind::boost_shared_memory{multi_process_runtime_ctx->mr};
+  }
+  throw std::logic_error("Unrecognized storage kind: " + storage_kind_description);
 }
 
-void register_table_in_memory(gqe::catalog* catalog,
-                              int32_t num_row_groups,
-                              std::string in_memory_table_compression_format,
-                              std::string in_memory_table_compression_data_type,
-                              int32_t compression_chunk_size,
-                              size_t zone_map_partition_size,
-                              std::string name,
-                              std::vector<gqe::column_traits> const& definition,
-                              std::vector<std::string> const& file_paths,
-                              const std::string& storage_kind_description)
+void register_table_in_memory(
+  gqe::catalog* catalog,
+  int32_t num_row_groups,
+  std::string in_memory_table_compression_format,
+  std::string in_memory_table_compression_data_type,
+  int32_t compression_chunk_size,
+  size_t zone_map_partition_size,
+  std::string name,
+  std::vector<gqe::column_traits> const& definition,
+  std::vector<std::string> const& file_paths,
+  gqe::storage_kind::type storage_kind,
+  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr)
 {
   catalog->register_table(name + "_parquet",
                           definition,
                           gqe::storage_kind::parquet_file{file_paths},
                           gqe::partitioning_schema_kind::automatic{});
 
-  catalog->register_table(name,
-                          definition,
-                          parse_storage_kind(storage_kind_description, file_paths),
-                          gqe::partitioning_schema_kind::none{});
+  catalog->register_table(name, definition, storage_kind, gqe::partitioning_schema_kind::none{});
 
   std::vector<std::string> column_names;
   std::vector<cudf::data_type> column_types;
@@ -658,14 +739,25 @@ void register_table_in_memory(gqe::catalog* catalog,
   auto write_table =
     std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
-  context ctx(1,
-              num_row_groups,
-              in_memory_table_compression_format,
-              in_memory_table_compression_data_type,
-              compression_chunk_size,
-              zone_map_partition_size);
-
-  ctx.execute(catalog, write_table, std::nullopt);
+  if (multi_process_runtime_ctx) {
+    multi_process_context ctx(multi_process_runtime_ctx,
+                              1,
+                              num_row_groups,
+                              in_memory_table_compression_format,
+                              in_memory_table_compression_data_type,
+                              compression_chunk_size,
+                              zone_map_partition_size,
+                              gqe::SCHEDULER_TYPE::ALL_TO_ALL);
+    ctx.execute(catalog, write_table, std::nullopt);
+  } else {
+    context ctx(1,
+                num_row_groups,
+                in_memory_table_compression_format,
+                in_memory_table_compression_data_type,
+                compression_chunk_size,
+                zone_map_partition_size);
+    ctx.execute(catalog, write_table, std::nullopt);
+  }
 }
 
 void register_tpch_in_memory(
@@ -677,8 +769,13 @@ void register_tpch_in_memory(
   int32_t compression_chunk_size,
   size_t zone_map_partition_size,
   std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
-  const std::string& storage_kind_description)
+  const std::string& storage_kind_description,
+  std::shared_ptr<lib::multi_process_runtime_context> multiprocess_runtime_ctx = nullptr)
 {
+  gqe::storage_kind::type storage_kind =
+    parse_storage_kind(storage_kind_description, {}, multiprocess_runtime_ctx);
+  GQE_LOG_TRACE("Storage kind created: {}", storage_kind_description);
+
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
     register_table_in_memory(catalog,
@@ -690,7 +787,8 @@ void register_tpch_in_memory(
                              name,
                              definition,
                              file_paths,
-                             storage_kind_description);
+                             storage_kind,
+                             multiprocess_runtime_ctx);
   }
 }
 
@@ -698,6 +796,31 @@ void register_tpch_in_memory(
 gqe::literal_expression<cudf::timestamp_D> date_from_days(cudf::timestamp_D::rep days)
 {
   return gqe::literal_expression<cudf::timestamp_D>(cudf::timestamp_D(cudf::duration_D(days)));
+}
+
+void finalize_shared_memory()
+{
+  boost::interprocess::shared_memory_object::remove("gqe_shared_memory");
+}
+
+void initialize_shared_memory(size_t pool_size = 10ULL * 1024 * 1024 * 1024)
+{
+  // Shared memory is backed by file, and it persists even after all the processes have finished.
+  // If the previous run fails to clean up the shared memory, it needs to be cleaned up here.
+  try {
+    if (mpi_rank() == 0) { finalize_shared_memory(); }
+  } catch (const std::exception& e) {
+    GQE_LOG_TRACE("Tried cleaning up shared memory: {}", e.what());
+  }
+
+  mpi_barrier();
+
+  if (mpi_rank() == 0) {
+    auto segment = boost::interprocess::managed_shared_memory(
+      boost::interprocess::create_only, "gqe_shared_memory", pool_size);
+  }
+
+  mpi_barrier();
 }
 
 }  // namespace lib
@@ -927,28 +1050,45 @@ PYBIND11_MODULE(lib, py_module)
                   >())
     .def("execute", &lib::context::execute);
 
-  py::class_<lib::multi_process_context, std::shared_ptr<lib::multi_process_context>>(
-    py_module, "MultiProcessContext")
-    .def(py::init<int32_t,      // max_num_workers
-                  int32_t,      // max_num_partitions
-                  std::string,  // in_memory_table_compression_format
-                  std::string,  // in_memory_table_compression_data_type
-                  int32_t,      // compression_chunk_size
-                  size_t,       // zone_map_partition_size
-                  bool,         // use_opt_type_for_single_char_col
-                  bool,         // use_overlap_mtx
-                  bool,         // join_use_hash_map_cache
-                  bool,         // read_use_zero_copy
-                  bool,         // join_use_unique_keys
-                  bool,         // join_use_perfect_hash
-                  bool,         // use_partition_pruning
-                  bool,         // filter_use_like_shift_and
-                  bool          // aggregation_use_perfect_hash
-                  >())
-    .def("execute", &lib::multi_process_context::execute)
-    .def("finalize", &lib::multi_process_context::finalize);
-
   py_module.def("mpi_init", &lib::mpi_init);
   py_module.def("mpi_finalize", &lib::mpi_finalize);
   py_module.def("mpi_rank", &lib::mpi_rank);
+  py_module.def("mpi_barrier", &lib::mpi_barrier);
+
+  py_module.def("initialize_shared_memory", &lib::initialize_shared_memory);
+  py_module.def("finalize_shared_memory", &lib::finalize_shared_memory);
+
+  py::enum_<gqe::SCHEDULER_TYPE>(py_module, "scheduler_type")
+    .value("ALL_TO_ALL", gqe::SCHEDULER_TYPE::ALL_TO_ALL)
+    .value("ROUND_ROBIN", gqe::SCHEDULER_TYPE::ROUND_ROBIN);
+
+  py::class_<lib::multi_process_runtime_context,
+             std::shared_ptr<lib::multi_process_runtime_context>>(py_module,
+                                                                  "MultiProcessRuntimeContext")
+    .def(py::init<gqe::SCHEDULER_TYPE, std::string>())
+    .def("get_task_manager_ctx", &lib::multi_process_runtime_context::get_task_manager_ctx)
+    .def("finalize", &lib::multi_process_runtime_context::finalize);
+
+  py::class_<lib::multi_process_context, std::shared_ptr<lib::multi_process_context>>(
+    py_module, "MultiProcessContext")
+    .def(py::init<std::shared_ptr<lib::multi_process_runtime_context>,  // runtime_ctx
+                  int32_t,                                              // max_num_workers
+                  int32_t,                                              // max_num_partitions
+                  std::string,          // in_memory_table_compression_format
+                  std::string,          // in_memory_table_compression_data_type
+                  int32_t,              // compression_chunk_size
+                  size_t,               // zone_map_partition_size
+                  gqe::SCHEDULER_TYPE,  // scheduler_type
+                  bool,                 // use_opt_type_for_single_char_col
+                  bool,                 // use_overlap_mtx
+                  bool,                 // join_use_hash_map_cache
+                  bool,                 // read_use_zero_copy
+                  bool,                 // join_use_unique_keys
+                  bool,                 // join_use_perfect_hash
+                  bool,                 // join_use_mark_join
+                  bool,                 // use_partition_pruning
+                  bool,                 // filter_use_like_shift_and
+                  bool                  // aggregation_use_perfect_hash
+                  >())
+    .def("execute", &lib::multi_process_context::execute);
 }
