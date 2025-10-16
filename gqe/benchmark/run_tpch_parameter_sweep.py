@@ -351,6 +351,7 @@ def main():
                     )
                 except Exception as e:
                     print(f"Error registering table: {e}")
+                    errors.append(f"Error registering table: {e}")
                     continue
 
             for query_source, queries in [
