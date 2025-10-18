@@ -8,7 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import Context, MultiProcessContext
+from gqe import Catalog, Context, MultiProcessContext
+from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
 from gqe.benchmark.gqe_experiment import GqeParameters, GqeDataInfoExt
@@ -33,6 +34,7 @@ from gqe.table_definition import TPCHTableDefinitions
 from gqe.execute import MultiProcessContext, MultiProcessRuntimeContext
 
 from database_benchmarking_tools import experiment as exp
+from database_benchmarking_tools.experiment import ExperimentDB
 
 import importlib.resources
 import os
@@ -43,6 +45,10 @@ from dataclasses import dataclass, asdict, fields
 from typing import Optional
 from collections.abc import Callable
 import copy
+
+# Alias multiprocessing due to namespace class in GQE
+import multiprocessing as subprocessing
+import gc
 import gqe.lib as lib
 
 
@@ -85,9 +91,38 @@ class QueryInfo:
     )
 
 
+# In the event of subprocess sandboxing, substrait queries need
+# to be created using a Catalog, which calls cuInit(). This
+# is used for packaging that information so the QueryInfo object
+# can be created in the subprocess.
 @dataclass
-class Parameter(GqeParameters):
-    pass
+class QueryInfoContext:
+    query_idx: int
+    query_str: str
+    query_source: str
+    reference_file: str
+    scale_factor: int
+    substrait_file: str
+    physical_plan_folder: str
+
+
+@dataclass(kw_only=True)
+class QueryExecutionContext(GqeParameters):
+    query_info_ctx: QueryInfoContext
+
+
+@dataclass
+class CatalogContext:
+    dataset: str
+    storage_kind: str
+    num_row_groups: int
+    load_data_of_query: int
+    identifier_type: gqe.lib.TypeId
+    use_opt_char_type: bool
+    in_memory_table_compression_format: str
+    in_memory_table_compression_data_type: str
+    compression_chunk_size: int
+    zone_map_partition_size: int
 
 
 # Extract only the fields that belong to the superclass
@@ -202,15 +237,17 @@ def set_eager_module_loading():
     os.environ["CUDA_MODULE_LOADING"] = "EAGER"
 
 
-def boost_shared_memory_pool_size(input_pool_size: int, scale_factor: int, load_all_data: bool) -> int:
+def boost_shared_memory_pool_size(
+    input_pool_size: int, scale_factor: int, load_all_data: bool
+) -> int:
     if input_pool_size:
         return input_pool_size * 1024 * 1024 * 1024
     # Found through experiments 50 GBs fits SF100
     if not load_all_data:
-        return int(scale_factor * (1/2) * 1024 * 1024 * 1024)
-    # Found through experiments 70GBs fits SF100 
+        return int(scale_factor * (1 / 2) * 1024 * 1024 * 1024)
+    # Found through experiments 70GBs fits SF100
     if load_all_data:
-        return int(scale_factor * (7/10) * 1024 * 1024 * 1024)
+        return int(scale_factor * (7 / 10) * 1024 * 1024 * 1024)
 
 
 def fix_partial_filter_column_references(relation: Relation, query: int):
@@ -289,41 +326,205 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
         fix_partial_filter_column_references(relation.input, query)
 
 
+def _get_tpc_query_info(
+    query_info_ctx: QueryInfoContext,
+    load_all_data: bool,
+    storage_kind: str,
+    table_definitions: TPCHTableDefinitions,
+    catalog: gqe.Catalog,
+    multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+):
+    if query_info_ctx.query_source == "handcoded":
+        query_identifier = "tpch_q" + query_info_ctx.query_str
+        module = importlib.import_module(f"gqe.benchmark.{query_identifier}")
+        query_object = getattr(module, query_identifier)(
+            scale_factor=query_info_ctx.scale_factor
+        )
+        root_relation = query_object.root_relation(table_definitions)
+        query = QueryInfo(
+            f"Q{query_info_ctx.query_str}", root_relation, query_info_ctx.reference_file
+        )
+        # Fix partial filter column references for handcoded queries
+        if not load_all_data and (storage_kind != "parquet_file"):
+            fix_partial_filter_column_references(
+                root_relation, query_info_ctx.query_idx
+            )
+        if validator := get_query_validator(query_object):
+            query.validator = validator
+    elif query_info_ctx.query_source == "substrait":
+        root_relation = catalog.load_substrait(
+            query_info_ctx.substrait_file, True, multiprocess_runtime_context
+        )
+        query = QueryInfo(
+            f"Q{query_info_ctx.query_str}", root_relation, query_info_ctx.reference_file
+        )
+    if query_info_ctx.physical_plan_folder:
+        log_physical_plan(
+            f"Q{query_idx}", root_relation, query_info_ctx.physical_plan_folder
+        )
+
+    return query
+
+
+def print_mp(message, is_root_rank):
+    if is_root_rank:
+        print(message)
+
+
 def run_tpc(
-    catalog,
+    cat_ctx: CatalogContext,
     data: DataInfo,
-    query: QueryInfo,
     scale_factor: int,
-    parameters: list[Parameter],
+    parameters: list[QueryExecutionContext],
+    edb_file: str,
+    edb_info: EdbInfo,
+    errors: list,
+    repeat: int,
+    is_root_rank: bool,
+    is_mp: bool,
+    multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    pipe: subprocessing.Pipe = None,
+):
+    # only send DB to root rank so we will get error if there is a logic mistake
+    if is_root_rank:
+        gqe_host = "localhost"
+        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
+            GqeExperimentConnection
+        )
+        with edb_config as edb:
+            _run_tpc(
+                cat_ctx,
+                data,
+                scale_factor,
+                parameters,
+                edb,
+                edb_info,
+                errors,
+                repeat,
+                is_root_rank,
+                is_mp,
+                multiprocess_runtime_context,
+                pipe,
+            )
+    else:
+        _run_tpc(
+            cat_ctx,
+            data,
+            scale_factor,
+            parameters,
+            None,
+            edb_info,
+            errors,
+            repeat,
+            is_root_rank,
+            is_mp,
+            multiprocess_runtime_context,
+            pipe,
+        )
+
+
+def pipe_send(pipe: subprocessing.Pipe, status: bool):
+    if pipe is not None:
+        pipe.send(status)
+
+
+def _run_tpc(
+    cat_ctx: CatalogContext,
+    data: DataInfo,
+    scale_factor: int,
+    parameters: list[QueryExecutionContext],
     edb: exp.ExperimentDB,
     edb_info: EdbInfo,
     errors: list,
-    query_source: str,
+    repeat: int,
+    is_root_rank: bool,
+    is_mp: bool,
+    multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    pipe: subprocessing.Pipe,
 ):
-    repeat = 6
+    if is_root_rank:
+        data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
 
-    data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
+        data.data_info_id = data_info_id
+        data_info_ext_id = edb.insert_gqe_data_info_ext(
+            upcast_to_super(data, GqeDataInfoExt)
+        )
+    load_all_data = cat_ctx.load_data_of_query == 0
+    catalog = None
+    if load_all_data:
+        print_mp("Attempting to load full TPCH dataset into memory", is_root_rank)
+        try:
+            catalog = Catalog()
+            table_definitions = catalog.register_tpch(**asdict(cat_ctx))
+        except Exception as error:
+            print(f"Error registering table: {error}", is_root_rank)
+            print(
+                "load_all_data failed to load, discarding remaining {len(parameter_queue)} experiments",
+            )
+            pipe_send(pipe, False)
+            errors.append(f"Error registering table: {e}")
+            parameters[:] = []
+            return
+        # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
+    debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
-    data.data_info_id = data_info_id
-    data_info_ext_id = edb.insert_gqe_data_info_ext(
-        upcast_to_super(data, GqeDataInfoExt)
-    )
+    while parameters:
+        # pop lets main process know we are making forward progress
+        parameter = parameters.pop(0)
+        query_info_ctx = parameter.query_info_ctx
 
-    for parameter in parameters:
-        debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
-
-        print(
-            f"Running query from {query_source} with parameters "
+        print_mp(
+            f"Running query from {query_info_ctx.query_source} with parameters "
             f"debug_mem_usage={debug_mem_usage}, "
-            f"{ parameter }, {data}"
+            f"{ parameter }, {data}",
+            is_root_rank,
         )
 
-        parameter.sut_info_id = edb_info.sut_info_id
+        # Reload dataset if new query and not load_all
+        if not load_all_data and cat_ctx.load_data_of_query != query_info_ctx.query_idx:
+            # there is a potential race condition with the garbage collector on reassignment, so
+            # let's just explicitly delete and try to reclaim
+            del catalog
+            gc.collect()
+            print_mp(
+                f"Attempting to load TPCH Query {query_info_ctx.query_idx} data into memory",
+                is_root_rank,
+            )
+            try:
+                catalog = Catalog()
+                # Set up context with new query ID
+                cat_ctx.load_data_of_query = query_info_ctx.query_idx
+                table_definitions = catalog.register_tpch(**asdict(cat_ctx))
+            except Exception as error:
+                print(
+                    f"Error registering in memory table for query {query_info_ctx.query_idx} {type(err).__name__}: {error}",
+                )
+                pipe_send(pipe, False)
+                errors.append(f"Error registering table: {e}")
+                # Since we failed to load this data set, purge the remaining matching queries.
+                parameters[:] = list(
+                    filter(
+                        lambda p: p.query_info_ctx.query_idx != query_info_ctx.query_idx
+                    )
+                )
+                # We can continue processing since this is one query; on next iter we reload data
+                continue
+        else:
+            print_mp("No load required - data already in memory", is_root_rank)
+        # if we make it here, communicate we succeeded data load and/or didn't need to load data
+        pipe_send(pipe, True)
 
-        parameters_id = edb.insert_gqe_parameters(parameter)
+        # need to load query info regardless of which catalog path we take
+        query = _get_tpc_query_info(
+            query_info_ctx,
+            load_all_data,
+            cat_ctx.storage_kind,
+            table_definitions,
+            catalog,
+            multiprocess_runtime_context,
+        )
 
-        # TODO: use with statement instead?
-        context = Context(
+        context_params = (
             parameter.num_workers,
             parameter.num_partitions,
             data.char_type == "char",
@@ -340,90 +541,30 @@ def run_tpc(
             data.zone_map_partition_size,
             parameter.filter_use_like_shift_and,
             parameter.aggregation_use_perfect_hash,
-            debug_mem_usage,
         )
-
-        print(f"Running {query.identifier}...")
-
-        experiment_id = edb.insert_experiment(
-            Experiment(
-                sut_info_id=edb_info.sut_info_id,
-                parameters_id=parameters_id,
-                hw_info_id=edb_info.hw_info_id,
-                build_info_id=edb_info.build_info_id,
-                data_info_id=data_info_id,
-                data_info_ext_id=data_info_ext_id,
-                name=query.identifier,
-                suite="TPC-H",
-                scale_factor=scale_factor,
-                query_source=query_source,
-            )
-        )
-
-        for count in range(repeat):
-            out_file = f"{query.identifier}_out.parquet"
-
-            with nvtx.annotate(f"Run {query.identifier}"):
-                try:
-                    elapsed_time = context.execute(
-                        catalog, query.root_relation, out_file
-                    )
-                except Exception as error:
-                    print(error)
-                    break
-
-            try:
-                verify_parquet(out_file, query.reference_solution, query.validator)
-            except Exception as error:
-                print(error)
-                errors.append((query.identifier, parameter))
-                break
-
-            edb.insert_run(
-                exp.Run(
-                    experiment_id=experiment_id,
-                    number=count,
-                    nvtx_marker=None,
-                    duration_s=elapsed_time / 1000,
+        print_mp("Building query execution context...", is_root_rank)
+        try:
+            if is_mp:
+                context = MultiProcessContext(
+                    multiprocess_runtime_context,
+                    *context_params,
+                    lib.scheduler_type.ROUND_ROBIN,
                 )
-            )
+            else:
+                context = Context(*context_params, debug_mem_usage=debug_mem_usage)
+        except Exception as error:
+            print("Error constructing query context")
+            print(f"{type(error).__name__}: {error}")
+            pipe_send(pipe, False)
+            continue
+        # confirm we loaded context properly
+        pipe_send(pipe, True)
 
-        del context
-
-
-def run_tpc_multiprocess(
-    runtime_context: MultiProcessRuntimeContext,
-    catalog,
-    data: DataInfo,
-    query: QueryInfo,
-    scale_factor: int,
-    parameters: list[Parameter],
-    edb: exp.ExperimentDB,
-    edb_info: EdbInfo,
-    errors: list,
-    query_source: str,
-    is_root_rank: bool,
-):
-    repeat = 6
-
-    if is_root_rank:
-        data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
-
-        data.data_info_id = data_info_id
-        data_info_ext_id = edb.insert_gqe_data_info_ext(
-            upcast_to_super(data, GqeDataInfoExt)
-        )
-
-    for parameter in parameters:
         if is_root_rank:
-            print(
-                f"Running query from {query_source} with parameters "
-                f"{ parameter }, {data}"
-            )
             parameter.sut_info_id = edb_info.sut_info_id
-            parameters_id = edb.insert_gqe_parameters(parameter)
-
-            print(f"Running {query.identifier}...")
+            parameters_id = edb.insert_gqe_parameters(
+                upcast_to_super(parameter, GqeParameters)
+            )
 
             experiment_id = edb.insert_experiment(
                 Experiment(
@@ -436,57 +577,42 @@ def run_tpc_multiprocess(
                     name=query.identifier,
                     suite="TPC-H",
                     scale_factor=scale_factor,
-                    query_source=query_source,
+                    query_source=query_info_ctx.query_source,
                 )
             )
-
-        try:
-            context = MultiProcessContext(
-                runtime_context,
-                parameter.num_workers,
-                parameter.num_partitions,
-                data.char_type == "char",
-                parameter.use_overlap_mtx,
-                parameter.join_use_hash_map_cache,
-                parameter.read_use_zero_copy,
-                parameter.join_use_unique_keys,
-                parameter.join_use_perfect_hash,
-                parameter.join_use_mark_join,
-                data.compression_format,
-                data.compression_data_type,
-                data.compression_chunk_size,
-                parameter.use_partition_pruning,
-                data.zone_map_partition_size,
-                parameter.filter_use_like_shift_and,
-                parameter.aggregation_use_perfect_hash,
-                lib.scheduler_type.ROUND_ROBIN,
-            )  
-        except Exception as error:
-            print("Error creating MultiProcessContext:", error)
-            break
-
+            print_mp(f"Running {query.identifier}...", is_root_rank)
 
         for count in range(repeat):
             out_file = f"{query.identifier}_out.parquet"
 
             with nvtx.annotate(f"Run {query.identifier}"):
                 try:
+                    print_mp(
+                        f"Starting query {query.identifier} repetition {count}...",
+                        is_root_rank,
+                    )
                     elapsed_time = context.execute(
                         catalog, query.root_relation, out_file
                     )
                 except Exception as error:
-                    print(error)
+                    print("Error during query execution")
+                    print(f"{type(error).__name__}: {error}")
+                    pipe_send(pipe, False)
                     break
-
             # All ranks verify result, alternatively we need to communicate if there is an error
             try:
+                print_mp("Start verification...", is_root_rank)
                 verify_parquet(out_file, query.reference_solution, query.validator)
             except Exception as error:
-                if is_root_rank:
-                    print(error)
-                    errors.append((query.identifier, parameter))
+                print("Error verifying solution")
+                print(f"{type(error).__name__}: {error}")
+                errors.append((query.identifier, parameter))
+                pipe_send(pipe, False)
+                success = False
                 break
-            
+            # Logging on host process creates a small race condition; sending before doing DB insertion
+            # helps order the print messages w/o having to resort to more complicated syncronization.
+            pipe_send(pipe, True)
             if is_root_rank:
                 edb.insert_run(
                     exp.Run(
@@ -496,5 +622,5 @@ def run_tpc_multiprocess(
                         duration_s=elapsed_time / 1000,
                     )
                 )
-
         del context
+        gc.collect()

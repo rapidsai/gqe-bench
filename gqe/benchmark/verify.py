@@ -43,7 +43,6 @@ def verify_parquet(
 ):
     df_gqe = pd.read_parquet(test_file)
     df_ref = pd.read_parquet(ref_file)
-    print("Start verification...")
 
     # normalize column names
     df_gqe.columns = df_ref.columns

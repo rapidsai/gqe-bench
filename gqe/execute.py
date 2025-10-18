@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from gqe.relation import Relation
 import gqe.lib
 
-# Circular import of between execute and catalog 
+# Circular import of between execute and catalog
 if TYPE_CHECKING:
     from gqe.catalog import Catalog
 
@@ -84,7 +84,6 @@ class Context:
         return self._context.execute(catalog._catalog, relation, output_path)
 
 
-
 class MultiProcessRuntimeContext:
     def __init__(self, scheduler_type: gqe.lib.scheduler_type, storage_kind: str):
         self._context = gqe.lib.MultiProcessRuntimeContext(scheduler_type, storage_kind)
@@ -94,6 +93,7 @@ class MultiProcessRuntimeContext:
 
     def finalize(self):
         self._context.finalize()
+
 
 class MultiProcessContext:
     def __init__(
@@ -135,7 +135,7 @@ class MultiProcessContext:
             join_use_mark_join,
             use_partition_pruning,
             filter_use_like_shift_and,
-            aggregation_use_perfect_hash
+            aggregation_use_perfect_hash,
         )
 
     def execute(

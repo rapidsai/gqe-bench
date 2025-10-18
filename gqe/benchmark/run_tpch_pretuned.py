@@ -10,13 +10,12 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import Catalog
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe.benchmark.run import (
     run_tpc,
-    run_tpc_multiprocess,
     DataInfo,
-    QueryInfo,
+    CatalogContext,
+    QueryInfoContext,
     Parameter,
     setup_db,
     parse_scale_factor,
@@ -24,7 +23,7 @@ from gqe.benchmark.run import (
     is_valid_identifier_type,
     fix_partial_filter_column_references,
     get_query_validator,
-    boost_shared_memory_pool_size
+    boost_shared_memory_pool_size,
 )
 from gqe import lib
 
@@ -118,11 +117,16 @@ def main():
     arg_parser.add_argument(
         "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
     )
-    arg_parser.add_argument("--boost_pool_size", help="Boost pool size in GBs", type=int, default=None)
-
+    arg_parser.add_argument(
+        "--repeat", "-rep", help="How many times to run each query", type=int, default=6
+    )
+    arg_parser.add_argument(
+        "--boost_pool_size", help="Boost pool size in GBs", type=int, default=None
+    )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
 
+    repeat = args.repeat
     gqe_host = "localhost"
     scale_factor = parse_scale_factor(args.dataset)
 
@@ -145,24 +149,28 @@ def main():
 
     # TODO: Multiprocess mode needs to check if spawned ranks is equal to that in the best parameters
     # https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/13
-    if args.multiprocess: 
+    multiprocess_runtime_context = None
+    if args.multiprocess:
         lib.mpi_init()
 
         all_storage_kind_is = lambda params, kind: all(
             bp.get("d_storage_device_kind") == kind for bp in params
-        )   
-        
+        )
+
         all_storage_kind = best_parameters[0].get("d_storage_device_kind")
         if all_storage_kind_is(best_parameters, "boost_shared_memory"):
-            pool_size = boost_shared_memory_pool_size(args.boost_pool_size, scale_factor, args.load_all_data)
+            pool_size = boost_shared_memory_pool_size(
+                args.boost_pool_size, scale_factor, args.load_all_data
+            )
             print(f"Initializing CPU shared memory with pool size {pool_size}")
             lib.initialize_shared_memory(pool_size)
         elif not all_storage_kind_is(best_parameters, "parquet_file"):
             raise ValueError(
                 "Multiprocess mode is only supported with parquet_file storage kind or boost_shared_memory storage kind"
             )
-        multiprocess_runtime_context = lib.MultiProcessRuntimeContext(lib.scheduler_type.ROUND_ROBIN, all_storage_kind)
-        
+        multiprocess_runtime_context = lib.MultiProcessRuntimeContext(
+            lib.scheduler_type.ROUND_ROBIN, all_storage_kind
+        )
 
     is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
     edb_file = None
@@ -174,12 +182,13 @@ def main():
         edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
             GqeExperimentConnection
         )
+        edb_config.create_experiment_db()
         print(f"Writing SQLite file to {edb_file}")
 
     if physical_plan_folder and is_root_rank:
         print(f"Writing Physical Plan to the folder {physical_plan_folder}")
 
-    def run_all(edb, edb_info):
+    def run_all(edb_info):
         errors_local = []
         for best_parameter in best_parameters:
             query_str = best_parameter["e_name"].lstrip("Q")
@@ -206,19 +215,6 @@ def main():
 
             storage_kind = best_parameter["d_storage_device_kind"]
             query_source = best_parameter["e_query_source"]
-            gqe_parameter = Parameter(
-                best_parameter["p_num_workers"],
-                best_parameter["p_num_partitions"],
-                best_parameter["p_use_overlap_mtx"],
-                best_parameter["p_join_use_hash_map_cache"],
-                best_parameter["p_read_use_zero_copy"],
-                best_parameter["p_join_use_unique_keys"],
-                best_parameter["p_join_use_perfect_hash"],
-                best_parameter["p_join_use_mark_join"],
-                best_parameter["p_use_partition_pruning"],
-                best_parameter["p_filter_use_like_shift_and"],
-                best_parameter["p_aggregation_use_perfect_hash"],
-            )
 
             if best_parameter["e_scale_factor"] != scale_factor:
                 print(
@@ -241,105 +237,90 @@ def main():
                 zone_map_partition_size=zone_map_partition_size,
             )
 
-            table_definitions = None
-            catalog = Catalog()
-            try:
-                table_definitions = catalog.register_tpch(
-                    args.dataset,
-                    storage_kind,
-                    num_row_groups,
-                    0 if args.load_all_data else query_idx,
-                    identifier_type,
-                    use_opt_type_for_single_char_col,
-                    compression_format,
-                    compression_data_type,
-                    compression_chunk_size,
-                    zone_map_partition_size,
-                    multiprocess_runtime_context if args.multiprocess else None,
-                )
-
-            except Exception as e:
-                print(f"Error registering in memory table for query {query_idx}: {e}")
-                continue
-
             reference_file = args.solution.replace("%d", f"q{query_idx}")
-
             if query_source == "handcoded":
-                query_identifier = "tpch_q" + query_str
-                module = importlib.import_module(f"gqe.benchmark.{query_identifier}")
-                query_object = getattr(module, query_identifier)(
-                    scale_factor=scale_factor
-                )
-                root_relation = query_object.root_relation(table_definitions)
-                query = QueryInfo(f"Q{query_str}", root_relation, reference_file)
-                if validator := get_query_validator(query_object):
-                    query.validator = validator
-                if not args.load_all_data and (storage_kind != "parquet_file"):
-                    fix_partial_filter_column_references(root_relation, query_idx)
-                # make sure we call log_physical_plan after calling fix_partial_filter_column_references
-                # so that root_relation is properly updated with column references
-                if physical_plan_folder and is_root_rank:
-                    root_relation.log_physical_plan(
-                        f"Q{query_str}", physical_plan_folder
-                    )
-
+                substrait_file = None
             elif query_source == "substrait":
                 substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
-                root_relation = catalog.load_substrait(substrait_file, True, multiprocess_runtime_context if args.multiprocess else None)
-                if physical_plan_folder and is_root_rank:
-                    log_physical_plan(
-                        f"Q{query_idx}", root_relation, physical_plan_folder
-                    )
-                query = QueryInfo(f"Q{query_idx}", root_relation, reference_file)
-
             else:
                 raise ValueError(f"Invalid query source: {query_source}")
 
-            if args.multiprocess:
-                run_tpc_multiprocess(
-                    multiprocess_runtime_context,
-                    catalog,
-                    data_info,
-                    query,
-                    scale_factor,
-                    [gqe_parameter],
-                    edb,
-                    edb_info,
-                    errors_local,
-                    query_source,
-                    is_root_rank,
+            query_ctx = QueryInfoContext(
+                query_idx,
+                query_str,
+                query_source,
+                reference_file,
+                scale_factor,
+                substrait_file,
+                physical_plan_folder,
+            )
+
+            gqe_parameter = Parameter(
+                best_parameter["p_num_workers"],
+                best_parameter["p_num_partitions"],
+                best_parameter["p_use_overlap_mtx"],
+                best_parameter["p_join_use_hash_map_cache"],
+                best_parameter["p_read_use_zero_copy"],
+                best_parameter["p_join_use_unique_keys"],
+                best_parameter["p_join_use_perfect_hash"],
+                best_parameter["p_join_use_mark_join"],
+                best_parameter["p_use_partition_pruning"],
+                best_parameter["p_filter_use_like_shift_and"],
+                best_parameter["p_aggregation_use_perfect_hash"],
+                query_ctx=query_ctx,
+            )
+
+            if best_parameter["e_scale_factor"] != scale_factor:
+                print(
+                    f"Skipping {best_parameter['e_name']} because scale factor {best_parameter['e_scale_factor']} does not match input scale factor {scale_factor}"
                 )
-            else:
-                run_tpc(
-                    catalog,
-                    data_info,
-                    query,
-                    scale_factor,
-                    [gqe_parameter],
-                    edb,
-                    edb_info,
-                    errors_local,
-                    query_source,
-                )
+                continue
+
+            cat_ctx = CatalogContext(
+                args.dataset,
+                storage_kind,
+                num_row_groups,
+                0 if args.load_all_data else -1,
+                identifier_type,
+                use_opt_type_for_single_char_col,
+                compression_format,
+                compression_data_type,
+                compression_chunk_size,
+                zone_map_partition_size,
+            )
+
+            run_tpc(
+                cat_ctx,
+                data_info,
+                scale_factor,
+                [gqe_parameter],
+                edb_file,
+                edb_info,
+                errors,
+                repeat,
+                is_root_rank,
+                args.multiprocess,
+                multiprocess_runtime_context,
+            )
 
         return errors_local
 
     if is_root_rank:
         with edb_config as edb:
             edb_info = setup_db(edb)
-            errors = run_all(edb, edb_info)
+        errors = run_all(edb_info)
 
         print(f"Finished SQLite file at {edb_file}")
         if physical_plan_folder:
             print(f"Finished Physical Plan at the folder {physical_plan_folder}")
-        
+
         if errors:
             print(
-            "The following configurations run successfully but produce incorrect results"
-        )
-        print(errors)
+                "The following configurations run successfully but produce incorrect results"
+            )
+            print(errors)
     else:
-        errors = run_all(None, None) 
+        errors = run_all(None)
 
     if args.multiprocess:
         multiprocess_runtime_context.finalize()
