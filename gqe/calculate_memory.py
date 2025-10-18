@@ -11,17 +11,17 @@
 import gqe.lib
 from typing import Dict
 from gqe import table_definition
+import argparse
 
 
-def get_row_counts() -> Dict[str, int]:
-    # FIXME: Calculate based on scale factor. Hard-coding SF100 for now.
+def get_row_counts(scale_factor: float) -> Dict[str, int]:
     return {
-        "lineitem": 600121500,
-        "orders": 150030000,
-        "part": 20000000,
-        "partsupp": 80000000,
-        "customer": 15000000,
-        "supplier": 1000000,
+        "lineitem": round(scale_factor * 6_000_000),
+        "orders": round(scale_factor * 1_500_000),
+        "part": round(scale_factor * 200_000),
+        "partsupp": round(scale_factor * 800_000),
+        "customer": round(scale_factor * 150_000),
+        "supplier": round(scale_factor * 10_000),
         "nation": 25,
         "region": 5
     }
@@ -37,36 +37,65 @@ def get_type_sizes() -> Dict[gqe.lib.TypeId, int]:
         gqe.lib.TypeId.int8: 1 # char type
     }
 
-def calculate_memory_requirements(definitions: dict[str, list[gqe.lib.ColumnTraits]]) -> int:
+def calculate_memory_requirements(definitions: dict[str, list[gqe.lib.ColumnTraits]], scale_factor: float) -> (int, int):
     type_sizes = get_type_sizes()
-    row_counts = get_row_counts()
+    row_counts = get_row_counts(scale_factor)
     
     total_memory = 0
+    table_to_mem_usage = {}
     
     for table_name, columns in definitions.items():
-        table_size = row_counts[table_name]
-        row_size = 0
+        row_size = sum(type_sizes[column_traits.data_type.type_id()] for column_traits in columns)
+        table_to_mem_usage[table_name] = row_size * row_counts[table_name]
+    total_memory = sum(table_to_mem_usage.values())
         
-        for column_traits in columns:
-            row_size += type_sizes[column_traits.data_type.type_id()]
-            
-        total_memory += table_size * row_size
-        
-    return total_memory
+    return total_memory, table_to_mem_usage
 
-def estimate_memory_for_all_queries(identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32, use_opt_char_type: bool = True):
+def estimate_memory_for_all_queries(scale_factor: float, identifier_type: gqe.lib.TypeId, use_opt_char_type: bool):
     table_defs = table_definition.TPCHTableDefinitions(identifier_type, use_opt_char_type)
     
     for query_idx in range(23):  # 0-22 inclusive
         definitions = table_defs.query_table_definitions(query_idx)
-        memory_needed = calculate_memory_requirements(definitions)
+        memory_needed_for_query, memory_needed_by_table = calculate_memory_requirements(definitions, scale_factor)
         
         if query_idx == 0:
             print("  Total", end='')
         else:
             print(f"Query {query_idx}", end='')
             
-        print(f" memory needed: {memory_needed / (1024 * 1024 * 1024):.2f} GiB")
+        print(f" memory needed: {memory_needed_for_query / (1024 * 1024 * 1024):.2f} GiB")
+        for table_name, mem_needed in memory_needed_by_table.items():
+            print(f"  Table: {table_name}, memory needed: {mem_needed / (1024 * 1024 * 1024):.3f} GiB")
+
+def main():
+    arg_parser = argparse.ArgumentParser(description="A script to calculate the approximate memory requirement for TPC-H queries.")
+
+    arg_parser.add_argument("--scale-factor", "-s", required=True, type=float, help="Scale factor of the input data.")
+    arg_parser.add_argument(
+        "--identifier-type",
+        "-i",
+        help="Identifier type used in the dataset.",
+        choices=["int32", "int64"],
+        type=str,
+        required=True,
+    )
+    arg_parser.add_argument(
+        "--use-opt-char-type",
+        "-u",
+        help="Use int8 (1) or string (0) to represent char type. Default: 1",
+        type=int,
+        choices=[0, 1],
+        default=1,
+    )
+
+    args = arg_parser.parse_args()
+
+    str_to_type = {"int32": gqe.lib.TypeId.int32, "int64": gqe.lib.TypeId.int64}
+    identifier_type = str_to_type[args.identifier_type]
+
+    estimate_memory_for_all_queries(args.scale_factor, identifier_type, args.use_opt_char_type)
+
+
 
 if __name__ == "__main__":
-    estimate_memory_for_all_queries()
+    main()
