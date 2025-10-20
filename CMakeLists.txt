@@ -83,7 +83,6 @@ target_compile_options(lib PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
   $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>
-  $<$<COMPILE_LANGUAGE:CUDA>:-rdc=true>
 )
 target_link_libraries(lib PUBLIC gqe)
 install(TARGETS lib LIBRARY DESTINATION gqe)
