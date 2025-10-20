@@ -10,12 +10,15 @@ code_style:
     - >
       find ./gqe -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file --dry-run -Werror ||
       { find ./gqe -name *.hpp -o -name *.cpp -o -name *.cuh -o -name *.cu | xargs clang-format -style=file -i; git diff | tee format_diff.patch; exit 1; }
+    - conda install black=25.1.0
+    - black --check --diff . | tee black_diff.patch
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   artifacts:
     paths:
       - format_diff.patch
+      - black_diff.patch
     expire_in: 1 week
     when: on_failure
 

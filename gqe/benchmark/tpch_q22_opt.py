@@ -15,40 +15,31 @@ from gqe.relation import Relation
 import gqe.lib
 from gqe.table_definition import TPCHTableDefinitions
 
+
 class Q22FusedProjectFilterRelation(Relation):
     """
     Q22 specific fused project and filter relation.
     """
 
-    def __init__(
-        self,
-        input: Relation
-    ):
+    def __init__(self, input: Relation):
         self.input = input
 
     def _to_cpp(self):
-        return gqe.lib.q22_fused_project_filter(
-            self.input._cpp
-        )
+        return gqe.lib.q22_fused_project_filter(self.input._cpp)
+
 
 class Q22MarkJoinRelation(Relation):
     """
     Q22 specific mark join relation to replace left-anti join.
     """
 
-    def __init__(
-        self,
-        customer_table: Relation,
-        orders_table: Relation
-    ):
+    def __init__(self, customer_table: Relation, orders_table: Relation):
         self.customer_table = customer_table
         self.orders_table = orders_table
 
     def _to_cpp(self):
-        return gqe.lib.q22_mark_join(
-            self.customer_table._cpp,
-            self.orders_table._cpp
-        )
+        return gqe.lib.q22_mark_join(self.customer_table._cpp, self.orders_table._cpp)
+
 
 """
 select
@@ -90,21 +81,26 @@ order by
         cntrycode
 """
 
+
 class tpch_q22_opt(Query):
-    def root_relation(self, table_defs : TPCHTableDefinitions):
-        
+    def root_relation(self, table_defs: TPCHTableDefinitions):
+
         # customer: c_custkey, substring(c_phone, 0, 2), c_acctbal
-        customer = read("customer", ["c_custkey", "c_phone", "c_acctbal"], None, table_defs)
+        customer = read(
+            "customer", ["c_custkey", "c_phone", "c_acctbal"], None, table_defs
+        )
         filtered_customers = Q22FusedProjectFilterRelation(customer)
 
         # Calculate average account balance for positive balance customers with matching country codes
-        avg_acctbal = filtered_customers.aggregate([], [("avg", CR(2))], perfect_hashing=False)
-        
+        avg_acctbal = filtered_customers.aggregate(
+            [], [("avg", CR(2))], perfect_hashing=False
+        )
+
         # Filter customers with account balance > average
         high_balance_customers = filtered_customers.broadcast_join(
             avg_acctbal, CR(2) > CR(3), [0, 1, 2], "left_semi"
         )
-        
+
         # Find customers with no orders using left anti join
         orders = read("orders", ["o_custkey"], None, table_defs)
         customers_no_orders = Q22MarkJoinRelation(high_balance_customers, orders)
@@ -115,14 +111,12 @@ class tpch_q22_opt(Query):
             [CR(0)],  # Group by cntrycode
             [
                 ("count_all", CR(0)),  # count(*) as numcust
-                ("sum", CR(1))         # sum(c_acctbal) as totacctbal
+                ("sum", CR(1)),  # sum(c_acctbal) as totacctbal
             ],
-            perfect_hashing=False
+            perfect_hashing=False,
         )
-        
+
         # Order by country code
-        result = result.sort([
-            (CR(0), "ascending", "before")  # order by cntrycode
-        ])
-        
+        result = result.sort([(CR(0), "ascending", "before")])  # order by cntrycode
+
         return result

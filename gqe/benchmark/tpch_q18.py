@@ -54,7 +54,7 @@ limit
 
 
 class tpch_q18(Query):
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
         lineitem = (
             read("lineitem", ["l_orderkey", "l_quantity"], None, table_defs)
@@ -67,17 +67,36 @@ class tpch_q18(Query):
         # After this operation, `orders` contains
         # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
         orders = read(
-            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"], None, table_defs
-        ).broadcast_join(lineitem, CR(0) == CR(4), [0, 1, 2, 3, 5], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True)
+            "orders",
+            ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"],
+            None,
+            table_defs,
+        ).broadcast_join(
+            lineitem,
+            CR(0) == CR(4),
+            [0, 1, 2, 3, 5],
+            unique_keys_policy=UniqueKeysPolicy.left,
+            perfect_hashing=True,
+        )
 
         # After this operation, `orders` contains
         # [o_orderkey, c_custkey, o_orderdate, o_totalprice, sum(l_quantity), c_name]
-        orders = orders.broadcast_join(customer, CR(1) == CR(5), [0, 1, 2, 3, 4, 6], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
+        orders = orders.broadcast_join(
+            customer,
+            CR(1) == CR(5),
+            [0, 1, 2, 3, 4, 6],
+            unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
+        )
 
         # After this operation, `orders` contains
         # [c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, sum(l_quantity)]
         orders = (
-            orders.aggregate([CR(5), CR(1), CR(0), CR(2), CR(3)], [("sum", CR(4))], perfect_hashing=False)
+            orders.aggregate(
+                [CR(5), CR(1), CR(0), CR(2), CR(3)],
+                [("sum", CR(4))],
+                perfect_hashing=False,
+            )
             .sort([(CR(4), "descending", "before"), (CR(3), "ascending", "before")])
             .fetch(0, 100)
         )

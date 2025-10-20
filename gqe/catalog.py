@@ -22,6 +22,7 @@ import gqe.lib
 from .table_definition import TPCHTableDefinitions
 from .execute import MultiProcessRuntimeContext
 
+
 class Catalog:
     def __init__(self) -> None:
         self._catalog = gqe.lib.Catalog()
@@ -74,7 +75,7 @@ class Catalog:
             "numa_pinned_memory",
             "boost_shared_memory",
         ]:
-            
+
             gqe.lib.register_tpch_in_memory(
                 self._catalog,
                 dataset,
@@ -85,13 +86,18 @@ class Catalog:
                 zone_map_partition_size,
                 table_definitions.query_table_definitions(load_data_of_query),
                 storage_kind,
-                multiprocess_task_manager_context
+                multiprocess_task_manager_context,
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")
         return table_definitions
 
     def load_substrait(
-        self, substrait_file: str, optimized: bool = True, multiprocess_task_manager_context: MultiProcessRuntimeContext = None
+        self,
+        substrait_file: str,
+        optimized: bool = True,
+        multiprocess_task_manager_context: MultiProcessRuntimeContext = None,
     ) -> gqe.lib.Relation:
-        return gqe.lib.load_substrait(self._catalog, substrait_file, optimized, multiprocess_task_manager_context)
+        return gqe.lib.load_substrait(
+            self._catalog, substrait_file, optimized, multiprocess_task_manager_context
+        )

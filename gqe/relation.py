@@ -28,6 +28,7 @@ from functools import cached_property
 
 import os
 
+
 class Relation(ABC):
     @cached_property
     def _cpp(self) -> gqe.lib.Relation:
@@ -60,7 +61,7 @@ class Relation(ABC):
         type: str = "inner",
         broadcast_left: bool = False,
         unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
-        perfect_hashing: bool = False
+        perfect_hashing: bool = False,
     ) -> Relation:
         """
         Join with another table by broadcasting
@@ -76,7 +77,14 @@ class Relation(ABC):
         :param broadcast_left: Whether to broadcast the left table.
         """
         return BroadcastJoinRelation(
-            self, right_table, condition, projection_indices, type, broadcast_left, unique_keys_policy, perfect_hashing
+            self,
+            right_table,
+            condition,
+            projection_indices,
+            type,
+            broadcast_left,
+            unique_keys_policy,
+            perfect_hashing,
         )
 
     def shuffle_join(
@@ -86,7 +94,7 @@ class Relation(ABC):
         projection_indices: list[int],
         type: str = "inner",
         unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
-        perfect_hashing: bool = False
+        perfect_hashing: bool = False,
     ) -> Relation:
         """
         Join with another table by repartitioning both inputs
@@ -101,7 +109,13 @@ class Relation(ABC):
             `"left_anti"` and `"full"`.
         """
         return ShuffleJoinRelation(
-            self, right_table, condition, projection_indices, type, unique_keys_policy, perfect_hashing
+            self,
+            right_table,
+            condition,
+            projection_indices,
+            type,
+            unique_keys_policy,
+            perfect_hashing,
         )
 
     def shuffle(self, shuffle_cols: list[Expression]) -> Relation:
@@ -113,7 +127,11 @@ class Relation(ABC):
         return ShuffleRelation(self, shuffle_cols)
 
     def aggregate(
-        self, keys: list[Expression], measures: list[tuple[str, Expression]], condition: Expression = None, perfect_hashing: bool = False
+        self,
+        keys: list[Expression],
+        measures: list[tuple[str, Expression]],
+        condition: Expression = None,
+        perfect_hashing: bool = False,
     ) -> Relation:
         """
         Groups the table on zero or more sets of grouping keys and applies reduction within the
@@ -173,7 +191,8 @@ class Relation(ABC):
         :param other: The other table to be appended at the end of this table.
         """
         return UnionAllRelation(self, other)
-    def log_physical_plan(self, query_str : str, folder_path : str) -> None:
+
+    def log_physical_plan(self, query_str: str, folder_path: str) -> None:
         """
         Print the physical plan to the file path
         :param file_path: the physical plan written to
@@ -187,17 +206,33 @@ class ReadRelation(Relation):
     A read relation reads a table from the catalog. It does not take any input tables.
     """
 
-    def __init__(self, table: str, columns: list[str], partial_filter: Expression = None, column_defs: list[gqe.lib.ColumnTraits] = None):
+    def __init__(
+        self,
+        table: str,
+        columns: list[str],
+        partial_filter: Expression = None,
+        column_defs: list[gqe.lib.ColumnTraits] = None,
+    ):
         self.table = table
         self.columns = columns
         self.partial_filter = partial_filter
         self.column_defs = column_defs
 
     def _to_cpp(self):
-        return gqe.lib.read(self.table, self.columns, self.partial_filter._cpp if self.partial_filter else None, self.column_defs if self.column_defs else [])
+        return gqe.lib.read(
+            self.table,
+            self.columns,
+            self.partial_filter._cpp if self.partial_filter else None,
+            self.column_defs if self.column_defs else [],
+        )
 
 
-def read(table: str, columns: list[str], partial_filter: Expression = None, table_defs: table_definition.TPCHTableDefinitions = None) -> Relation:
+def read(
+    table: str,
+    columns: list[str],
+    partial_filter: Expression = None,
+    table_defs: table_definition.TPCHTableDefinitions = None,
+) -> Relation:
     """
     Factory for constructing a read relation.
 
@@ -257,7 +292,7 @@ class BroadcastJoinRelation(Relation):
         type: str = "inner",
         broadcast_left: bool = False,
         unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
-        perfect_hashing: bool = False
+        perfect_hashing: bool = False,
     ):
         self.left_table = left_table
         self.right_table = right_table
@@ -299,7 +334,7 @@ class ShuffleJoinRelation(Relation):
         projection_indices: list[int],
         type: str = "inner",
         unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
-        perfect_hashing: bool = False
+        perfect_hashing: bool = False,
     ):
         self.left_table = left_table
         self.right_table = right_table
@@ -335,7 +370,9 @@ class ShuffleRelation(Relation):
         self.shuffle_cols = shuffle_cols
 
     def _to_cpp(self):
-        return gqe.lib.shuffle(self.input._cpp, [expr._cpp for expr in self.shuffle_cols])
+        return gqe.lib.shuffle(
+            self.input._cpp, [expr._cpp for expr in self.shuffle_cols]
+        )
 
 
 _aggregation_kind_to_cpp: dict[str, gqe.lib.AggregationKind] = {
@@ -360,7 +397,7 @@ class AggregateRelation(Relation):
         keys: list[Expression],
         measures: list[tuple[str, Expression]],
         condition: Expression = None,
-        perfect_hashing: bool = False
+        perfect_hashing: bool = False,
     ):
         self.input = input
 
@@ -389,7 +426,7 @@ class AggregateRelation(Relation):
                 for (kind, expr) in self.measures
             ],
             self.condition._cpp if self.condition else None,
-            self.perfect_hashing
+            self.perfect_hashing,
         )
 
 
@@ -462,6 +499,7 @@ class FetchRelation(Relation):
 
     def _to_cpp(self) -> gqe.lib.Relation:
         return gqe.lib.fetch(self.input._cpp, self.offset, self.count)
+
 
 class UnionAllRelation(Relation):
     """

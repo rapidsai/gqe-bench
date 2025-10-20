@@ -62,7 +62,7 @@ List of optimization over substrait plans:
 
 
 class tpch_q1(Query):
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         lineitem = read(
             "lineitem",
             [
@@ -75,14 +75,14 @@ class tpch_q1(Query):
                 "l_tax",
             ],
             (CR(10) <= DateLiteral("1998-09-02")),
-            table_defs
+            table_defs,
         )
 
         # After aggregation, the columns in `lineitem` are:
-        # ["l_returnflag",  "l_linestatus", 
-        #   SUM("l_quantity"), 
-        #   SUM("l_extendedprice"), 
-        #   SUM("l_extendedprice" * (1 - "l_discount")), 
+        # ["l_returnflag",  "l_linestatus",
+        #   SUM("l_quantity"),
+        #   SUM("l_extendedprice"),
+        #   SUM("l_extendedprice" * (1 - "l_discount")),
         #   SUM("l_extendedprice" * (1 - "l_discount") * (1 + "l_tax")),
         #   SUM("l_discount"),
         #   COUNT("l_discount")]
@@ -97,18 +97,18 @@ class tpch_q1(Query):
                 ("count_all", CR(1)),
             ],
             CR(0) <= DateLiteral("1998-09-02"),
-            perfect_hashing=True
+            perfect_hashing=True,
         )
 
         # After projection, the columns in `agg` are:
-        # ["l_returnflag", "l_linestatus", 
-        #   SUM("l_quantity"), 
-        #   SUM("l_extendedprice"), 
-        #   SUM("l_extendedprice" * (1 - "l_discount")), 
-        #   SUM("l_extendedprice" * (1 - "l_discount") * (1 + "l_tax")), 
-        #   AVG("l_quantity"), 
-        #   AVG("l_extendedprice"), 
-        #   AVG("l_discount"), 
+        # ["l_returnflag", "l_linestatus",
+        #   SUM("l_quantity"),
+        #   SUM("l_extendedprice"),
+        #   SUM("l_extendedprice" * (1 - "l_discount")),
+        #   SUM("l_extendedprice" * (1 - "l_discount") * (1 + "l_tax")),
+        #   AVG("l_quantity"),
+        #   AVG("l_extendedprice"),
+        #   AVG("l_discount"),
         #   COUNT("l_discount")]
         project = agg.project(
             [

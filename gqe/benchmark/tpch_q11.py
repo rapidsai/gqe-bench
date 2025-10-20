@@ -68,10 +68,12 @@ class tpch_q11(Query):
 
         self.scale_factor = scale_factor
 
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         # n_name = 'GERMANY'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"), table_defs)
+        nation = read(
+            "nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"), table_defs
+        )
         nation = nation.filter(CR(1) == Literal("GERMANY"), [0])
 
         # s_nationkey = n_nationkey
@@ -89,8 +91,10 @@ class tpch_q11(Query):
         # After these operations, `partsupp` contains columns
         # ["ps_partkey", "ps_supplycost", "ps_availqty"]
         partsupp = read(
-            "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"],
-            None, table_defs
+            "partsupp",
+            ["ps_partkey", "ps_suppkey", "ps_supplycost", "ps_availqty"],
+            None,
+            table_defs,
         )
         partsupp = partsupp.broadcast_join(
             supplier,
@@ -105,7 +109,9 @@ class tpch_q11(Query):
 
         # sum(ps_supplycost * ps_availqty) group by ps_partkey
         # After this operation, `partsupp` contains columns ["ps_partkey", value]
-        partsupp = partsupp.aggregate([CR(0)], [("sum", CR(1) * CR(2))], perfect_hashing=True)
+        partsupp = partsupp.aggregate(
+            [CR(0)], [("sum", CR(1) * CR(2))], perfect_hashing=True
+        )
 
         # having sum(ps_supplycost * ps_availqty) > [FRACTION] * ...
         # After this operation, `partsupp` contains columns ["ps_partkey", value]

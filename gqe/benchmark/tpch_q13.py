@@ -43,7 +43,7 @@ class tpch_q13(Query):
     Creates a TPC-H Q13 phyiscal query plan.
     """
 
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         # Read customer table
         customer = read("customer", ["c_custkey"], None, table_defs)
 

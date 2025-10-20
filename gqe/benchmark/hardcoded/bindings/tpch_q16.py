@@ -10,17 +10,15 @@
 
 from gqe.relation import Relation
 import gqe.lib
-        
+
+
 class Q16FusedFilterJoinRelation(Relation):
     """
     Q16 specific fused filter and join relation.
     """
 
     def __init__(
-        self,
-        supplier_table: Relation,
-        part_table: Relation,
-        partsupp_table: Relation
+        self, supplier_table: Relation, part_table: Relation, partsupp_table: Relation
     ):
         self.supplier_table = supplier_table
         self.part_table = part_table
@@ -32,6 +30,7 @@ class Q16FusedFilterJoinRelation(Relation):
             self.part_table._cpp,
             self.partsupp_table._cpp,
         )
+
 
 class Q16AggregationRelation(Relation):
     """

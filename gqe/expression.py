@@ -232,6 +232,7 @@ class SubstrExpr(Expression):
     def _to_cpp(self):
         return gqe.lib.Substr(self.input._cpp, self.start, self.length)
 
+
 class IfThenElseExpr(Expression):
     def __init__(
         self, if_expr: Expression, then_expr: Expression, else_expr: Expression
@@ -287,7 +288,9 @@ class DatePartExpr(Expression):
 
 
 class Literal(Expression):
-    def __init__(self, value: int | np.int32 | np.int64 | str | float | np.float32 | np.float64):
+    def __init__(
+        self, value: int | np.int32 | np.int64 | str | float | np.float32 | np.float64
+    ):
         """
         Construct a literal expression.
 

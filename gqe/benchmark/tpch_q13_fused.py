@@ -36,7 +36,7 @@ class tpch_q13_fused(Query):
 
         self.scale_factor = scale_factor
 
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         # Read customer table
         customer = read("customer", ["c_custkey"], None, table_defs)
 

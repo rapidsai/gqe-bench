@@ -12,6 +12,7 @@ from __future__ import annotations  # Enable forward references for type annotat
 
 import gqe.lib
 
+
 def check_identifier_type(type_id: gqe.lib.TypeId) -> bool:
     if type_id in [gqe.lib.TypeId.int32, gqe.lib.TypeId.int64]:
         return True
@@ -19,10 +20,16 @@ def check_identifier_type(type_id: gqe.lib.TypeId) -> bool:
 
 
 class TPCHTableDefinitions:
-    def __init__(self, identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32, use_opt_char_type: bool = True):
+    def __init__(
+        self,
+        identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32,
+        use_opt_char_type: bool = True,
+    ):
         check_identifier_type(identifier_type)
 
-        self.char_type = gqe.lib.DataType(gqe.lib.TypeId.int8 if use_opt_char_type else gqe.lib.TypeId.string)
+        self.char_type = gqe.lib.DataType(
+            gqe.lib.TypeId.int8 if use_opt_char_type else gqe.lib.TypeId.string
+        )
         self.identifier_type = gqe.lib.DataType(identifier_type)
         self.integer_type = gqe.lib.DataType(gqe.lib.TypeId.int32)
         self.decimal_type = gqe.lib.DataType(gqe.lib.TypeId.float64)
@@ -98,7 +105,7 @@ class TPCHTableDefinitions:
             },
             "region": {
                 "r_regionkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
-                "r_name": [self.string_type]
+                "r_name": [self.string_type],
             },
         }
 
@@ -108,19 +115,23 @@ class TPCHTableDefinitions:
         definitions = {}
         for table, columns in tables.items():
             definitions[table] = [
-                gqe.lib.ColumnTraits(col, *self.definitions[table][col]) for col in columns
+                gqe.lib.ColumnTraits(col, *self.definitions[table][col])
+                for col in columns
             ]
         return definitions
 
-    def query_table_definitions(
-        self, query_idx: int
-    ) -> dict[str, list[ColumnTraits]]:
+    def query_table_definitions(self, query_idx: int) -> dict[str, list[ColumnTraits]]:
         """Return the tables and and columns (encoded as C++ ColumnTraits) requrired by a query."""
         if query_idx == 0:
-            return {table: [gqe.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()] for table, cols in self.definitions.items()}
+            return {
+                table: [
+                    gqe.lib.ColumnTraits(col, *type_traits)
+                    for col, type_traits in cols.items()
+                ]
+                for table, cols in self.definitions.items()
+            }
         schema = self.get_schema(query_idx)
         return self.get_column_types(schema)
-
 
     def get_schema(self, query_idx: int) -> dict[str, list[str]]:
         """Return column and table names required by a query."""

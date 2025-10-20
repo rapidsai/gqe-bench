@@ -27,7 +27,7 @@ class Query(ABC):
         pass
 
     @abstractmethod
-    def root_relation(self, table_defs : TPCHTableDefinitions) -> Relation:
+    def root_relation(self, table_defs: TPCHTableDefinitions) -> Relation:
         """
         Creates a phyiscal query plan.
 

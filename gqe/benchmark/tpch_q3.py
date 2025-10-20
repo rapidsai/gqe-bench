@@ -47,15 +47,27 @@ This identifies the o_orderkey in order_customer table is unique. Hence, the joi
 The PK-FK join between order and customer on "o_custkey = c_custkey" doesnot change the uniqueness property of o_orderkey column.
 """
 
-class tpch_q3(Query):
-    def root_relation(self, table_defs : TPCHTableDefinitions):
 
-        customer = read("customer", ["c_custkey", "c_mktsegment"],  (CR(6) == Literal("BUILDING")), table_defs)
+class tpch_q3(Query):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
+
+        customer = read(
+            "customer",
+            ["c_custkey", "c_mktsegment"],
+            (CR(6) == Literal("BUILDING")),
+            table_defs,
+        )
         orders = read(
-            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_shippriority"], (CR(4) < DateLiteral("1995-03-15")), table_defs
+            "orders",
+            ["o_orderkey", "o_custkey", "o_orderdate", "o_shippriority"],
+            (CR(4) < DateLiteral("1995-03-15")),
+            table_defs,
         )
         lineitem = read(
-            "lineitem", ["l_orderkey", "l_extendedprice", "l_discount", "l_shipdate"], (CR(10) > DateLiteral("1995-03-15")), table_defs
+            "lineitem",
+            ["l_orderkey", "l_extendedprice", "l_discount", "l_shipdate"],
+            (CR(10) > DateLiteral("1995-03-15")),
+            table_defs,
         )
 
         # Filter customer table: c_mktsegment = 'BUILDING'
@@ -71,7 +83,7 @@ class tpch_q3(Query):
         orders_customer = filtered_orders.broadcast_join(
             filtered_customer,
             CR(1) == CR(4),  # o_custkey = c_custkey
-            [0, 2, 3], 
+            [0, 2, 3],
             unique_keys_policy=UniqueKeysPolicy.right,
             perfect_hashing=True,
         )
@@ -80,7 +92,7 @@ class tpch_q3(Query):
         # filtered_lineitem: l_orderkey, l_extendedprice, l_discount
         filtered_lineitem = lineitem.filter(
             CR(3) > DateLiteral("1995-03-15"),
-            [0, 1, 2], 
+            [0, 1, 2],
         )
 
         # Join orders and lineitem tables: o_orderkey = l_orderkey
@@ -101,12 +113,12 @@ class tpch_q3(Query):
                 CR(0),
                 CR(1),
                 CR(2),
-            ], 
+            ],
             [
                 (
                     "sum",
                     CR(3) * (Literal(1) - CR(4)),
-                )  
+                )
             ],
             perfect_hashing=True,
         )

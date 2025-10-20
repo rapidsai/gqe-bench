@@ -57,7 +57,7 @@ order by
 
 
 class tpch_q7(Query):
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         # Nation filter predicate rewrite to a conjunctive normal form separable into multiple filters
         # P := (n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY') or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')
         # <=>
@@ -65,34 +65,47 @@ class tpch_q7(Query):
         # TODO: fix column reference indices
 
         # WHERE n1.n_name = 'FRANCE' or n1.n_name = 'GERMANY'
-        nation = read("nation",
-                      ["n_nationkey", "n_name"],
-                      (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")), table_defs
-                      ).filter(
-            (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")), [0, 1]
-        )
+        nation = read(
+            "nation",
+            ["n_nationkey", "n_name"],
+            (CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")),
+            table_defs,
+        ).filter((CR(1) == Literal("FRANCE")) | (CR(1) == Literal("GERMANY")), [0, 1])
 
         # join on c_nationkey = n2.n_nationkey
         #   customer has columns ["c_custkey", "c_nationkey"]
         #   returns ["c_custkey", "n_name" as "cust_nation"]
-        customer = read("customer", ["c_custkey", "c_nationkey"], None, table_defs).broadcast_join(
-            nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
+        customer = read(
+            "customer", ["c_custkey", "c_nationkey"], None, table_defs
+        ).broadcast_join(
+            nation,
+            CR(1) == CR(2),
+            [0, 3],
+            unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
         )
 
         # join on c_custkey = o_custkey
         #   orders has columns ["o_orderkey", "o_custkey"]
         #   customer has columns ["c_custkey", "cust_nation"]
         #   returns ["o_orderkey", "cust_nation"]
-        orders = read("orders", ["o_orderkey", "o_custkey"], None, table_defs).broadcast_join(
-            customer, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
+        orders = read(
+            "orders", ["o_orderkey", "o_custkey"], None, table_defs
+        ).broadcast_join(
+            customer,
+            CR(1) == CR(2),
+            [0, 3],
+            unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
         )
 
         # WHERE l_shipdate between date '1995-01-01' and date '1996-12-31'
         l1 = read(
             "lineitem",
             ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
-            (CR(10) >= DateLiteral("1995-01-01")) & (CR(10) <= DateLiteral("1996-12-31")),
-            table_defs
+            (CR(10) >= DateLiteral("1995-01-01"))
+            & (CR(10) <= DateLiteral("1996-12-31")),
+            table_defs,
         ).filter(
             (CR(2) >= DateLiteral("1995-01-01")) & (CR(2) <= DateLiteral("1996-12-31")),
             [0, 1, 2, 3, 4],
@@ -102,13 +115,25 @@ class tpch_q7(Query):
         #   l1 has columns ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
         #   orders has columns ["o_orderkey", "cust_nation"]
         #   returns ["cust_nation", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
-        l1 = l1.broadcast_join(orders, CR(0) == CR(5), [6, 1, 2, 3, 4], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True)
+        l1 = l1.broadcast_join(
+            orders,
+            CR(0) == CR(5),
+            [6, 1, 2, 3, 4],
+            unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
+        )
 
         # join on s_nationkey = n1.n_nationkey
         #   supplier has columns ["s_suppkey", "s_nationkey"]
         #   returns ["s_suppkey", "n_name" as "supp_nation"]
-        supplier = read("supplier", ["s_suppkey", "s_nationkey"], None, table_defs).broadcast_join(
-            nation, CR(1) == CR(2), [0, 3], unique_keys_policy=UniqueKeysPolicy.right, perfect_hashing=True
+        supplier = read(
+            "supplier", ["s_suppkey", "s_nationkey"], None, table_defs
+        ).broadcast_join(
+            nation,
+            CR(1) == CR(2),
+            [0, 3],
+            unique_keys_policy=UniqueKeysPolicy.right,
+            perfect_hashing=True,
         )
 
         # join on s_suppkey = l_suppkey and n2.n_name /= n1.n_name
@@ -138,7 +163,9 @@ class tpch_q7(Query):
         #   supp_nation,
         #   cust_nation,
         #   l_year
-        l1 = l1.aggregate([CR(0), CR(1), CR(2)], [("sum", CR(3))], perfect_hashing=False).sort(
+        l1 = l1.aggregate(
+            [CR(0), CR(1), CR(2)], [("sum", CR(3))], perfect_hashing=False
+        ).sort(
             [
                 (CR(0), "ascending", "before"),
                 (CR(1), "ascending", "before"),

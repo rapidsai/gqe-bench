@@ -51,7 +51,7 @@ order by
 
 
 class tpch_q12_shuffle(Query):
-    def root_relation(self, table_defs : TPCHTableDefinitions):
+    def root_relation(self, table_defs: TPCHTableDefinitions):
         lineitem = read(
             "lineitem",
             ["l_shipmode", "l_commitdate", "l_receiptdate", "l_shipdate", "l_orderkey"],
@@ -60,7 +60,7 @@ class tpch_q12_shuffle(Query):
             & (CR(11) > CR(10))
             & (CR(12) >= DateLiteral("1994-01-01"))
             & (CR(12) <= DateLiteral("1994-12-31")),
-            table_defs
+            table_defs,
         )
 
         # After these operations lineitem contains ["l_shipmode", "l_orderkey"]
@@ -78,11 +78,17 @@ class tpch_q12_shuffle(Query):
 
         # we need to have the shuffle relation as the child of shuffle joins when necessary,
         # or it will produce wrong results
-        lineitem = lineitem.shuffle([CR(1)]) # shuffle cols: l_orderkey
-        orders = orders.shuffle([CR(0)]) # shuffle cols: o_orderkey
+        lineitem = lineitem.shuffle([CR(1)])  # shuffle cols: l_orderkey
+        orders = orders.shuffle([CR(0)])  # shuffle cols: o_orderkey
         # After these operations join contains ["l_shipmode", "l_orderkey"]
         # Due to filter, orders table is bigger than lineitem table
-        join_out = orders.shuffle_join(lineitem, CR(0) == CR(3), [1, 2], unique_keys_policy=UniqueKeysPolicy.left, perfect_hashing=True)
+        join_out = orders.shuffle_join(
+            lineitem,
+            CR(0) == CR(3),
+            [1, 2],
+            unique_keys_policy=UniqueKeysPolicy.left,
+            perfect_hashing=True,
+        )
 
         agg_out = join_out.aggregate(
             [CR(1)],

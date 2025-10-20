@@ -27,3 +27,13 @@ pip install -e . -C cmake.define.GQE_SOURCE_DIR=<path_to_local_gqe>
 Used for benchmarking TPC-H queries using GQE.
 
  Instruction for running the benchmark can be found [here](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=Run+TPC+Benchmarks), in the section "Run TPC-H Queries with Python interface".
+
+
+## Formatting
+
+To fix formatting of python code:
+
+```
+conda install black=25.1.0
+black .
+```
