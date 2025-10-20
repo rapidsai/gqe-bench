@@ -60,10 +60,10 @@ class tpch_q11(Query):
     The query definition depends on the scale factor, due to the FRACTION substitution parameter.
     """
 
-    def __init__(self, scale_factor: int):
+    def __init__(self, scale_factor: float):
         """
         Parameters:
-           scale_factor (int): The TPC-H scale factor.
+           scale_factor (float): The TPC-H scale factor.
         """
 
         self.scale_factor = scale_factor

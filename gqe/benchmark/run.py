@@ -165,14 +165,14 @@ def parse_bool(value: str) -> bool:
         raise argparse.ArgumentTypeError('Expected a Boolean value ("true" or "false")')
 
 
-def parse_scale_factor(path: str) -> int:
-    predicate = re.compile(".*(?:sf|SF)([0-9]+)([kK]?).*")
+def parse_scale_factor(path: str) -> float:
+    predicate = re.compile(".*(?:sf|SF)([0-9.]+)([kK]?).*")
     matches = predicate.match(path)
 
     if matches is None:
         return None
 
-    scale_factor = int(matches.group(1))
+    scale_factor = float(matches.group(1))
     if matches.group(2):
         scale_factor = scale_factor * 1000
 
