@@ -25,6 +25,12 @@ include(cmake/CPM.cmake)
 # needed for clang-tidy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Compiler options
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Wall>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-Werror>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Wall>")
+add_compile_options("$<$<COMPILE_LANGUAGE:CUDA>:--compiler-options=-Werror>")
+
 if(DEFINED GQE_SOURCE_DIR)
   message(STATUS "Using GQE from local source directory: ${GQE_SOURCE_DIR}")
   CPMAddPackage(
@@ -77,6 +83,7 @@ target_compile_options(lib PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
   $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
   $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>
+  $<$<COMPILE_LANGUAGE:CUDA>:-rdc=true>
 )
 target_link_libraries(lib PUBLIC gqe)
 install(TARGETS lib LIBRARY DESTINATION gqe)

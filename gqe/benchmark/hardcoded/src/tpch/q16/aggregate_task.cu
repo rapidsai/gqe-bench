@@ -34,10 +34,10 @@ namespace benchmark {
 namespace q16 {
 
 // This may not be used, just for reference that the encoding and decoding are possible for strings.
-constexpr int32_t num_distinct_p_brand = 25;
-constexpr int32_t max_len_p_brand      = 8;
-constexpr int32_t num_distinct_p_type  = 150;
-constexpr int32_t max_len_p_type       = 25;
+[[maybe_unused]] constexpr int32_t num_distinct_p_brand = 25;
+[[maybe_unused]] constexpr int32_t max_len_p_brand      = 8;
+[[maybe_unused]] constexpr int32_t num_distinct_p_type  = 150;
+[[maybe_unused]] constexpr int32_t max_len_p_type       = 25;
 
 /**
  * @brief A customized task to have an efficient implementation of groupby.

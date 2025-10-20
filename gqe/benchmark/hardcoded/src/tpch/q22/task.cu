@@ -181,7 +181,7 @@ struct mark_join_functor {
                   std::is_same_v<identifier_type, int64_t>) {
       auto constexpr load_factor = 0.5;
       mark_join_map_type<identifier_type> mark_join_map{
-        customer_table_size,
+        static_cast<std::size_t>(customer_table_size),
         load_factor,
         empty_key_sentinel<identifier_type>,
         empty_value_sentinel,
