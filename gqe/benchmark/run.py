@@ -384,6 +384,7 @@ def run_tpc(
     is_root_rank: bool,
     is_mp: bool,
     multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    verify_results: bool,
     pipe: subprocessing.Pipe = None,
 ):
     # only send DB to root rank so we will get error if there is a logic mistake
@@ -405,6 +406,7 @@ def run_tpc(
                 is_root_rank,
                 is_mp,
                 multiprocess_runtime_context,
+                verify_results,
                 pipe,
             )
     else:
@@ -420,6 +422,7 @@ def run_tpc(
             is_root_rank,
             is_mp,
             multiprocess_runtime_context,
+            verify_results,
             pipe,
         )
 
@@ -441,6 +444,7 @@ def _run_tpc(
     is_root_rank: bool,
     is_mp: bool,
     multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    verify_results: bool,
     pipe: subprocessing.Pipe,
 ):
     if is_root_rank:
@@ -600,17 +604,20 @@ def _run_tpc(
                     print(f"{type(error).__name__}: {error}")
                     pipe_send(pipe, False)
                     break
-            # All ranks verify result, alternatively we need to communicate if there is an error
-            try:
-                print_mp("Start verification...", is_root_rank)
-                verify_parquet(out_file, query.reference_solution, query.validator)
-            except Exception as error:
-                print("Error verifying solution")
-                print(f"{type(error).__name__}: {error}")
-                errors.append((query.identifier, parameter))
-                pipe_send(pipe, False)
-                success = False
-                break
+            if verify_results:
+                # All ranks verify result, alternatively we need to communicate if there is an error
+                try:
+                    print_mp("Start verification...", is_root_rank)
+                    verify_parquet(out_file, query.reference_solution, query.validator)
+                except Exception as error:
+                    print("Error verifying solution")
+                    print(f"{type(error).__name__}: {error}")
+                    errors.append((query.identifier, parameter))
+                    pipe_send(pipe, False)
+                    success = False
+                    break
+            else:
+                print_mp("Skipping verification...", is_root_rank)
             # Logging on host process creates a small race condition; sending before doing DB insertion
             # helps order the print messages w/o having to resort to more complicated syncronization.
             pipe_send(pipe, True)

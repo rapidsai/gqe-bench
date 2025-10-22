@@ -24,6 +24,7 @@ from gqe.benchmark.run import (
     fix_partial_filter_column_references,
     get_query_validator,
     boost_shared_memory_pool_size,
+    parse_bool,
 )
 from gqe import lib
 
@@ -122,6 +123,12 @@ def main():
     )
     arg_parser.add_argument(
         "--boost_pool_size", help="Boost pool size in GBs", type=int, default=None
+    )
+    arg_parser.add_argument(
+        "--verify-results",
+        help="Verify results before writing the timing entries to the database. Defaults to True.",
+        type=parse_bool,
+        default=True,
     )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
@@ -302,6 +309,7 @@ def main():
                 is_root_rank,
                 args.multiprocess,
                 multiprocess_runtime_context,
+                args.verify_results,
             )
 
         return errors_local

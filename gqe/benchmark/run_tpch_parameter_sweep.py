@@ -252,6 +252,12 @@ def main():
         help="Run with sandboxing. Ignored if -m is set.",
         action="store_true",
     )
+    arg_parser.add_argument(
+        "--verify-results",
+        help="Verify results before writing the timing entries to the database. Defaults to True.",
+        type=parse_bool,
+        default=True,
+    )
     args = arg_parser.parse_args()
 
     if args.query_timeout < 0 or args.data_timeout < 0:
@@ -560,6 +566,7 @@ def main():
                     is_root_rank,
                     args.multiprocess,
                     multiprocess_runtime_context,
+                    args.verify_results,
                 )
 
             # Subprocess Case
@@ -593,6 +600,7 @@ def main():
                                 is_root_rank,
                                 args.multiprocess,
                                 multiprocess_runtime_context,
+                                args.verify_results,
                                 child_pipe,
                             ),
                         )
