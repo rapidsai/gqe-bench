@@ -117,6 +117,7 @@ class CatalogContext:
     storage_kind: str
     num_row_groups: int
     load_data_of_query: int
+    load_all_data_from: str
     identifier_type: gqe.lib.TypeId
     use_opt_char_type: bool
     in_memory_table_compression_format: str

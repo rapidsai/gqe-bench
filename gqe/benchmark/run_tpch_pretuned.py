@@ -281,6 +281,7 @@ def main():
                 storage_kind,
                 num_row_groups,
                 0 if args.load_all_data else -1,
+                "required",  # Load data required by 22 - TPC-H queries
                 identifier_type,
                 use_opt_type_for_single_char_col,
                 compression_format,

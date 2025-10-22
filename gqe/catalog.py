@@ -33,6 +33,7 @@ class Catalog:
         storage_kind: str = "pinned_memory",
         num_row_groups: int = 8,
         load_data_of_query: int = 0,
+        load_all_data_from: str = "required",
         identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32,
         use_opt_char_type: bool = True,
         in_memory_table_compression_format="none",
@@ -53,6 +54,9 @@ class Catalog:
             if `load_data_of_query = 0` loads entire dataset,
             else if `0 < load_data_of_query <= 22` loads table and columns required for the
             specific query
+        :arg load_all_data_from: Whether to load all data from the TPC-Hschema (`"full"`) or only the data required by the 22 TPC-H queries (`"required"`).
+            if `load_all_data_from = "required"` loads data required by the 22 TPC-H queries,
+            else if `load_all_data_from = "full"` loads all data from the TPC-H schema
         :arg identifier_type: Can be either `gqe.lib.TypeId.int32` or `gqe.lib.TypeId.int64`
         :arg use_opt_char_type: If true, use optimized char type for single character columns.
         :arg in_memory_table_compression_format: Compression format for the in-memory table.
@@ -64,7 +68,11 @@ class Catalog:
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
         if storage_kind == "parquet_file":
             gqe.lib.register_tpch_parquet(
-                self._catalog, dataset, table_definitions.query_table_definitions(0)
+                self._catalog,
+                dataset,
+                table_definitions.query_table_definitions(
+                    load_data_of_query, load_all_data_from
+                ),
             )
         elif storage_kind in [
             "pinned_memory",
@@ -84,7 +92,9 @@ class Catalog:
                 in_memory_table_compression_data_type,
                 compression_chunk_size,
                 zone_map_partition_size,
-                table_definitions.query_table_definitions(load_data_of_query),
+                table_definitions.query_table_definitions(
+                    load_data_of_query, load_all_data_from
+                ),
                 storage_kind,
                 multiprocess_task_manager_context,
             )

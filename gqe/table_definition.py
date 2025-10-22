@@ -45,6 +45,8 @@ class TPCHTableDefinitions:
                 "p_type": [self.string_type],
                 "p_size": [self.integer_type],
                 "p_container": [self.string_type],
+                "p_retailprice": [self.decimal_type],
+                "p_comment": [self.string_type],
             },
             "supplier": {
                 "s_suppkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
@@ -60,6 +62,7 @@ class TPCHTableDefinitions:
                 "ps_suppkey": [self.identifier_type],
                 "ps_availqty": [self.integer_type],
                 "ps_supplycost": [self.decimal_type],
+                "ps_comment": [self.string_type],
             },
             "customer": {
                 "c_custkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
@@ -78,6 +81,7 @@ class TPCHTableDefinitions:
                 "o_totalprice": [self.decimal_type],
                 "o_orderdate": [self.date_type],
                 "o_orderpriority": [self.string_type],
+                "o_clerk": [self.string_type],
                 "o_shippriority": [self.integer_type],
                 "o_comment": [self.string_type],
             },
@@ -97,15 +101,18 @@ class TPCHTableDefinitions:
                 "l_receiptdate": [self.date_type],
                 "l_shipinstruct": [self.string_type],
                 "l_shipmode": [self.string_type],
+                "l_comment": [self.string_type],
             },
             "nation": {
                 "n_nationkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
                 "n_name": [self.string_type],
                 "n_regionkey": [self.identifier_type],
+                "n_comment": [self.string_type],
             },
             "region": {
                 "r_regionkey": [self.identifier_type, [gqe.lib.ColumnProperty.unique]],
                 "r_name": [self.string_type],
+                "r_comment": [self.string_type],
             },
         }
 
@@ -120,9 +127,13 @@ class TPCHTableDefinitions:
             ]
         return definitions
 
-    def query_table_definitions(self, query_idx: int) -> dict[str, list[ColumnTraits]]:
+    def query_table_definitions(
+        self, query_idx: int, load_all_data_from: str = "required"
+    ) -> dict[str, list[ColumnTraits]]:
         """Return the tables and and columns (encoded as C++ ColumnTraits) requrired by a query."""
-        if query_idx == 0:
+
+        # All data from the TPC-H schema
+        if query_idx == 0 and load_all_data_from == "full":
             return {
                 table: [
                     gqe.lib.ColumnTraits(col, *type_traits)
@@ -130,12 +141,81 @@ class TPCHTableDefinitions:
                 ]
                 for table, cols in self.definitions.items()
             }
-        schema = self.get_schema(query_idx)
-        return self.get_column_types(schema)
+        else:
+            schema = self.get_schema(query_idx)
+            return self.get_column_types(schema)
 
     def get_schema(self, query_idx: int) -> dict[str, list[str]]:
         """Return column and table names required by a query."""
-        if query_idx == 1:
+
+        # Only required columns for the 22 TPC-H queries
+        if query_idx == 0:
+            tables = {
+                "part": [
+                    "p_partkey",
+                    "p_name",
+                    "p_mfgr",
+                    "p_brand",
+                    "p_type",
+                    "p_size",
+                    "p_container",
+                ],
+                "supplier": [
+                    "s_suppkey",
+                    "s_name",
+                    "s_address",
+                    "s_nationkey",
+                    "s_phone",
+                    "s_acctbal",
+                    "s_comment",
+                ],
+                "partsupp": [
+                    "ps_partkey",
+                    "ps_suppkey",
+                    "ps_availqty",
+                    "ps_supplycost",
+                ],
+                "customer": [
+                    "c_custkey",
+                    "c_name",
+                    "c_address",
+                    "c_nationkey",
+                    "c_phone",
+                    "c_acctbal",
+                    "c_mktsegment",
+                    "c_comment",
+                ],
+                "orders": [
+                    "o_orderkey",
+                    "o_custkey",
+                    "o_orderstatus",
+                    "o_totalprice",
+                    "o_orderdate",
+                    "o_orderpriority",
+                    "o_shippriority",
+                    "o_comment",
+                ],
+                "lineitem": [
+                    "l_orderkey",
+                    "l_partkey",
+                    "l_suppkey",
+                    "l_linenumber",
+                    "l_quantity",
+                    "l_extendedprice",
+                    "l_discount",
+                    "l_tax",
+                    "l_returnflag",
+                    "l_linestatus",
+                    "l_shipdate",
+                    "l_commitdate",
+                    "l_receiptdate",
+                    "l_shipinstruct",
+                    "l_shipmode",
+                ],
+                "nation": ["n_nationkey", "n_name", "n_regionkey"],
+                "region": ["r_regionkey", "r_name"],
+            }
+        elif query_idx == 1:
             tables = {
                 "lineitem": [
                     "l_returnflag",
