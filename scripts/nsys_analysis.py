@@ -119,8 +119,7 @@ def htod_copy_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, floa
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
     JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
         ON (runtime_activity.start >= nvtx.start
-            AND runtime_activity.end <= nvtx.end
-            AND ) -- get runtime call within nvtx range
+            AND runtime_activity.end <= nvtx.end) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_MEMCPY memcpy
         ON (memcpy.correlationId = runtime_activity.correlationId) -- get memcpy calls
     WHERE 
@@ -251,7 +250,7 @@ if __name__ == "__main__":
     io_analysis_parser = subparsers.add_parser(
         "io",
         help="Perform IO analysis",
-        epilog='Example:\n  python nsys_analysis.py io nsys-file.sqlite "%Run Q13%" --analysis_type htod_copy_time_sum',
+        epilog='Example:\n  python nsys_analysis.py io --analysis_type htod_copy_time_sum nsys-file.sqlite "*Run Q13*"',
     )
     io_analysis_parser.add_argument(
         "--analysis_type",
@@ -267,7 +266,7 @@ if __name__ == "__main__":
     io_analysis_parser.set_defaults(program=read_time_effective)
 
     args = parser.parse_args()
-    if args.command == "io":
+    if args.tool == "io":
         if args.analysis_type == "htod_copy_time_sum":
             args.program = htod_copy_time_sum
         elif args.analysis_type == "htod_copy_size":
@@ -277,8 +276,8 @@ if __name__ == "__main__":
 
     conn = sqlite3.connect(args.sqlite)
     rows = args.program(conn, args.nvtx_range_glob, args)
-    if args.csv:
-        with open(args.csv, "w") as f:
+    if args.output:
+        with open(args.output, "w") as f:
             import csv
 
             writer = csv.DictWriter(f, fieldnames=rows[0].keys())
