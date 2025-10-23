@@ -414,6 +414,7 @@ def run_tpc(
     edb_file: str,
     edb_info: EdbInfo,
     errors: list,
+    invalid_results: list,
     repeat: int,
     is_root_rank: bool,
     is_mp: bool,
@@ -436,6 +437,7 @@ def run_tpc(
                 edb,
                 edb_info,
                 errors,
+                invalid_results,
                 repeat,
                 is_root_rank,
                 is_mp,
@@ -452,6 +454,7 @@ def run_tpc(
             None,
             edb_info,
             errors,
+            invalid_results,
             repeat,
             is_root_rank,
             is_mp,
@@ -474,6 +477,7 @@ def _run_tpc(
     edb: exp.ExperimentDB,
     edb_info: EdbInfo,
     errors: list,
+    invalid_results: list,
     repeat: int,
     is_root_rank: bool,
     is_mp: bool,
@@ -498,10 +502,10 @@ def _run_tpc(
         except Exception as error:
             print(f"Error registering table: {error}", is_root_rank)
             print(
-                "load_all_data failed to load, discarding remaining {len(parameter_queue)} experiments",
+                f"load_all_data failed to load, discarding remaining {len(parameters)} experiments",
             )
             pipe_send(pipe, False)
-            errors.append(f"Error registering table: {error}")
+            errors.append(("load_all_data", error))
             parameters[:] = []
             return
         # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
@@ -536,14 +540,17 @@ def _run_tpc(
                 table_definitions = catalog.register_tpch(**asdict(cat_ctx))
             except Exception as error:
                 print(
-                    f"Error registering in memory table for query {query_info_ctx.query_idx} {type(err).__name__}: {error}",
+                    f"Error registering in memory table for query {query_info_ctx.query_idx} {type(error).__name__}: {error}",
                 )
                 pipe_send(pipe, False)
-                errors.append(f"Error registering table: {error}")
+                # Query is not built yet without table definitions so just build the Q identifier here.
+                errors.append((f"Q{query_info_ctx.query_str} load_query_data", error))
                 # Since we failed to load this data set, purge the remaining matching queries.
                 parameters[:] = list(
                     filter(
-                        lambda p: p.query_info_ctx.query_idx != query_info_ctx.query_idx
+                        lambda p: p.query_info_ctx.query_idx
+                        != query_info_ctx.query_idx,
+                        list(parameters),
                     )
                 )
                 # We can continue processing since this is one query; on next iter we reload data
@@ -594,6 +601,7 @@ def _run_tpc(
         except Exception as error:
             print("Error constructing query context")
             print(f"{type(error).__name__}: {error}")
+            errors.append((f"{query.identifier} construct_context", parameter, error))
             pipe_send(pipe, False)
             continue
         # confirm we loaded context properly
@@ -636,6 +644,9 @@ def _run_tpc(
                 except Exception as error:
                     print("Error during query execution")
                     print(f"{type(error).__name__}: {error}")
+                    errors.append(
+                        (f"{query.identifier} query execution", parameter, error)
+                    )
                     pipe_send(pipe, False)
                     break
             if verify_results:
@@ -646,7 +657,7 @@ def _run_tpc(
                 except Exception as error:
                     print("Error verifying solution")
                     print(f"{type(error).__name__}: {error}")
-                    errors.append((query.identifier, parameter))
+                    invalid_results.append((query.identifier, parameter))
                     pipe_send(pipe, False)
                     success = False
                     break

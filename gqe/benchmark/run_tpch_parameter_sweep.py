@@ -351,6 +351,7 @@ def main():
         else:
             num_row_group_list = [16, 32]
 
+        all_invalid_results = []
         all_errors = []
         for (
             num_row_groups,
@@ -564,6 +565,7 @@ def main():
                     edb_file,
                     edb_info,
                     all_errors,
+                    all_invalid_results,
                     args.repeat,
                     is_root_rank,
                     args.multiprocess,
@@ -581,6 +583,7 @@ def main():
                     parameter_queue = manager.list(parameters)
                     # explicitly replace errors list with list proxy
                     errors = manager.list()
+                    invalid_results = manager.list()
                     print_mp(
                         "Running experiments with subprocess sandbox", is_root_rank
                     )
@@ -598,6 +601,7 @@ def main():
                                 edb_file,
                                 edb_info,
                                 errors,
+                                invalid_results,
                                 args.repeat,
                                 is_root_rank,
                                 args.multiprocess,
@@ -615,20 +619,32 @@ def main():
                             args,
                         )
                     # convert to regular list before manager destructs
+                    all_invalid_results += list(invalid_results)
                     all_errors += list(errors)
         # Return should match outer loop indentation
-        return all_errors
+        return all_errors, all_invalid_results
 
     errors = []
-    errors = run_sweep(edb_file, edb_info, args)
+    errors, invalid_results = run_sweep(edb_file, edb_info, args)
     print_mp(f"Finished SQLite file at {edb_file}", is_root_rank)
+
+    if invalid_results:
+        print_mp(
+            f"The following {len(invalid_results)} configurations run successfully but produce incorrect results",
+            is_root_rank,
+        )
+        for result in invalid_results:
+            print_mp(result, is_root_rank)
 
     if errors:
         print_mp(
-            "The following configurations encountered an error or did not compute the correct result:",
-            is_root_rank,
+            f"The following {len(errors)} configurations produced errors", is_root_rank
         )
-        print_mp(errors, is_root_rank)
+        print_mp(
+            "note: hard crashes e.g. segfault will not be recorded here:", is_root_rank
+        )
+        for error in errors:
+            print_mp(error, is_root_rank)
 
     if args.multiprocess:
         multiprocess_runtime_context.finalize()
@@ -636,7 +652,7 @@ def main():
             lib.finalize_shared_memory()
         lib.mpi_finalize()
 
-    if errors:
+    if errors or invalid_results:
         sys.exit(1)
 
 
@@ -703,14 +719,14 @@ def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, 
                         "Because this is load_all_data, dropping dependent experiments",
                         is_root_rank,
                     )
-                    parameters[:] = []
+                    parameter_queue[:] = []
             # the other option is we're not alive, so we break anyway
             break
         # if we get a false on receive, it means data loading failed for some reason
         if not pipe.recv():
             # Since load_all_data failed, we need to discard the experiments or we will not make forward progress.
             if load_all_data:
-                parameters[:] = []
+                parameter_queue[:] = []
                 break
             # if loading only query data, safe to proceed to next query and try again
             else:
@@ -727,11 +743,11 @@ def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, 
                     f"Timeout triggered - query did not complete within {query_timeout} seconds",
                     is_root_rank,
                 )
-            break
-        # If pipe sends false, it generally means a query error or query validation failed.
+            continue
+        # If pipe sends false, it means we failed to load context and move on to next parameter set.
         if not pipe.recv():
-            # Both multiprocessing and single gpu break out of query or query validation if error.
-            break
+            # Both multiprocessing
+            continue
 
         # Stage 3: Wait on query completion
         for i in range(args.repeat):

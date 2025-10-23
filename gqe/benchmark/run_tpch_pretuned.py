@@ -197,6 +197,7 @@ def main():
 
     def run_all(edb_info):
         errors_local = []
+        invalid_results_local = []
         for best_parameter in best_parameters:
             query_str = best_parameter["e_name"].lstrip("Q")
             query_idx = int(query_str.split("_")[0])
@@ -304,7 +305,8 @@ def main():
                 [gqe_parameter],
                 edb_file,
                 edb_info,
-                errors,
+                errors_local,
+                invalid_results_local,
                 repeat,
                 is_root_rank,
                 args.multiprocess,
@@ -312,30 +314,39 @@ def main():
                 args.verify_results,
             )
 
-        return errors_local
+        return errors_local, invalid_results_local
 
     if is_root_rank:
         with edb_config as edb:
             edb_info = setup_db(edb)
-        errors = run_all(edb_info)
+        errors, invalid_results = run_all(edb_info)
 
         print(f"Finished SQLite file at {edb_file}")
         if physical_plan_folder:
             print(f"Finished Physical Plan at the folder {physical_plan_folder}")
 
-        if errors:
+        if invalid_results:
             print(
                 "The following configurations run successfully but produce incorrect results"
             )
-            print(errors)
+            for result in invalid_results:
+                print(result)
+
+        if errors:
+            print("The following configurations produced errors:")
+            for error in errors:
+                print(error)
     else:
-        errors = run_all(None)
+        errors, invalid_results = run_all(None)
 
     if args.multiprocess:
         multiprocess_runtime_context.finalize()
         if all_storage_kind == "boost_shared_memory" and lib.mpi_rank() == 0:
             lib.finalize_shared_memory()
         lib.mpi_finalize()
+
+    if errors or invalid_results:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
