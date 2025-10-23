@@ -342,6 +342,18 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
         fix_partial_filter_column_references(relation.supplier_table, query)
         fix_partial_filter_column_references(relation.part_table, query)
         fix_partial_filter_column_references(relation.partsupp_table, query)
+    elif relation.__class__.__name__ == "Q21LeftAntiJoinProbeRelation":
+        fix_partial_filter_column_references(relation.left_table, query)
+        fix_partial_filter_column_references(relation.right_table, query)
+    elif relation.__class__.__name__ == "Q21LeftSemiJoinProbeRelation":
+        fix_partial_filter_column_references(relation.left_table, query)
+        fix_partial_filter_column_references(relation.right_table, query)
+    elif relation.__class__.__name__ == "Q21LeftAntiJoinRetrieveRelation":
+        fix_partial_filter_column_references(relation.left_table, query)
+        fix_partial_filter_column_references(relation.probe, query)
+    elif relation.__class__.__name__ == "Q21LeftSemiJoinRetrieveRelation":
+        fix_partial_filter_column_references(relation.left_table, query)
+        fix_partial_filter_column_references(relation.probe, query)
     elif relation.__class__.__name__ == "Q22MarkJoinRelation":
         fix_partial_filter_column_references(relation.customer_table, query)
         fix_partial_filter_column_references(relation.orders_table, query)

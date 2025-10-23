@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <utility/config.hpp>
+
 #include <gqe/context_reference.hpp>
 #include <gqe/executor/concatenate.hpp>
 #include <gqe/executor/task.hpp>
