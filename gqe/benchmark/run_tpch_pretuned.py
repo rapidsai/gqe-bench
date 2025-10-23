@@ -16,7 +16,7 @@ from gqe.benchmark.run import (
     DataInfo,
     CatalogContext,
     QueryInfoContext,
-    Parameter,
+    QueryExecutionContext,
     setup_db,
     parse_scale_factor,
     set_eager_module_loading,
@@ -252,7 +252,7 @@ def main():
             else:
                 raise ValueError(f"Invalid query source: {query_source}")
 
-            query_ctx = QueryInfoContext(
+            query_info_ctx = QueryInfoContext(
                 query_idx,
                 query_str,
                 query_source,
@@ -262,7 +262,7 @@ def main():
                 physical_plan_folder,
             )
 
-            gqe_parameter = Parameter(
+            gqe_parameter = QueryExecutionContext(
                 best_parameter["p_num_workers"],
                 best_parameter["p_num_partitions"],
                 best_parameter["p_use_overlap_mtx"],
@@ -274,7 +274,7 @@ def main():
                 best_parameter["p_use_partition_pruning"],
                 best_parameter["p_filter_use_like_shift_and"],
                 best_parameter["p_aggregation_use_perfect_hash"],
-                query_ctx=query_ctx,
+                query_info_ctx=query_info_ctx,
             )
 
             if best_parameter["e_scale_factor"] != scale_factor:
