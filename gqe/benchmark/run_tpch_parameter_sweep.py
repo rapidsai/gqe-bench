@@ -624,7 +624,7 @@ def main():
 
     if errors:
         print_mp(
-            "The following configurations run successfully but produce incorrect results",
+            "The following configurations encountered an error or did not compute the correct result:",
             is_root_rank,
         )
         print_mp(errors, is_root_rank)

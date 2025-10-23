@@ -489,7 +489,7 @@ def _run_tpc(
                 "load_all_data failed to load, discarding remaining {len(parameter_queue)} experiments",
             )
             pipe_send(pipe, False)
-            errors.append(f"Error registering table: {e}")
+            errors.append(f"Error registering table: {error}")
             parameters[:] = []
             return
         # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
@@ -527,7 +527,7 @@ def _run_tpc(
                     f"Error registering in memory table for query {query_info_ctx.query_idx} {type(err).__name__}: {error}",
                 )
                 pipe_send(pipe, False)
-                errors.append(f"Error registering table: {e}")
+                errors.append(f"Error registering table: {error}")
                 # Since we failed to load this data set, purge the remaining matching queries.
                 parameters[:] = list(
                     filter(
