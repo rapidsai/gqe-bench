@@ -10,6 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <tpch/q10/fused_probes_task.hpp>
+#include <tpch/q10/sort_limit_task.hpp>
+#include <tpch/q10/unique_key_inner_join_task.hpp>
 #include <tpch/q13/filter_orders_task.hpp>
 #include <tpch/q13/groupjoin_task.hpp>
 #include <tpch/q16/task.hpp>
@@ -926,6 +929,17 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("shuffle", &lib::shuffle);
   py_module.def("load_substrait", &lib::load_substrait);
   py_module.def("log_physical_plan", &lib::log_physical_plan);
+  py_module.def("q10_fused_probes_join_map_build",
+                &gqe_python::benchmark::q10::fused_probes_join_map_build);
+  py_module.def("q10_fused_probes_join_multimap_build",
+                &gqe_python::benchmark::q10::fused_probes_join_multimap_build);
+  py_module.def("q10_fused_probes_join_probe",
+                &gqe_python::benchmark::q10::fused_probes_join_probe);
+  py_module.def("q10_sort_limit", &gqe_python::benchmark::q10::sort_limit);
+  py_module.def("q10_unique_key_inner_join_build",
+                &gqe_python::benchmark::q10::unique_key_inner_join_build);
+  py_module.def("q10_unique_key_inner_join_probe",
+                &gqe_python::benchmark::q10::unique_key_inner_join_probe);
   py_module.def("q13_groupjoin_build", &gqe_python::benchmark::q13::groupjoin_build);
   py_module.def("q13_groupjoin_probe", &gqe_python::benchmark::q13::groupjoin_probe);
   py_module.def("q13_groupjoin_retrieve", &gqe_python::benchmark::q13::groupjoin_retrieve);

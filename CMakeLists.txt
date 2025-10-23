@@ -71,6 +71,11 @@ rapids_find_package(pybind11 REQUIRED)
 
 pybind11_add_module(lib
   gqe/lib.cpp
+  gqe/benchmark/hardcoded/src/tpch/q10/fused_probes.cu
+  gqe/benchmark/hardcoded/src/tpch/q10/fused_probes_task.cu
+  gqe/benchmark/hardcoded/src/tpch/q10/sort_limit_task.cu
+  gqe/benchmark/hardcoded/src/tpch/q10/unique_key_inner_join.cu
+  gqe/benchmark/hardcoded/src/tpch/q10/unique_key_inner_join_task.cu
   gqe/benchmark/hardcoded/src/tpch/q13/filter_orders_task.cu
   gqe/benchmark/hardcoded/src/tpch/q13/groupjoin_task.cu
   gqe/benchmark/hardcoded/src/tpch/q13/kernels.cu

@@ -103,19 +103,18 @@ struct hash_map_instance : public abstract_hash_map {
   HashMapType _hash_map;
 };
 
-template <typename Identifier>
+template <typename Identifier, typename Hash = cuco::xxhash_64<Identifier>>
 struct bloom_filter_instance : public abstract_bloom_filter {
   bloom_filter_instance(size_t bloom_filter_num_blocks)
-    : _bloom_filter(
-        bloom_filter_num_blocks,
-        {},
-        {},
-        gqe_python::utility::bloom_filter_allocator_type{
-          gqe_python::utility::bloom_filter_allocator_instance_type{}, cudf::get_default_stream()})
+    : _bloom_filter(bloom_filter_num_blocks,
+                    {},
+                    {},
+                    utility::bloom_filter_allocator_type{
+                      utility::bloom_filter_allocator_instance_type{}, cudf::get_default_stream()})
   {
   }
 
-  utility::bloom_filter_type<Identifier> _bloom_filter;
+  utility::bloom_filter_type<Identifier, Hash> _bloom_filter;
 };
 
 /**
@@ -188,18 +187,20 @@ class task_hash_map {
     return dynamic_cast<hash_map_instance<Identifier, HashMapType>*>(_hash_map.get())->_hash_map;
   }
 
-  template <typename Identifier>
-  typename utility::bloom_filter_type<Identifier>& get_bloom_filter(std::size_t num_filter_blocks)
+  template <typename Identifier, typename Hash = cuco::xxhash_64<Identifier>>
+  typename utility::bloom_filter_type<Identifier, Hash>& get_bloom_filter(
+    std::size_t num_filter_blocks)
   {
     assert(_enable_bloom_filter && "bloom filter is not enabled");
     assert(num_filter_blocks > 0 && "number of filter blocks must be greater than zero");
     auto& bloom_filter = _bloom_filter;
 
     std::call_once(_is_bloom_filter_initialized, [&bloom_filter, num_filter_blocks]() {
-      bloom_filter = std::make_unique<bloom_filter_instance<Identifier>>(num_filter_blocks);
+      bloom_filter = std::make_unique<bloom_filter_instance<Identifier, Hash>>(num_filter_blocks);
     });
 
-    return dynamic_cast<bloom_filter_instance<Identifier>*>(_bloom_filter.get())->_bloom_filter;
+    return dynamic_cast<bloom_filter_instance<Identifier, Hash>*>(_bloom_filter.get())
+      ->_bloom_filter;
   }
 
   /**
@@ -211,10 +212,10 @@ class task_hash_map {
     return get_map<Identifier, HashMapType>(_cardinality_estimate, _load_factor);
   }
 
-  template <typename Identifier>
-  typename utility::bloom_filter_type<Identifier>& get_bloom_filter()
+  template <typename Identifier, typename Hash = cuco::xxhash_64<Identifier>>
+  typename utility::bloom_filter_type<Identifier, Hash>& get_bloom_filter()
   {
-    return get_bloom_filter<Identifier>(_num_filter_blocks);
+    return get_bloom_filter<Identifier, Hash>(_num_filter_blocks);
   }
 
   /**
@@ -249,7 +250,10 @@ class task_hash_map {
    * @param num_filter_blocks The number of filter blocks for the bloom filter.
    * @param insert_functor The functor to insert elements into the bloom filter.
    */
-  template <typename Identifier, typename HashMapType, typename InsertFunctor>
+  template <typename Identifier,
+            typename HashMapType,
+            typename InsertFunctor,
+            typename BFHash = cuco::xxhash_64<Identifier>>
   void create_map_bf_and_insert(size_t cardinality,
                                 double load_factor,
                                 std::size_t num_filter_blocks,
@@ -275,10 +279,12 @@ class task_hash_map {
         identifier_type = cudf::data_type(cudf::type_to_id<Identifier>());
         hash_map =
           std::make_unique<hash_map_instance<Identifier, HashMapType>>(cardinality, load_factor);
-        bloom_filter = std::make_unique<bloom_filter_instance<Identifier>>(num_filter_blocks);
+        bloom_filter =
+          std::make_unique<bloom_filter_instance<Identifier, BFHash>>(num_filter_blocks);
         insert_functor(
           dynamic_cast<hash_map_instance<Identifier, HashMapType>*>(hash_map.get())->_hash_map,
-          dynamic_cast<bloom_filter_instance<Identifier>*>(bloom_filter.get())->_bloom_filter);
+          dynamic_cast<bloom_filter_instance<Identifier, BFHash>*>(bloom_filter.get())
+            ->_bloom_filter);
         std::call_once(is_hash_map_initialized, [] {});
         std::call_once(is_bloom_filter_initialized, [] {});
       });

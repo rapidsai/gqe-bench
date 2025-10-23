@@ -310,6 +310,28 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
         fix_partial_filter_column_references(relation.left_table, query)
         fix_partial_filter_column_references(relation.right_table, query)
     # Only check instance is not enough as import_module would create different class objects.
+    elif relation.__class__.__name__ == "Q10FusedProbesJoinMapBuildRelation":
+        fix_partial_filter_column_references(relation.build_side_table, query)
+    elif relation.__class__.__name__ == "Q10FusedProbesJoinMultimapBuildRelation":
+        fix_partial_filter_column_references(relation.build_side_table, query)
+    elif relation.__class__.__name__ == "Q10FusedProbesJoinProbeRelation":
+        fix_partial_filter_column_references(
+            relation.o_custkey_to_row_indices_multimap, query
+        )
+        fix_partial_filter_column_references(
+            relation.n_nationkey_to_row_index_map, query
+        )
+        fix_partial_filter_column_references(relation.join_orders_lineitem_table, query)
+        fix_partial_filter_column_references(relation.nation_table, query)
+        fix_partial_filter_column_references(relation.customer_table, query)
+    elif relation.__class__.__name__ == "Q10SortLimitRelation":
+        fix_partial_filter_column_references(relation.input_table, query)
+    elif relation.__class__.__name__ == "Q10UniqueKeyInnerJoinBuildRelation":
+        fix_partial_filter_column_references(relation.build_side_table, query)
+    elif relation.__class__.__name__ == "Q10UniqueKeyInnerJoinProbeRelation":
+        fix_partial_filter_column_references(relation.build_side_map, query)
+        fix_partial_filter_column_references(relation.build_side_table, query)
+        fix_partial_filter_column_references(relation.probe_side_table, query)
     elif relation.__class__.__name__ == "Q13GroupjoinProbeRelation":
         fix_partial_filter_column_references(relation.groupjoin_build, query)
         fix_partial_filter_column_references(relation.orders, query)

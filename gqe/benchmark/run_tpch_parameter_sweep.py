@@ -58,6 +58,7 @@ def get_queries(query_source: str, queries: list[str] = None):
         "7",
         "9",
         "10",
+        "10_opt",
         "11",
         "12",
         "13",

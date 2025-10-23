@@ -61,18 +61,18 @@ using map_allocator_instance_type          = rmm::mr::polymorphic_allocator<cuco
 using bloom_filter_allocator_type          = cuco_allocator<cuda::std::byte>;
 using bloom_filter_allocator_instance_type = rmm::mr::polymorphic_allocator<cuda::std::byte>;
 
-template <typename Key, typename T>
+template <typename Key, typename T, typename Hash = cuco::default_hash_function<Key>>
 using map_type = cuco::static_map<Key,
                                   T,
                                   cuco::extent<std::size_t>,
                                   cuda::thread_scope_device,
                                   thrust::equal_to<Key>,
-                                  cuco::linear_probing<cg_size, cuco::default_hash_function<Key>>,
+                                  cuco::linear_probing<cg_size, Hash>,
                                   map_allocator_type<Key, T>,
                                   cuco::storage<bucket_size>>;
-template <typename Key, typename T>
+template <typename Key, typename T, typename Hash = cuco::default_hash_function<Key>>
 using map_ref_type =
-  typename map_type<Key, T>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;
+  typename map_type<Key, T, Hash>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;
 
 template <typename Key, typename T>
 using multimap_type = cuco::experimental::static_multimap<
@@ -88,16 +88,17 @@ template <typename Key, typename T>
 using multimap_ref_type =
   typename multimap_type<Key, T>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;
 
-template <typename T>
-using bloom_filter_policy_type = cuco::default_filter_policy<cuco::xxhash_64<T>, std::uint32_t, 2>;
-template <typename T>
+template <typename T, typename Hash = cuco::xxhash_64<T>>
+using bloom_filter_policy_type = cuco::default_filter_policy<Hash, std::uint32_t, 2>;
+template <typename T, typename Hash = cuco::xxhash_64<T>>
 using bloom_filter_type = cuco::bloom_filter<T,
                                              cuco::extent<std::size_t>,
                                              cuda::thread_scope_device,
-                                             bloom_filter_policy_type<T>,
+                                             bloom_filter_policy_type<T, Hash>,
                                              bloom_filter_allocator_type>;
-template <typename T>
-using bloom_filter_ref_type = typename bloom_filter_type<T>::template ref_type<>;
+template <typename T, typename Hash = cuco::xxhash_64<T>>
+using bloom_filter_ref_type = typename bloom_filter_type<T, Hash>::template ref_type<>;
 
+enum JOIN_TYPE { LEFT_SEMI_JOIN = 0, LEFT_ANTI_JOIN = 1 };
 }  // namespace utility
 }  // namespace gqe_python
