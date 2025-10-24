@@ -125,6 +125,7 @@ def main():
     arg_parser.add_argument("plan", help="Substrait query plan location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
+    arg_parser.add_argument("--quiet", help="Quiet mode", action="store_true")
     arg_parser.add_argument(
         "--queries",
         "-q",
@@ -263,7 +264,7 @@ def main():
     args = arg_parser.parse_args()
 
     if args.query_timeout < 0 or args.data_timeout < 0:
-        print(f"Timeouts cannot be negative: {query_timeout}, {data_timeout}")
+        print(f"Timeouts cannot be negative: {args.query_timeout}, {args.data_timeout}")
         print("Timeout must be a positive integer or 0")
         print("Exiting with error")
         sys.exit(1)
@@ -481,7 +482,7 @@ def main():
                         if read_use_zero_copy and (num_partitions != num_row_groups):
                             print_mp(
                                 f"Skipping read_use_zero_copy: {read_use_zero_copy}, num_partitions: {num_partitions}, num_row_groups: {num_row_groups} because zero copy requires row groups to be equal to partitions",
-                                is_root_rank,
+                                is_root_rank and not args.quiet,
                             )
                             continue
 
@@ -499,21 +500,21 @@ def main():
                         if read_use_zero_copy and compression_format != "none":
                             print_mp(
                                 f"Skipping read_use_zero_copy: {read_use_zero_copy}, compression_format: {compression_format} because zero copy is not supported with compression",
-                                is_root_rank,
+                                is_root_rank and not args.quiet,
                             )
                             continue
 
                         if num_workers > num_partitions:
                             print_mp(
                                 f"Skipping num_workers: {num_workers}, num_partitions: {num_partitions} because num_workers greater than num_partitions",
-                                is_root_rank,
+                                is_root_rank and not args.quiet,
                             )
                             continue
 
                         if compression_format != "none" and use_overlap_mtx:
                             print_mp(
                                 f"Skipping compression_format: {compression_format}, use_overlap_mtx: {use_overlap_mtx} because its not optimal to use overlap matrix with compression",
-                                is_root_rank,
+                                is_root_rank and not args.quiet,
                             )
                             continue
 
@@ -522,7 +523,7 @@ def main():
                         if join_use_perfect_hash == join_use_hash_map_cache:
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, join_use_hash_map_cache: {join_use_hash_map_cache} because hash map caching should always be used except with perfect hashing",
-                                is_root_rank,
+                                is_root_rank and not args.quiet,
                             )
                             continue
 
@@ -532,7 +533,7 @@ def main():
                         ):
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans",
-                                is_root_rank,
+                                is_root_rank and not args.quiet,
                             )
                             continue
 
@@ -556,7 +557,10 @@ def main():
             parameters.sort(key=lambda p: p.query_info_ctx.query_idx)
             # We use the non-sandboxing path if sandboxing is not set, or if multiprocessing/multigpu is set.
             if not args.sandboxing or args.multiprocess:
-                print_mp("Running experiments without subprocess sandbox", is_root_rank)
+                print_mp(
+                    "Running experiments without subprocess sandbox",
+                    is_root_rank and not args.quiet,
+                )
                 run_tpc(
                     cat_ctx,
                     data_info,
@@ -571,6 +575,7 @@ def main():
                     args.multiprocess,
                     multiprocess_runtime_context,
                     args.verify_results,
+                    args.quiet,
                 )
 
             # Subprocess Case
@@ -607,6 +612,7 @@ def main():
                                 args.multiprocess,
                                 multiprocess_runtime_context,
                                 args.verify_results,
+                                args.quiet,
                                 child_pipe,
                             ),
                         )

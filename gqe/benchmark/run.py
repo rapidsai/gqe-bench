@@ -401,8 +401,8 @@ def _get_tpc_query_info(
     return query
 
 
-def print_mp(message, is_root_rank):
-    if is_root_rank:
+def print_mp(message, verbose):
+    if verbose:
         print(message)
 
 
@@ -420,6 +420,7 @@ def run_tpc(
     is_mp: bool,
     multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
     verify_results: bool,
+    quiet: bool = False,
     pipe: subprocessing.Pipe = None,
 ):
     # only send DB to root rank so we will get error if there is a logic mistake
@@ -443,6 +444,7 @@ def run_tpc(
                 is_mp,
                 multiprocess_runtime_context,
                 verify_results,
+                quiet,
                 pipe,
             )
     else:
@@ -460,6 +462,7 @@ def run_tpc(
             is_mp,
             multiprocess_runtime_context,
             verify_results,
+            quiet,
             pipe,
         )
 
@@ -483,6 +486,7 @@ def _run_tpc(
     is_mp: bool,
     multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
     verify_results: bool,
+    quiet: bool,
     pipe: subprocessing.Pipe,
 ):
     if is_root_rank:
@@ -495,7 +499,10 @@ def _run_tpc(
     load_all_data = cat_ctx.load_data_of_query == 0
     catalog = None
     if load_all_data:
-        print_mp("Attempting to load full TPCH dataset into memory", is_root_rank)
+        print_mp(
+            "Attempting to load full TPCH dataset into memory",
+            is_root_rank and not quiet,
+        )
         try:
             catalog = Catalog()
             table_definitions = catalog.register_tpch(**asdict(cat_ctx))
@@ -511,17 +518,22 @@ def _run_tpc(
         # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
     debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
+    previous_query_str = None
     while parameters:
         # pop lets main process know we are making forward progress
         parameter = parameters.pop(0)
         query_info_ctx = parameter.query_info_ctx
 
-        print_mp(
-            f"Running query from {query_info_ctx.query_source} with parameters "
-            f"debug_mem_usage={debug_mem_usage}, "
-            f"{ parameter }, {data}",
-            is_root_rank,
-        )
+        if not quiet:
+            print_mp(
+                f"Running query from {query_info_ctx.query_source} with parameters "
+                f"debug_mem_usage={debug_mem_usage}, "
+                f"{ parameter }, {data}",
+                is_root_rank,
+            )
+        elif previous_query_str != query_info_ctx.query_str:
+            print_mp(f"Running query {query_info_ctx.query_str}", is_root_rank)
+            previous_query_str = query_info_ctx.query_str
 
         # Reload dataset if new query and not load_all
         if not load_all_data and cat_ctx.load_data_of_query != query_info_ctx.query_idx:
@@ -556,7 +568,9 @@ def _run_tpc(
                 # We can continue processing since this is one query; on next iter we reload data
                 continue
         else:
-            print_mp("No load required - data already in memory", is_root_rank)
+            print_mp(
+                "No load required - data already in memory", is_root_rank and not quiet
+            )
         # if we make it here, communicate we succeeded data load and/or didn't need to load data
         pipe_send(pipe, True)
 
@@ -588,7 +602,7 @@ def _run_tpc(
             parameter.filter_use_like_shift_and,
             parameter.aggregation_use_perfect_hash,
         )
-        print_mp("Building query execution context...", is_root_rank)
+        print_mp("Building query execution context...", is_root_rank and not quiet)
         try:
             if is_mp:
                 context = MultiProcessContext(
@@ -627,7 +641,7 @@ def _run_tpc(
                     query_source=query_info_ctx.query_source,
                 )
             )
-            print_mp(f"Running {query.identifier}...", is_root_rank)
+            print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
 
         for count in range(repeat):
             out_file = f"{query.identifier}_out.parquet"
@@ -636,7 +650,7 @@ def _run_tpc(
                 try:
                     print_mp(
                         f"Starting query {query.identifier} repetition {count}...",
-                        is_root_rank,
+                        is_root_rank and not quiet,
                     )
                     elapsed_time = context.execute(
                         catalog, query.root_relation, out_file
@@ -652,7 +666,7 @@ def _run_tpc(
             if verify_results:
                 # All ranks verify result, alternatively we need to communicate if there is an error
                 try:
-                    print_mp("Start verification...", is_root_rank)
+                    print_mp("Start verification...", is_root_rank and not quiet)
                     verify_parquet(out_file, query.reference_solution, query.validator)
                 except Exception as error:
                     print("Error verifying solution")
@@ -662,7 +676,7 @@ def _run_tpc(
                     success = False
                     break
             else:
-                print_mp("Skipping verification...", is_root_rank)
+                print_mp("Skipping verification...", is_root_rank and not quiet)
             # Logging on host process creates a small race condition; sending before doing DB insertion
             # helps order the print messages w/o having to resort to more complicated syncronization.
             pipe_send(pipe, True)
