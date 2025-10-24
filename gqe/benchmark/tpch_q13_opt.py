@@ -65,10 +65,10 @@ class tpch_q13_opt(Query):
     size value by calculating it based on the scale factor.
     """
 
-    def __init__(self, scale_factor: int):
+    def __init__(self, scale_factor: float):
         """
         Parameters:
-           scale_factor (int): The TPC-H scale factor.
+           scale_factor (float): The TPC-H scale factor.
         """
 
         self.scale_factor = scale_factor

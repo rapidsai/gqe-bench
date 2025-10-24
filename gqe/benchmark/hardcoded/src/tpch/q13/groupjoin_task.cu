@@ -408,7 +408,7 @@ void groupjoin_retrieve_task::execute()
  * @param[in] stage_id Stage of the current task.
  */
 struct groupjoin_build_generate_tasks {
-  int32_t scale_factor;
+  double scale_factor;
 
   std::vector<std::shared_ptr<gqe::task>> operator()(
     std::vector<std::vector<std::shared_ptr<gqe::task>>> input_tasks,
@@ -547,7 +547,7 @@ struct groupjoin_retrieve_generate_tasks {
 }  // namespace
 
 std::shared_ptr<gqe::physical::relation> groupjoin_build(
-  std::shared_ptr<gqe::physical::relation> customer, int32_t scale_factor)
+  std::shared_ptr<gqe::physical::relation> customer, double scale_factor)
 {
   std::vector<std::shared_ptr<gqe::physical::relation>> input_wrapper = {std::move(customer)};
 

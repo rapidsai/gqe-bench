@@ -28,10 +28,10 @@ class tpch_q13_fused(Query):
     See `q13_opt` for more information on optimizations and limitations.
     """
 
-    def __init__(self, scale_factor: int):
+    def __init__(self, scale_factor: float):
         """
         Parameters:
-           scale_factor (int): The TPC-H scale factor.
+           scale_factor (float): The TPC-H scale factor.
         """
 
         self.scale_factor = scale_factor

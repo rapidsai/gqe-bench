@@ -29,7 +29,7 @@ class Q13GroupjoinBuildRelation(Relation):
     Q13 build relation for the customer table.
     """
 
-    def __init__(self, input: Relation, scale_factor: int):
+    def __init__(self, input: Relation, scale_factor: float):
         self.input = input
         self.scale_factor = scale_factor
 

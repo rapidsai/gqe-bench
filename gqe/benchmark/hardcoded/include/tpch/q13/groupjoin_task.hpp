@@ -31,7 +31,7 @@ namespace q13 {
  * @return The groupjoin build physical relation.
  */
 std::shared_ptr<gqe::physical::relation> groupjoin_build(
-  std::shared_ptr<gqe::physical::relation> customer, int32_t scale_factor);
+  std::shared_ptr<gqe::physical::relation> customer, double scale_factor);
 
 /**
  * @brief Create a groupjoin hash map probe relation.
