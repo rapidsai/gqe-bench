@@ -720,6 +720,7 @@ def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, 
                         is_root_rank,
                     )
                     parameter_queue[:] = []
+            # always break if we get here to move on to new process
             # the other option is we're not alive, so we break anyway
             break
         # if we get a false on receive, it means data loading failed for some reason
@@ -743,10 +744,10 @@ def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, 
                     f"Timeout triggered - query did not complete within {query_timeout} seconds",
                     is_root_rank,
                 )
-            continue
+            # always break if we get here to move on to new process
+            break
         # If pipe sends false, it means we failed to load context and move on to next parameter set.
         if not pipe.recv():
-            # Both multiprocessing
             continue
 
         # Stage 3: Wait on query completion
@@ -765,10 +766,12 @@ def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, 
                         f"Timeout triggered - query did not complete within {query_timeout} seconds",
                         is_root_rank,
                     )
+                # always break if we get here to move on to new process
                 break
             # If pipe sends false, it generally means a query error or query validation failed.
             if not pipe.recv():
                 # Both multiprocessing and single gpu break out of query or query validation if error.
+                # Note that this only breaks the inner loop - all other cases continue
                 break
     subproc.join()
 
