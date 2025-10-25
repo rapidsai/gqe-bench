@@ -124,6 +124,7 @@ class CatalogContext:
     in_memory_table_compression_data_type: str
     compression_chunk_size: int
     zone_map_partition_size: int
+    debug_mem_usage: bool = False
 
 
 # Extract only the fields that belong to the superclass
@@ -496,6 +497,9 @@ def _run_tpc(
         data_info_ext_id = edb.insert_gqe_data_info_ext(
             upcast_to_super(data, GqeDataInfoExt)
         )
+    debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
+    cat_ctx.debug_mem_usage = debug_mem_usage
+
     load_all_data = cat_ctx.load_data_of_query == 0
     catalog = None
     if load_all_data:
@@ -516,7 +520,6 @@ def _run_tpc(
             parameters[:] = []
             return
         # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
-    debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
     previous_query_str = None
     while parameters:

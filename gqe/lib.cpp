@@ -486,6 +486,7 @@ struct context {
           std::string in_memory_table_compression_data_type = "char",
           int32_t compression_chunk_size                    = 65536,
           size_t zone_map_partition_size                    = 100000,
+          bool debug_mem_usage                              = false,
           bool use_opt_type_for_single_char_col             = true,
           bool use_overlap_mtx                              = true,
           bool join_use_hash_map_cache                      = false,
@@ -495,8 +496,7 @@ struct context {
           bool join_use_mark_join                           = false,
           bool use_partition_pruning                        = false,
           bool filter_use_like_shift_and                    = false,
-          bool aggregation_use_perfect_hash                 = true,
-          bool debug_mem_usage                              = false)
+          bool aggregation_use_perfect_hash                 = true)
   {
     if (debug_mem_usage) {
       auto _mr =
@@ -719,7 +719,8 @@ void register_table_in_memory(
   std::vector<gqe::column_traits> const& definition,
   std::vector<std::string> const& file_paths,
   gqe::storage_kind::type storage_kind,
-  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr)
+  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr,
+  bool debug_mem_usage                                                          = false)
 {
   catalog->register_table(name + "_parquet",
                           definition,
@@ -761,7 +762,8 @@ void register_table_in_memory(
                 in_memory_table_compression_format,
                 in_memory_table_compression_data_type,
                 compression_chunk_size,
-                zone_map_partition_size);
+                zone_map_partition_size,
+                debug_mem_usage);
     ctx.execute(catalog, write_table, std::nullopt);
   }
 }
@@ -776,7 +778,8 @@ void register_tpch_in_memory(
   size_t zone_map_partition_size,
   std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
   const std::string& storage_kind_description,
-  std::shared_ptr<lib::multi_process_runtime_context> multiprocess_runtime_ctx = nullptr)
+  std::shared_ptr<lib::multi_process_runtime_context> multiprocess_runtime_ctx = nullptr,
+  bool debug_mem_usage                                                         = false)
 {
   gqe::storage_kind::type storage_kind =
     parse_storage_kind(storage_kind_description, {}, multiprocess_runtime_ctx);
@@ -794,7 +797,8 @@ void register_tpch_in_memory(
                              definition,
                              file_paths,
                              storage_kind,
-                             multiprocess_runtime_ctx);
+                             multiprocess_runtime_ctx,
+                             debug_mem_usage);
   }
 }
 
@@ -1059,6 +1063,7 @@ PYBIND11_MODULE(lib, py_module)
                   std::string,  // in_memory_table_compression_data_type
                   int32_t,      // compression_chunk_size
                   size_t,       // zone_map_partition_size
+                  bool,         // debug_mem_usage
                   bool,         // use_opt_type_for_single_char_col
                   bool,         // use_overlap_mtx
                   bool,         // join_use_hash_map_cache
@@ -1068,8 +1073,7 @@ PYBIND11_MODULE(lib, py_module)
                   bool,         // join_use_mark_join
                   bool,         // use_partition_pruning
                   bool,         // filter_use_like_shift_and
-                  bool,         // aggregation_use_perfect_hash
-                  bool          // debug_mem_usage
+                  bool          // aggregation_use_perfect_hash
                   >())
     .def("execute", &lib::context::execute);
 

@@ -47,6 +47,7 @@ class Context:
             in_memory_table_compression_data_type,
             compression_chunk_size,
             zone_map_partition_size,
+            debug_mem_usage,
             use_opt_type_for_single_char_col,
             use_overlap_mtx,
             join_use_hash_map_cache,
@@ -57,7 +58,6 @@ class Context:
             use_partition_pruning,
             filter_use_like_shift_and,
             aggregation_use_perfect_hash,
-            debug_mem_usage,
         )
 
     def execute(

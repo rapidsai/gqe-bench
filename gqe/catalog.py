@@ -41,6 +41,7 @@ class Catalog:
         compression_chunk_size=2**16,
         zone_map_partition_size=100000,
         multiprocess_task_manager_context: MultiProcessRuntimeContext = None,
+        debug_mem_usage: bool = False,
     ) -> TPCHTableDefinitions:
         """
         Register TPC-H dataset in the catalog.
@@ -97,6 +98,7 @@ class Catalog:
                 ),
                 storage_kind,
                 multiprocess_task_manager_context,
+                debug_mem_usage,
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")
