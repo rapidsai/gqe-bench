@@ -234,6 +234,7 @@ struct unique_key_inner_join_build_functor {
       // Build hash map and Bloom filter.
       hash_map_wrapper
         .create_map_bf_and_insert<Identifier,
+                                  cudf::size_type,
                                   unique_key_inner_join_map_type<Identifier>,
                                   decltype(insert_functor<Identifier>{key_column, stream}),
                                   hash_function<Identifier>>(
@@ -265,7 +266,8 @@ struct unique_key_inner_join_probe_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
       auto& hash_map =
-        hash_map_wrapper.get_map<Identifier, unique_key_inner_join_map_type<Identifier>>();
+        hash_map_wrapper
+          .get_map<Identifier, cudf::size_type, unique_key_inner_join_map_type<Identifier>>();
       auto hash_map_ref = hash_map.ref(cuco::find, cuco::for_each);
       auto& bloom_filter =
         hash_map_wrapper.get_bloom_filter<Identifier, hash_function<Identifier>>();

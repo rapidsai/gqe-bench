@@ -16,6 +16,12 @@
 #include <cuco/static_map.cuh>
 #include <cuco/static_multimap.cuh>
 
+// Specialization to make double work with cuco
+namespace cuco {
+template <>
+struct is_bitwise_comparable<double> : std::true_type {};
+}  // namespace cuco
+
 #include <cuda/functional>
 #include <cuda/std/cstddef>
 

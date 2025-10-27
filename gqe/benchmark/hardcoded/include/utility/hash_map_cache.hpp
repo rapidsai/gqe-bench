@@ -57,8 +57,21 @@ constexpr cuco::empty_key<T> empty_key_sentinel(std::numeric_limits<T>::max());
  * Chosen to trigger a clear error (e.g., segfault, invalid result, or similar) if the bucket is
  * used after initialization but without an insert. The operator's build function must take care to
  * insert an actual value.
+ *
+ * @note For integral types, uses -0xDEADBEEF. For floating point types, uses -1.0.
  */
-constexpr cuco::empty_value<cudf::size_type> empty_value_sentinel(-0xDEADBEEF);
+template <typename T>
+constexpr auto empty_value_sentinel()
+{
+  if constexpr (std::is_integral_v<T>) {
+    return cuco::empty_value<T>(-0xDEADBEEF);
+  } else if constexpr (std::is_floating_point_v<T>) {
+    return cuco::empty_value<T>(-1.0);
+  } else {
+    static_assert(std::is_integral_v<T> || std::is_floating_point_v<T>,
+                  "empty_value_sentinel only supports integral and floating point types");
+  }
+}
 
 /**
  * @brief A hash map wrapper to abstract the identifier type.
@@ -80,23 +93,27 @@ struct abstract_bloom_filter {
  * @brief A hash map wrapper with a concrete identifier type.
  *
  * The container creates a CuCo hash map and a CuCo bloom filter (if enabled) on construction.
+ *
+ * @tparam Identifier The key type of the hash map
+ * @tparam Value The value type of the hash map
+ * @tparam HashMapType The actual CuCo hash map type
  */
-template <typename Identifier, typename HashMapType>
+template <typename Identifier, typename Value, typename HashMapType>
 struct hash_map_instance : public abstract_hash_map {
   using bloom_filter_type = utility::bloom_filter_type<Identifier>;
 
   hash_map_instance(size_t cardinality_estimate, double load_factor)
-    : _hash_map(cardinality_estimate,
-                load_factor,
-                empty_key_sentinel<Identifier>,
-                empty_value_sentinel,
-                {},
-                {},
-                {},
-                {},
-                utility::map_allocator_type<Identifier, cudf::size_type>{
-                  utility::map_allocator_instance_type<Identifier, cudf::size_type>{},
-                  cudf::get_default_stream()})
+    : _hash_map(
+        cardinality_estimate,
+        load_factor,
+        empty_key_sentinel<Identifier>,
+        empty_value_sentinel<Value>(),
+        {},
+        {},
+        {},
+        {},
+        utility::map_allocator_type<Identifier, Value>{
+          utility::map_allocator_instance_type<Identifier, Value>{}, cudf::get_default_stream()})
   {
   }
 
@@ -168,23 +185,27 @@ class task_hash_map {
   /**
    * @brief Return the singleton hash map and bloom filter that are created without populating the
    * hash map and bloom filter.
+   * @tparam Identifier The key type of the hash map
+   * @tparam Value The value type of the hash map
+   * @tparam HashMapType The actual CuCo hash map type
    * @param cardinality The cardinality used to size the hash map.
    * @param load_factor The load factor of the hash map.
    */
-  template <typename Identifier, typename HashMapType>
+  template <typename Identifier, typename Value, typename HashMapType>
   HashMapType& get_map(size_t cardinality, double load_factor)
   {
     auto& hash_map        = _hash_map;
     auto& identifier_type = _identifier_type;
 
-    std::call_once(
-      _is_hash_map_initialized, [&hash_map, &identifier_type, cardinality, load_factor]() {
-        identifier_type = cudf::data_type(cudf::type_to_id<Identifier>());
-        hash_map =
-          std::make_unique<hash_map_instance<Identifier, HashMapType>>(cardinality, load_factor);
-      });
+    std::call_once(_is_hash_map_initialized,
+                   [&hash_map, &identifier_type, cardinality, load_factor]() {
+                     identifier_type = cudf::data_type(cudf::type_to_id<Identifier>());
+                     hash_map = std::make_unique<hash_map_instance<Identifier, Value, HashMapType>>(
+                       cardinality, load_factor);
+                   });
 
-    return dynamic_cast<hash_map_instance<Identifier, HashMapType>*>(_hash_map.get())->_hash_map;
+    return dynamic_cast<hash_map_instance<Identifier, Value, HashMapType>*>(_hash_map.get())
+      ->_hash_map;
   }
 
   template <typename Identifier, typename Hash = cuco::xxhash_64<Identifier>>
@@ -205,11 +226,14 @@ class task_hash_map {
 
   /**
    * @brief Return the singleton hash map instance.
+   * @tparam Identifier The key type of the hash map
+   * @tparam Value The value type of the hash map
+   * @tparam HashMapType The actual CuCo hash map type
    */
-  template <typename Identifier, typename HashMapType>
+  template <typename Identifier, typename Value, typename HashMapType>
   HashMapType& get_map()
   {
-    return get_map<Identifier, HashMapType>(_cardinality_estimate, _load_factor);
+    return get_map<Identifier, Value, HashMapType>(_cardinality_estimate, _load_factor);
   }
 
   template <typename Identifier, typename Hash = cuco::xxhash_64<Identifier>>
@@ -221,11 +245,15 @@ class task_hash_map {
   /**
    * @brief Create the singleton hash map and bloom filter and populate them.
    *
+   * @tparam Identifier The key type of the hash map
+   * @tparam Value The value type of the hash map
+   * @tparam HashMapType The actual CuCo hash map type
+   * @tparam InsertFunctor The functor type for inserting elements
    * @param cardinality The cardinality used to size the hash map.
    * @param load_factor The load factor of the hash map.
    * @param insert_functor The functor to insert elements into the hash map.
    */
-  template <typename Identifier, typename HashMapType, typename InsertFunctor>
+  template <typename Identifier, typename Value, typename HashMapType, typename InsertFunctor>
   void create_map_and_insert(size_t cardinality, double load_factor, InsertFunctor insert_functor)
   {
     auto& hash_map        = _hash_map;
@@ -235,22 +263,28 @@ class task_hash_map {
       _is_hash_map_initialized,
       [&hash_map, &identifier_type, cardinality, load_factor, insert_functor]() {
         identifier_type = cudf::data_type(cudf::type_to_id<Identifier>());
-        hash_map =
-          std::make_unique<hash_map_instance<Identifier, HashMapType>>(cardinality, load_factor);
+        hash_map = std::make_unique<hash_map_instance<Identifier, Value, HashMapType>>(cardinality,
+                                                                                       load_factor);
         insert_functor(
-          dynamic_cast<hash_map_instance<Identifier, HashMapType>*>(hash_map.get())->_hash_map);
+          dynamic_cast<hash_map_instance<Identifier, Value, HashMapType>*>(hash_map.get())
+            ->_hash_map);
       });
   }
 
   /**
    * @brief Create a map along with a bloom filter and populate them at one call.
    *
+   * @tparam Identifier The key type of the hash map
+   * @tparam Value The value type of the hash map
+   * @tparam HashMapType The actual CuCo hash map type
+   * @tparam InsertFunctor The functor type for inserting elements
    * @param cardinality The cardinality used to size the hash map.
    * @param load_factor The load factor of the hash map.
    * @param num_filter_blocks The number of filter blocks for the bloom filter.
    * @param insert_functor The functor to insert elements into the bloom filter.
    */
   template <typename Identifier,
+            typename Value,
             typename HashMapType,
             typename InsertFunctor,
             typename BFHash = cuco::xxhash_64<Identifier>>
@@ -277,12 +311,13 @@ class task_hash_map {
        num_filter_blocks,
        insert_functor]() {
         identifier_type = cudf::data_type(cudf::type_to_id<Identifier>());
-        hash_map =
-          std::make_unique<hash_map_instance<Identifier, HashMapType>>(cardinality, load_factor);
+        hash_map = std::make_unique<hash_map_instance<Identifier, Value, HashMapType>>(cardinality,
+                                                                                       load_factor);
         bloom_filter =
           std::make_unique<bloom_filter_instance<Identifier, BFHash>>(num_filter_blocks);
         insert_functor(
-          dynamic_cast<hash_map_instance<Identifier, HashMapType>*>(hash_map.get())->_hash_map,
+          dynamic_cast<hash_map_instance<Identifier, Value, HashMapType>*>(hash_map.get())
+            ->_hash_map,
           dynamic_cast<bloom_filter_instance<Identifier, BFHash>*>(bloom_filter.get())
             ->_bloom_filter);
         std::call_once(is_hash_map_initialized, [] {});

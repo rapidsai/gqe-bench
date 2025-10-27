@@ -183,11 +183,12 @@ struct hash_table_build_functor {
           utility::get_bloom_filter_blocks<gqe_python::utility::bloom_filter_type<Identifier>>(
             build_table_size * bf_size_factor);
       }
-      hash_map_cache.create_map_bf_and_insert<Identifier, mark_join_map_type<Identifier>>(
-        build_table_size,
-        load_factor,
-        num_filter_blocks,
-        mark_join_insertion_functor<Identifier, enable_bf>(main_stream, build_keys));
+      hash_map_cache
+        .create_map_bf_and_insert<Identifier, cudf::size_type, mark_join_map_type<Identifier>>(
+          build_table_size,
+          load_factor,
+          num_filter_blocks,
+          mark_join_insertion_functor<Identifier, enable_bf>(main_stream, build_keys));
     } else {
       CUDF_FAIL("Column must be INT32 or INT64");
     }
@@ -219,7 +220,8 @@ struct left_anti_join_probe_functor {
       auto right_receiptdate_column = cudf::column_device_view::create(right_table.column(2));
       auto right_commitdate_column  = cudf::column_device_view::create(right_table.column(3));
 
-      auto& map    = hash_map_cache.get_map<Identifier, mark_join_map_type<Identifier>>();
+      auto& map =
+        hash_map_cache.get_map<Identifier, cudf::size_type, mark_join_map_type<Identifier>>();
       auto map_ref = map.ref(cuco::find, cuco::for_each, cuco::op::insert);
 
       auto& bloom_filter    = hash_map_cache.get_bloom_filter<Identifier>();
@@ -273,7 +275,8 @@ struct left_semi_join_probe_functor {
       auto right_suppkey_column  = cudf::column_device_view::create(right_table.column(0));
       auto right_orderkey_column = cudf::column_device_view::create(right_table.column(1));
 
-      auto& map    = hash_map_cache.get_map<Identifier, mark_join_map_type<Identifier>>();
+      auto& map =
+        hash_map_cache.get_map<Identifier, cudf::size_type, mark_join_map_type<Identifier>>();
       auto map_ref = map.ref(cuco::find, cuco::for_each, cuco::op::insert);
 
       auto& bloom_filter    = hash_map_cache.get_bloom_filter<Identifier>();
@@ -382,7 +385,8 @@ struct mark_join_scan_functor {
   void operator()() const
   {
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
-      auto& map            = hash_map_cache.get_map<Identifier, mark_join_map_type<Identifier>>();
+      auto& map =
+        hash_map_cache.get_map<Identifier, cudf::size_type, mark_join_map_type<Identifier>>();
       auto map_device_view = map.ref(cuco::op::find, cuco::op::for_each, cuco::op::insert);
       auto scan_grid_size =
         gqe::utility::detect_launch_grid_size(iterate_join_map<is_anti_join, Identifier>,

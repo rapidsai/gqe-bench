@@ -79,6 +79,7 @@ pybind11_add_module(lib
   gqe/benchmark/hardcoded/src/tpch/q13/filter_orders_task.cu
   gqe/benchmark/hardcoded/src/tpch/q13/groupjoin_task.cu
   gqe/benchmark/hardcoded/src/tpch/q13/kernels.cu
+  gqe/benchmark/hardcoded/src/tpch/q18/groupby_task.cu
   gqe/benchmark/hardcoded/src/tpch/q22/task.cu
   gqe/benchmark/hardcoded/src/tpch/q22/fused_project_filter.cu
   gqe/benchmark/hardcoded/src/tpch/q22/mark_join.cu

@@ -291,6 +291,7 @@ struct join_multimap_build_functor {
       // Build hash multimap and Bloom filter.
       hash_multimap_wrapper.create_map_bf_and_insert<
         Identifier,
+        cudf::size_type,
         join_multimap_type<Identifier>,
         decltype(multimap_bf_insert_functor<Identifier>{key_column, stream}),
         hash_function<Identifier>>(key_column.size(),
@@ -315,10 +316,11 @@ struct join_map_build_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
       // Build hash map.
-      hash_map_wrapper.create_map_and_insert<Identifier, join_map_type<Identifier>>(
-        key_column.size(),
-        /* load_factor = */ 0.5,
-        map_insert_functor<Identifier>{key_column, stream});
+      hash_map_wrapper
+        .create_map_and_insert<Identifier, cudf::size_type, join_map_type<Identifier>>(
+          key_column.size(),
+          /* load_factor = */ 0.5,
+          map_insert_functor<Identifier>{key_column, stream});
     } else {
       CUDF_FAIL("Key column must be INT32 or INT64");
     }
@@ -344,11 +346,12 @@ struct fused_probes_functor {
     // Only allow int32/int64 here
     if constexpr (std::is_same_v<Identifier, int32_t> || std::is_same_v<Identifier, int64_t>) {
       auto& o_custkey_multimap =
-        o_custkey_multimap_wrapper.get_map<Identifier, join_multimap_type<Identifier>>();
+        o_custkey_multimap_wrapper
+          .get_map<Identifier, cudf::size_type, join_multimap_type<Identifier>>();
       auto& o_custkey_bloom_filter =
         o_custkey_multimap_wrapper.get_bloom_filter<Identifier, hash_function<Identifier>>();
       auto& n_nationkey_map =
-        n_nationkey_map_wrapper.get_map<Identifier, join_map_type<Identifier>>();
+        n_nationkey_map_wrapper.get_map<Identifier, cudf::size_type, join_map_type<Identifier>>();
       auto o_custkey_multimap_ref     = o_custkey_multimap.ref(cuco::find, cuco::for_each);
       auto o_custkey_bloom_filter_ref = o_custkey_bloom_filter.ref();
       auto n_nationkey_map_ref        = n_nationkey_map.ref(cuco::find, cuco::for_each);

@@ -16,6 +16,7 @@
 #include <tpch/q13/filter_orders_task.hpp>
 #include <tpch/q13/groupjoin_task.hpp>
 #include <tpch/q16/task.hpp>
+#include <tpch/q18/groupby_task.hpp>
 #include <tpch/q21/task.hpp>
 #include <tpch/q22/task.hpp>
 
@@ -954,6 +955,7 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("q13_fused_filter_probe", &gqe_python::benchmark::q13::fused_filter_probe);
   py_module.def("q16_fused_filter_join", &gqe_python::benchmark::q16::fused_filter_join);
   py_module.def("q16_aggregate", &gqe_python::benchmark::q16::aggregate);
+  py_module.def("q18_groupby", &gqe_python::benchmark::q18::groupby);
   py_module.def("q21_left_anti_join", &gqe_python::benchmark::q21::left_anti_join_probe);
   py_module.def("q21_left_semi_join", &gqe_python::benchmark::q21::left_semi_join_probe);
   py_module.def("q21_left_anti_join_retrieve",

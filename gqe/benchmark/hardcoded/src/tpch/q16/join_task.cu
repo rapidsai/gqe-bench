@@ -214,16 +214,17 @@ struct fused_filter_join_build_functor {
       }
 
       // Would implicitly build the hash map.
-      part_hash_map_wrapper.create_map_bf_and_insert<Identifier, part_map_type<Identifier>>(
-        p_row_count * part_selectivity,
-        part_load_factor,
-        part_num_filter_blocks,
-        part_insertion_functor<Identifier>{ctx_ref,
-                                           *p_partkey_column,
-                                           *p_brand_column,
-                                           *p_type_column,
-                                           *p_size_column,
-                                           main_stream});
+      part_hash_map_wrapper
+        .create_map_bf_and_insert<Identifier, cudf::size_type, part_map_type<Identifier>>(
+          p_row_count * part_selectivity,
+          part_load_factor,
+          part_num_filter_blocks,
+          part_insertion_functor<Identifier>{ctx_ref,
+                                             *p_partkey_column,
+                                             *p_brand_column,
+                                             *p_type_column,
+                                             *p_size_column,
+                                             main_stream});
 
       // Build supplier hash table.
       auto constexpr supplier_load_factor                  = 0.5;
@@ -235,11 +236,12 @@ struct fused_filter_join_build_functor {
             supplier_bf_size_factor * s_row_count);
       }
 
-      supplier_hash_map_wrapper.create_map_bf_and_insert<Identifier, supplier_map_type<Identifier>>(
-        s_row_count,
-        supplier_load_factor,
-        supplier_num_filter_blocks,
-        supplier_insertion_functor<Identifier>{s_row_count, *s_suppkey_column});
+      supplier_hash_map_wrapper
+        .create_map_bf_and_insert<Identifier, cudf::size_type, supplier_map_type<Identifier>>(
+          s_row_count,
+          supplier_load_factor,
+          supplier_num_filter_blocks,
+          supplier_insertion_functor<Identifier>{s_row_count, *s_suppkey_column});
     } else {
       CUDF_FAIL("Column must be INT32 or INT64");
     }
@@ -273,11 +275,12 @@ struct fused_filter_join_probe_functor {
       auto ps_suppkey_column =
         cudf::column_device_view::create(part_supp_table.column(1), main_stream);
 
-      auto& part_map = part_hash_map_wrapper.get_map<Identifier, part_map_type<Identifier>>();
+      auto& part_map =
+        part_hash_map_wrapper.get_map<Identifier, cudf::size_type, part_map_type<Identifier>>();
       auto& part_bloom_filter = part_hash_map_wrapper.get_bloom_filter<Identifier>();
       auto part_map_ref       = part_map.ref(cuco::op::find, cuco::op::for_each, cuco::op::insert);
-      auto& supplier_map =
-        supplier_hash_map_wrapper.get_map<Identifier, supplier_map_type<Identifier>>();
+      auto& supplier_map      = supplier_hash_map_wrapper
+                             .get_map<Identifier, cudf::size_type, supplier_map_type<Identifier>>();
       auto& supplier_bloom_filter = supplier_hash_map_wrapper.get_bloom_filter<Identifier>();
       auto supplier_map_ref =
         supplier_map.ref(cuco::op::find, cuco::op::for_each, cuco::op::insert);
