@@ -1,6 +1,6 @@
 # GPU Query Executor (GQE) python interface
 
-This repository contains the python interface for the GPU Query Executor (GQE).
+This repository contains the python interface for the GPU Query Executor (GQE). In addition it also contains scripts for generating TPC-H dataset, and reference files. 
 
 ## Installation
 
@@ -68,4 +68,38 @@ To fix formatting of python code:
 ```
 conda install black=25.1.0
 black .
+```
+
+## Data generation and validation generation scripts
+
+### Dependencies
+- Python3 interpreter
+- DuckDB Python module, e.g., `conda install duckdb`
+
+To generate solution files for queries you can use the `scripts/duckdb_validation.py`.
+
+```bash
+usage: python scripts/generate_validation_files.py [dataset] [queries_sql] [results]
+```
+
+This will generate `<query>.parquet` in `<output_directory>` for each `<query>.sql` in `<sql_file_or_dir>`
+
+
+To generate TPC-H dataset:
+
+```bash
+usage: python generate_parquet_dataset.py [-h] [-t TMP] [-o OUTPUT] [-s SCALE] [-c CHUNKSIZE]
+
+options:
+  -h, --help            Show this help message and exit
+  -t TMP, --tmp TMP
+                        Override path for temporary DB on disk
+  -o OUTPUT, --output OUTPUT
+                        Output path (default: ./data)
+  -s SCALE, --scale SCALE
+                        Scale factor (default: 1)
+  -c CHUNKSIZE, --chunksize CHUNKSIZE
+                        Max number of rows in each Parquet file (may be rounded up to multiple of 2048, default: 16000000)
+  -r SF_PER_CHILD, --sf_per_child SF_PER_CHILD
+                        Ratio of scale factor to number of children; decrease to reduce memory footprint (default: 10)
 ```
