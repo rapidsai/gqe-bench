@@ -30,6 +30,7 @@ template <typename Identifier, typename MapRef, typename BloomFilterRef>
 __global__ void unique_key_inner_join_probe_kernel(MapRef build_side_map,
                                                    BloomFilterRef bloom_filter,
                                                    cudf::column_device_view probe_side_key_column,
+                                                   cudf::column_device_view l_returnflag,
                                                    cudf::size_type* d_global_offset,
                                                    unique_key_inner_join_probe_output out_indices)
 {
@@ -54,6 +55,8 @@ __global__ void unique_key_inner_join_probe_kernel(MapRef build_side_map,
   for (cudf::size_type idx = loop_begin; idx < loop_end; idx += loop_stride) {
     __syncwarp();
     bool is_active = idx < row_count;
+    // hardcoded Q10 filter on lineitem: l_returnflag = 'R'
+    if (is_active) is_active = (l_returnflag.element<char>(idx) == 82 /* ASCII code for 'R' */);
 
     auto key = is_active ? probe_side_key_column.element<Identifier>(idx) : Identifier{};
     if (bloom_filter.block_extent()) is_active &= bloom_filter.contains(key);
@@ -70,6 +73,7 @@ template __global__ void unique_key_inner_join_probe_kernel<int32_t>(
   utility::map_ref_type<int32_t, cudf::size_type, cuco::identity_hash<int32_t>> build_side_map,
   utility::bloom_filter_ref_type<int32_t, cuco::identity_hash<int32_t>> bloom_filter,
   cudf::column_device_view probe_side_key_column,
+  cudf::column_device_view l_returnflag,
   cudf::size_type* d_global_offset,
   unique_key_inner_join_probe_output out_indices);
 
@@ -77,6 +81,7 @@ template __global__ void unique_key_inner_join_probe_kernel<int64_t>(
   utility::map_ref_type<int64_t, cudf::size_type, cuco::identity_hash<int64_t>> build_side_map,
   utility::bloom_filter_ref_type<int64_t, cuco::identity_hash<int64_t>> bloom_filter,
   cudf::column_device_view probe_side_key_column,
+  cudf::column_device_view l_returnflag,
   cudf::size_type* d_global_offset,
   unique_key_inner_join_probe_output out_indices);
 

@@ -44,6 +44,7 @@ struct unique_key_inner_join_probe_output {
  * @param[in] bloom_filter The Bloom filter built with build-side keys.
  * @param[in] use_bloom_filter Flag indicating whether the Bloom filter should be used.
  * @param[in] probe_side_key_column The probe-side key column.
+ * @param[in] l_returnflag Hardcoded column for Q10 filter on lineitem.
  * @param[in, out] d_global_offset Global counter for number of output rows.
  * @param[out] out_indices Struct with build-side and probe-side row indices of matches.
  */
@@ -51,6 +52,7 @@ template <typename Identifier, typename MapRef, typename BloomFilterRef>
 __global__ void unique_key_inner_join_probe_kernel(MapRef build_side_map,
                                                    BloomFilterRef bloom_filter,
                                                    cudf::column_device_view probe_side_key_column,
+                                                   cudf::column_device_view l_returnflag,
                                                    cudf::size_type* d_global_offset,
                                                    unique_key_inner_join_probe_output out_indices);
 

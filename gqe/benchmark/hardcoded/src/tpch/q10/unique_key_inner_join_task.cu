@@ -255,6 +255,7 @@ struct unique_key_inner_join_probe_functor {
   void operator()(gqe::context_reference ctx_ref,
                   cudf::column_device_view build_side_key_column,
                   cudf::column_device_view probe_side_key_column,
+                  cudf::column_device_view l_returnflag,
                   cudf::size_type* d_global_offset,
                   cudf::mutable_column_device_view build_side_indices,
                   cudf::mutable_column_device_view probe_side_indices,
@@ -280,6 +281,7 @@ struct unique_key_inner_join_probe_functor {
         <<<grid_size, utility::block_dim, 0, stream>>>(hash_map_ref,
                                                        bloom_filter_ref,
                                                        probe_side_key_column,
+                                                       l_returnflag,
                                                        d_global_offset,
                                                        {build_side_indices, probe_side_indices});
     } else {
@@ -337,6 +339,8 @@ void unique_key_inner_join_probe_task::execute()
     cudf::column_device_view::create(build_side_table.column(_build_side_key_column_idx), stream);
   auto probe_side_key_column =
     cudf::column_device_view::create(probe_side_table.column(_probe_side_key_column_idx), stream);
+  // hardcoded for Q10
+  auto l_returnflag = cudf::column_device_view::create(probe_side_table.column(1), stream);
 
   auto out_build_side_indices_column =
     cudf::make_numeric_column(cudf::data_type(cudf::type_to_id<cudf::size_type>()),
@@ -364,6 +368,7 @@ void unique_key_inner_join_probe_task::execute()
                         get_context_reference(),
                         *build_side_key_column,
                         *probe_side_key_column,
+                        *l_returnflag,
                         d_global_offset.data(),
                         *out_build_side_indices_view,
                         *out_probe_side_indices_view,

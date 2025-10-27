@@ -84,21 +84,19 @@ class tpch_q10_opt(Query):
             [0, 1],
         )
 
-        # l_returnflag = 'R'
-        # After this operation, `lineitem` has column ["l_orderkey", "l_extendedprice", "l_discount"]
         lineitem = read(
             "lineitem",
             ["l_orderkey", "l_returnflag", "l_extendedprice", "l_discount"],
             (CR(8) == Literal(ord("R"))),
             table_defs,
         )
-        lineitem = lineitem.filter((CR(1) == Literal(ord("R"))), [0, 2, 3])
 
         # o_orderkey = l_orderkey
+        # hardcoded probe filter: l_returnflag = 'R'
         # j1 has columns ["o_custkey", "l_extendedprice", "l_discount"]
         orders_map = Q10UniqueKeyInnerJoinBuildRelation(orders, 0, True)
         j1 = Q10UniqueKeyInnerJoinProbeRelation(
-            orders_map, orders, lineitem, 0, 0, [1, 3, 4]
+            orders_map, orders, lineitem, 0, 0, [1, 4, 5]
         )
 
         # build hash multimap on o_custkey in j1
