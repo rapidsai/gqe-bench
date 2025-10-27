@@ -274,12 +274,6 @@ def main():
             f"Multi-process sandboxing enabled by -sb is not compatible with multi-gpu set by -m at this time. Ignoring sandboxing."
         )
 
-    if args.multiprocess:
-        if args.storage_kind != ["parquet_file"]:
-            raise ValueError(
-                "Multiprocess mode is only supported with parquet_file storage kind"
-            )
-
     gqe_host = "localhost"
     scale_factor = parse_scale_factor(args.dataset)
     load_all_data = (
