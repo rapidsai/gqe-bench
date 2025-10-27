@@ -57,6 +57,10 @@ class NVTX_EVENT_TYPE(Enum):
     NVTX_DOMAIN_DESTROY = 76
 
 
+# Reference: https://docs.nvidia.com/nsight-systems/2021.5/nsys-exporter/examples.html#serialized-process-and-thread-identifiers
+pid_from_global_tid = lambda global_tid_str: f"{global_tid_str} / 0x1000000 % 0x1000000"
+
+
 GQE_DOMAIN_NAME = "GQE"
 GQE_IN_MEMORY_READ_TASK_NVTX_RANGE = "in_memory_read_task"
 
@@ -72,22 +76,32 @@ def merge_ranges(ranges: list) -> list:
     return merged
 
 
-def kernel_time(connection, nvtx_range_glob, args):
-    headers = ["nvtx_domain", "kernel_count", "total_kernel_time_ms"]
+def get_process_ids(connection):
+    process_id_query = f"""SELECT DISTINCT {pid_from_global_tid("globalTid")} FROM CUPTI_ACTIVITY_KIND_RUNTIME"""
+    return [pid for pid, in connection.execute(process_id_query)]
+
+
+## Kernel time tools
+
+
+def kernel_time_sum(connection, nvtx_range_glob, args):
+    headers = ["nvtx_domain", "kernel_count", "kernel_time_sum_ms"]
     sql_str = f"""
     SELECT 
     nvtx_string.value,
     COUNT(kernel.correlationId) AS kernel_count,
     ROUND(SUM(kernel.end - kernel.start) / 1000000.0, 3) AS total_kernel_time_ms
-    
+
     FROM NVTX_EVENTS nvtx
     JOIN StringIds AS nvtx_string
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
     JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
         ON (runtime_activity.end <= nvtx.end
-            AND runtime_activity.start >= nvtx.start) -- get runtime call within nvtx range
+            AND runtime_activity.start >= nvtx.start
+            AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel
-        ON (kernel.correlationId = runtime_activity.correlationId) -- get kernels
+        ON (kernel.correlationId = runtime_activity.correlationId 
+        AND {pid_from_global_tid("kernel.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get kernels
     JOIN StringIds kernel_string
         ON (kernel.demangledName = kernel_string.id) -- get kernel names
     WHERE 
@@ -108,8 +122,93 @@ def kernel_time(connection, nvtx_range_glob, args):
     return [dict(zip(headers, row)) for row in rows]
 
 
+def kernel_time_effective(connection, nvtx_range_glob, args):
+
+    process_ids = get_process_ids(connection)
+
+    kernel_ranges = {}  # dict with process_ids as keys
+    for pid in process_ids:
+
+        # We need to group the nvtx_read_task start and end time with group concat because nvtx string values are the same
+        # for a given query run. As a result, we use the nvtx start and end times to uniquely identify a query run.
+        # GROUP_CONCAT in the below expression with output values in kernel0_start,kernel0_end;kernel1_start,kernel1_end;... format.
+        # We then use the output string to get individual kernel timings restricted to a query run.
+        query = f"""
+        SELECT
+        nvtx_string.value,
+        GROUP_CONCAT(
+            ROUND(kernel.start / 1000000.0, 3) || "," || ROUND(kernel.end / 1000000.0, 3),
+            ";"
+        ) AS kernel_ranges
+        
+        FROM NVTX_EVENTS nvtx
+        JOIN StringIds AS nvtx_string
+            ON nvtx_string.id = nvtx.textId -- get nvtx domain names
+        JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
+            ON (runtime_activity.end <= nvtx.end
+                AND runtime_activity.start >= nvtx.start
+                AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
+        JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel
+            ON (kernel.correlationId = runtime_activity.correlationId
+            AND {pid_from_global_tid("kernel.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get kernels
+        JOIN StringIds kernel_string
+            ON (kernel.demangledName = kernel_string.id) -- get kernel names
+        WHERE 
+            (nvtx.eventType = 59 OR nvtx.eventType = 60) -- push-pop and start-end ranges
+            AND nvtx_string.value GLOB "{nvtx_range_glob}" 
+            AND {pid_from_global_tid("nvtx.globalTid")} = {pid}
+            {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'" 
+                if args.exclude_kernel_glob 
+                else ""
+            }
+        GROUP BY 
+            nvtx_string.value, nvtx.start, nvtx.end
+        ORDER BY 
+            nvtx.start
+        """
+        rows = list(connection.execute(query))
+        kernel_ranges[pid] = rows
+
+    # We assume that all processes participate in all runs
+    # TODO: To relax this assumption, we need to have unique identifiers for each run
+    num_runs = len(kernel_ranges[process_ids[0]])
+    assert all(num_runs == len(kernel_ranges[pid]) for pid in process_ids)
+
+    merged_rows = []
+    for run in range(num_runs):
+        combined_ranges = []
+        nvtx_domain = kernel_ranges[process_ids[0]][run][
+            0
+        ]  # NVTX domain of the first process for a given run
+        for pid in process_ids:
+            process_nvtx_domain, process_kernel_ranges = kernel_ranges[pid][run]
+            if process_nvtx_domain != nvtx_domain:
+                raise ValueError(
+                    f"NVTX domain mismatch for run {run} and process {pid}"
+                )
+            combined_ranges.extend(
+                [
+                    tuple(map(float, range.split(",")))
+                    for range in process_kernel_ranges.split(";")
+                ]
+            )
+        merged_ranges = merge_ranges(combined_ranges)
+        merged_rows.append(
+            {
+                "nvtx_domain": nvtx_domain,
+                "kernel_time_effective_ms": sum(
+                    range[1] - range[0] for range in merged_ranges
+                ),
+            }
+        )
+    return merged_rows
+
+
+## IO tools
+
+
 def htod_copy_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, float]]:
-    headers = ["nvtx_domain", "total_memcpy_time_ms"]
+    headers = ["nvtx_domain", "memcpy_time_sum_ms"]
     sql_str = f"""
     SELECT 
         nvtx_string.value,
@@ -119,9 +218,11 @@ def htod_copy_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, floa
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
     JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
         ON (runtime_activity.start >= nvtx.start
-            AND runtime_activity.end <= nvtx.end) -- get runtime call within nvtx range
+            AND runtime_activity.end <= nvtx.end
+            AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_MEMCPY memcpy
-        ON (memcpy.correlationId = runtime_activity.correlationId) -- get memcpy calls
+        ON (memcpy.correlationId = runtime_activity.correlationId
+        AND {pid_from_global_tid("memcpy.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get memcpy calls
     WHERE 
         (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
         OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
@@ -139,7 +240,7 @@ def htod_copy_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, floa
 
 
 def htod_copy_size(connection, nvtx_range_glob, args):
-    headers = ["nvtx_domain", "total_memcpy_size_MiB"]
+    headers = ["nvtx_domain", "memcpy_size_MiB"]
     sql_str = f"""
     SELECT 
         nvtx_string.value,
@@ -149,9 +250,11 @@ def htod_copy_size(connection, nvtx_range_glob, args):
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
     JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
         ON (runtime_activity.start >= nvtx.start
-            AND runtime_activity.end <= nvtx.end) -- get runtime call within nvtx range
+            AND runtime_activity.end <= nvtx.end
+            AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_MEMCPY memcpy
-        ON (memcpy.correlationId = runtime_activity.correlationId) -- get memcpy calls
+        ON (memcpy.correlationId = runtime_activity.correlationId
+        AND {pid_from_global_tid("memcpy.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get memcpy calls
     WHERE 
         (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
         OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
@@ -178,6 +281,11 @@ def read_time_effective(connection, nvtx_range_glob, args) -> list[dict[str, flo
     SELECT domainId from NVTX_EVENTS WHERE text = "{GQE_DOMAIN_NAME}"
     """
     ).fetchone()[0]
+
+    # We need to group the nvtx_read_task start and end time with group concat because nvtx string values are the same
+    # for a given query run. As a result, we use the nvtx start and end times to uniquely identify a query run.
+    # GROUP_CONCAT in the below expression with output values in kernel0_start,kernel0_end;kernel1_start,kernel1_end;... format.
+    # We then use the output string to get individual kernel timings restricted to a query run.
     query = f"""
     SELECT 
         nvtx_string.value,
@@ -214,7 +322,7 @@ def read_time_effective(connection, nvtx_range_glob, args) -> list[dict[str, flo
         merged_rows.append(
             {
                 "nvtx_domain": nvtx_domain,
-                "total_read_task_time_ms": sum(
+                "read_time_effective_ms": sum(
                     range[1] - range[0] for range in merged_ranges
                 ),
             }
@@ -232,27 +340,39 @@ if __name__ == "__main__":
     parser.add_argument("nvtx_range_glob", help="Glob pattern of NVTX range to analyze")
     parser.add_argument("-o", "--output", default=None, help="Output to csv file")
 
+    ## Kernel time tools
+
     kernel_time_tool_parser = subparsers.add_parser(
-        "kernel_time",
-        help="Sum up the time for kernels launched in the supplied nvtx range",
-        epilog="Example:\n  python nsys_analysis.py kernel_time "
+        "kernel",
+        help="Perform kernel analysis",
+        epilog="Example:\n  python nsys_analysis.py kernel "
         '--exclude_kernel_glob "*fused_concatenate*" nsys-file.sqlite "*Run Q13*"',
     )
 
+    kernel_time_tool_parser.add_argument(
+        "--analysis_type",
+        default="kernel_time_effective",
+        choices=["kernel_time_sum", "kernel_time_effective"],
+        help=(
+            "Type of kernel time analysis to perform. Options: "
+            "kernel_time_sum - Total time spent executing kernels in the supplied nvtx range. "
+            "kernel_time_effective - Effective end-to-end time for kernels in the supplied nvtx range. Overlapping kernels are merged."
+        ),
+    )
     kernel_time_tool_parser.add_argument(
         "--exclude_kernel_glob",
         default=None,
         help="Specify glob pattern for kernels which should be excluded from analysis",
     )
 
-    kernel_time_tool_parser.set_defaults(program=kernel_time)
+    ## IO tools
 
-    io_analysis_parser = subparsers.add_parser(
+    io_tool_parser = subparsers.add_parser(
         "io",
         help="Perform IO analysis",
         epilog='Example:\n  python nsys_analysis.py io --analysis_type htod_copy_time_sum nsys-file.sqlite "*Run Q13*"',
     )
-    io_analysis_parser.add_argument(
+    io_tool_parser.add_argument(
         "--analysis_type",
         default="read_time_effective",
         choices=["htod_copy_time_sum", "htod_copy_size", "read_time_effective"],
@@ -263,26 +383,30 @@ if __name__ == "__main__":
             "read_time_effective - Effective end-to-end time for in-memory read tasks."
         ),
     )
-    io_analysis_parser.set_defaults(program=read_time_effective)
 
+    analysis_tool = None
     args = parser.parse_args()
-    if args.tool == "io":
+    if args.tool == "kernel":
+        if args.analysis_type == "kernel_time_sum":
+            analysis_tool = kernel_time_sum
+        elif args.analysis_type == "kernel_time_effective":
+            analysis_tool = kernel_time_effective
+    elif args.tool == "io":
         if args.analysis_type == "htod_copy_time_sum":
-            args.program = htod_copy_time_sum
+            analysis_tool = htod_copy_time_sum
         elif args.analysis_type == "htod_copy_size":
-            args.program = htod_copy_size
+            analysis_tool = htod_copy_size
         elif args.analysis_type == "read_time_effective":
-            args.program = read_time_effective
+            analysis_tool = read_time_effective
 
     conn = sqlite3.connect(args.sqlite)
-    rows = args.program(conn, args.nvtx_range_glob, args)
+    rows = analysis_tool(conn, args.nvtx_range_glob, args)
     if args.output:
         with open(args.output, "w") as f:
-            import csv
-
             writer = csv.DictWriter(f, fieldnames=rows[0].keys())
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
     else:
-        print(rows)
+        for row in rows:
+            print(row)
