@@ -45,6 +45,7 @@ from dataclasses import dataclass, asdict, fields
 from typing import Optional
 from collections.abc import Callable
 import copy
+import argparse
 
 # Alias multiprocessing due to namespace class in GQE
 import multiprocessing as subprocessing
@@ -252,7 +253,9 @@ def boost_shared_memory_pool_size(
         return int(scale_factor * (7 / 10) * 1024 * 1024 * 1024)
 
 
-def fix_partial_filter_column_references(relation: Relation, query: int):
+def fix_partial_filter_column_references(
+    relation: Relation, query: int, fixed_read_relations: list[int] = []
+):
     """Fix the column references in partial filters.
 
     Ensures that column references in partial filters of read relations and
@@ -277,9 +280,10 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
         # base table schema.
         if isinstance(expression, ColumnReference):
             table = relation.table
-            projected_columns = relation.columns
-            schema_columns = TPCHTableDefinitions().get_schema(query)[table]
-            expression.idx = schema_columns.index(projected_columns[expression.idx])
+            table_columns = TPCHTableDefinitions().get_schema(0)[table]
+            loaded_columns = TPCHTableDefinitions().get_schema(query)[table]
+            column_name = table_columns[expression.idx]
+            expression.idx = loaded_columns.index(column_name)
 
         # Recursively descent to child expressions
         elif isinstance(expression, BinaryOpExpression):
@@ -292,74 +296,129 @@ def fix_partial_filter_column_references(relation: Relation, query: int):
             fix_column_references(expression.then_expr, relation)
             fix_column_references(expression.else_expr, relation)
 
-    # Stop recursion when the ReadRelation is reached
+    # Fix partial filter of ReadRelation
     if isinstance(relation, ReadRelation):
-        return
-
-    # Fix partial filter of ReadRelation, if it is the direct child of a
-    # FilterRelation or AggregateRelation. Also stops recursion.
-    elif (
-        isinstance(relation, (AggregateRelation, FilterRelation))
-        and isinstance(relation.input, ReadRelation)
-        and relation.input.partial_filter
-    ):
-        relation.input.partial_filter = copy.deepcopy(relation.condition)
-        fix_column_references(relation.input.partial_filter, relation.input)
+        # Some query plans reuse operator subtrees in multiple locations, e.g.,
+        # Q18_opt. We have to make sure that each ReadRelation of these subtrees
+        # is only processed once.
+        if relation.partial_filter and id(relation) not in fixed_read_relations:
+            fixed_read_relations.append(id(relation))
+            fix_column_references(relation.partial_filter, relation)
 
     # Recursively descent to child relations
     elif isinstance(relation, (BroadcastJoinRelation, ShuffleJoinRelation)):
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.right_table, query)
+        fix_partial_filter_column_references(
+            relation.left_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.right_table, query, fixed_read_relations
+        )
     # Only check instance is not enough as import_module would create different class objects.
     elif relation.__class__.__name__ == "Q10FusedProbesJoinMapBuildRelation":
-        fix_partial_filter_column_references(relation.build_side_table, query)
+        fix_partial_filter_column_references(
+            relation.build_side_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q10FusedProbesJoinMultimapBuildRelation":
-        fix_partial_filter_column_references(relation.build_side_table, query)
+        fix_partial_filter_column_references(
+            relation.build_side_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q10FusedProbesJoinProbeRelation":
         fix_partial_filter_column_references(
-            relation.o_custkey_to_row_indices_multimap, query
+            relation.o_custkey_to_row_indices_multimap, query, fixed_read_relations
         )
         fix_partial_filter_column_references(
-            relation.n_nationkey_to_row_index_map, query
+            relation.n_nationkey_to_row_index_map, query, fixed_read_relations
         )
-        fix_partial_filter_column_references(relation.join_orders_lineitem_table, query)
-        fix_partial_filter_column_references(relation.nation_table, query)
-        fix_partial_filter_column_references(relation.customer_table, query)
+        fix_partial_filter_column_references(
+            relation.join_orders_lineitem_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.nation_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.customer_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q10SortLimitRelation":
-        fix_partial_filter_column_references(relation.input_table, query)
+        fix_partial_filter_column_references(
+            relation.input_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q10UniqueKeyInnerJoinBuildRelation":
-        fix_partial_filter_column_references(relation.build_side_table, query)
+        fix_partial_filter_column_references(
+            relation.build_side_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q10UniqueKeyInnerJoinProbeRelation":
-        fix_partial_filter_column_references(relation.build_side_map, query)
-        fix_partial_filter_column_references(relation.build_side_table, query)
-        fix_partial_filter_column_references(relation.probe_side_table, query)
+        fix_partial_filter_column_references(
+            relation.build_side_map, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.build_side_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.probe_side_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q13GroupjoinProbeRelation":
-        fix_partial_filter_column_references(relation.groupjoin_build, query)
-        fix_partial_filter_column_references(relation.orders, query)
+        fix_partial_filter_column_references(
+            relation.groupjoin_build, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.orders, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q13FusedFilterProbeRelation":
-        fix_partial_filter_column_references(relation.groupjoin_build, query)
-        fix_partial_filter_column_references(relation.orders, query)
+        fix_partial_filter_column_references(
+            relation.groupjoin_build, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.orders, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q16FusedFilterJoinRelation":
-        fix_partial_filter_column_references(relation.supplier_table, query)
-        fix_partial_filter_column_references(relation.part_table, query)
-        fix_partial_filter_column_references(relation.partsupp_table, query)
+        fix_partial_filter_column_references(
+            relation.supplier_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.part_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.partsupp_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q21LeftAntiJoinProbeRelation":
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.right_table, query)
+        fix_partial_filter_column_references(
+            relation.left_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.right_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q21LeftSemiJoinProbeRelation":
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.right_table, query)
+        fix_partial_filter_column_references(
+            relation.left_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.right_table, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q21LeftAntiJoinRetrieveRelation":
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.probe, query)
+        fix_partial_filter_column_references(
+            relation.left_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.probe, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q21LeftSemiJoinRetrieveRelation":
-        fix_partial_filter_column_references(relation.left_table, query)
-        fix_partial_filter_column_references(relation.probe, query)
+        fix_partial_filter_column_references(
+            relation.left_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.probe, query, fixed_read_relations
+        )
     elif relation.__class__.__name__ == "Q22MarkJoinRelation":
-        fix_partial_filter_column_references(relation.customer_table, query)
-        fix_partial_filter_column_references(relation.orders_table, query)
+        fix_partial_filter_column_references(
+            relation.customer_table, query, fixed_read_relations
+        )
+        fix_partial_filter_column_references(
+            relation.orders_table, query, fixed_read_relations
+        )
     else:
-        fix_partial_filter_column_references(relation.input, query)
+        fix_partial_filter_column_references(
+            relation.input, query, fixed_read_relations
+        )
 
 
 def _get_tpc_query_info(
