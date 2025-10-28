@@ -532,6 +532,19 @@ def pipe_send(pipe: subprocessing.Pipe, status: bool):
         pipe.send(status)
 
 
+# if cuda error matches any of these regex, it's unrecoverable and we need a new process
+def is_unrecoverable_error(e):
+    error = f"{e}"
+    messages = [
+        "cudaErrorIllegalAddress",
+        "cudaErrorInvalidAddressSpace",
+    ]
+    for message in messages:
+        if message in error:
+            return True
+    return False
+
+
 def _run_tpc(
     cat_ctx: CatalogContext,
     data: DataInfo,
@@ -634,7 +647,11 @@ def _run_tpc(
                     )
                 )
                 # We can continue processing since this is one query; on next iter we reload data
-                continue
+                # if the error corrupts the cuda context though, we need to start over
+                if is_unrecoverable_error(error):
+                    break
+                else:
+                    continue
         else:
             print_mp(
                 "No load required - data already in memory", is_root_rank and not quiet
@@ -685,7 +702,10 @@ def _run_tpc(
             print(f"{type(error).__name__}: {error}")
             errors.append((f"{query.identifier} construct_context", parameter, error))
             pipe_send(pipe, False)
-            continue
+            if is_unrecoverable_error(error):
+                break
+            else:
+                continue
         # confirm we loaded context properly
         pipe_send(pipe, True)
 
@@ -742,7 +762,10 @@ def _run_tpc(
                     invalid_results.append((query.identifier, parameter))
                     pipe_send(pipe, False)
                     success = False
-                    break
+                    if is_unrecoverable_error(error):
+                        return
+                    else:
+                        break
             else:
                 print_mp("Skipping verification...", is_root_rank and not quiet)
             # Logging on host process creates a small race condition; sending before doing DB insertion
