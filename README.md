@@ -22,11 +22,25 @@ You can also pass the path to a local GQE clone to the install command.
 pip install -e . -C cmake.define.GQE_SOURCE_DIR=<path_to_local_gqe>
 ```
 
-## Usage
+## Benchmarking
 
 Used for benchmarking TPC-H queries using GQE.
 
  Instruction for running the benchmark can be found [here](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=Run+TPC+Benchmarks), in the section "Run TPC-H Queries with Python interface".
+
+## Substrait Plan Generation
+
+Make sure to compile Substrait-producer in GQE with gqe-python using:
+
+```
+pip install -e . -C cmake.define.GQE_ENABLE_SUBSTRAIT_PRODUCER=ON
+```
+
+Then you can run the script:
+```
+python gqe/substrait_producer.py [dataset] [sql_queries] [output]
+```
+
 
 # Analysis scripts
 
