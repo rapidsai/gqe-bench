@@ -568,7 +568,10 @@ def _run_tpc(
         )
         try:
             catalog = Catalog()
-            table_definitions = catalog.register_tpch(**asdict(cat_ctx))
+            table_definitions = catalog.register_tpch(
+                **asdict(cat_ctx),
+                multiprocess_runtime_context=multiprocess_runtime_context,
+            )
         except Exception as error:
             print(f"Error registering table: {error}", is_root_rank)
             print(
@@ -611,7 +614,10 @@ def _run_tpc(
                 catalog = Catalog()
                 # Set up context with new query ID
                 cat_ctx.load_data_of_query = query_info_ctx.query_idx
-                table_definitions = catalog.register_tpch(**asdict(cat_ctx))
+                table_definitions = catalog.register_tpch(
+                    **asdict(cat_ctx),
+                    multiprocess_runtime_context=multiprocess_runtime_context,
+                )
             except Exception as error:
                 print(
                     f"Error registering in memory table for query {query_info_ctx.query_idx} {type(error).__name__}: {error}",

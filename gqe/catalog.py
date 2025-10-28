@@ -40,7 +40,7 @@ class Catalog:
         in_memory_table_compression_data_type="char",
         compression_chunk_size=2**16,
         zone_map_partition_size=100000,
-        multiprocess_task_manager_context: MultiProcessRuntimeContext = None,
+        multiprocess_runtime_context: MultiProcessRuntimeContext = None,
         debug_mem_usage: bool = False,
     ) -> TPCHTableDefinitions:
         """
@@ -64,7 +64,7 @@ class Catalog:
         :arg in_memory_table_compression_data_type: Determines how input data is viewed as for compression.
         :arg compression_chunk_size: Size of each chunk for nvcomp compression.
         :arg zone_map_partition_size: Number of rows per zone map partition.
-        :arg multiprocess_task_manager_context: Context reused for multiprocess tasks execution.
+        :arg multiprocess_runtime_context: Context reused for multiprocess tasks execution.
         """
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
         if storage_kind == "parquet_file":
@@ -97,7 +97,7 @@ class Catalog:
                     load_data_of_query, load_all_data_from
                 ),
                 storage_kind,
-                multiprocess_task_manager_context,
+                multiprocess_runtime_context,
                 debug_mem_usage,
             )
         else:
@@ -108,8 +108,8 @@ class Catalog:
         self,
         substrait_file: str,
         optimized: bool = True,
-        multiprocess_task_manager_context: MultiProcessRuntimeContext = None,
+        multiprocess_runtime_context: MultiProcessRuntimeContext = None,
     ) -> gqe.lib.Relation:
         return gqe.lib.load_substrait(
-            self._catalog, substrait_file, optimized, multiprocess_task_manager_context
+            self._catalog, substrait_file, optimized, multiprocess_runtime_context
         )
