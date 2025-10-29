@@ -538,6 +538,7 @@ def is_unrecoverable_error(e):
     messages = [
         "cudaErrorIllegalAddress",
         "cudaErrorInvalidAddressSpace",
+        "cudaErrorMisalignedAddress",
     ]
     for message in messages:
         if message in error:

@@ -35,6 +35,7 @@ from database_benchmarking_tools.utility import generate_db_path
 import argparse
 import importlib
 import os
+import re
 import sqlite3
 
 
@@ -73,7 +74,15 @@ def get_best_parameters_folder(df_folder: str):
         finally:
             conn.close()
 
-    return sorted(best_param_dict.values(), key=lambda x: int(x["e_name"].lstrip("Q")))
+    # Extract query number from names like "Q1", "Q16_opt", etc.
+    def extract_query_num(e_name):
+        # Remove "Q" prefix and extract digits only
+        match = re.search(r"Q(\d+)", e_name)
+        return int(match.group(1)) if match else 0
+
+    return sorted(
+        best_param_dict.values(), key=lambda x: extract_query_num(x["e_name"])
+    )
 
 
 def log_physical_plan(query_str: str, relation: lib.Relation, folder_path: str):
