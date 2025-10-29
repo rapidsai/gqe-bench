@@ -421,6 +421,11 @@ def fix_partial_filter_column_references(
         )
 
 
+def log_physical_plan(query_str: str, relation: lib.Relation, folder_path: str):
+    file_path = os.path.join(folder_path, query_str + "_plan.json")
+    lib.log_physical_plan(relation, file_path)
+
+
 def _get_tpc_query_info(
     query_info_ctx: QueryInfoContext,
     load_all_data: bool,
@@ -446,6 +451,11 @@ def _get_tpc_query_info(
             )
         if validator := get_query_validator(query_object):
             query.validator = validator
+
+        if query_info_ctx.physical_plan_folder:
+            root_relation.log_physical_plan(
+                f"Q{query_info_ctx.query_str}", query_info_ctx.physical_plan_folder
+            )
     elif query_info_ctx.query_source == "substrait":
         root_relation = catalog.load_substrait(
             query_info_ctx.substrait_file, True, multiprocess_runtime_context
@@ -453,10 +463,13 @@ def _get_tpc_query_info(
         query = QueryInfo(
             f"Q{query_info_ctx.query_str}", root_relation, query_info_ctx.reference_file
         )
-    if query_info_ctx.physical_plan_folder:
-        log_physical_plan(
-            f"Q{query_idx}", root_relation, query_info_ctx.physical_plan_folder
-        )
+
+        if query_info_ctx.physical_plan_folder:
+            log_physical_plan(
+                f"Q{query_info_ctx.query_str}",
+                root_relation,
+                query_info_ctx.physical_plan_folder,
+            )
 
     return query
 

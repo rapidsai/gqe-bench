@@ -37,6 +37,7 @@ import importlib
 import os
 import re
 import sqlite3
+import sys
 
 
 def get_best_parameters_file(sqlite_file: str):
@@ -83,11 +84,6 @@ def get_best_parameters_folder(df_folder: str):
     return sorted(
         best_param_dict.values(), key=lambda x: extract_query_num(x["e_name"])
     )
-
-
-def log_physical_plan(query_str: str, relation: lib.Relation, folder_path: str):
-    file_path = os.path.join(folder_path, query_str + "_plan.json")
-    lib.log_physical_plan(relation, file_path)
 
 
 def main():
