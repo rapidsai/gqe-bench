@@ -30,6 +30,7 @@ tpch_queries:
   script:
     - hostname
     - nvidia-smi
+    - export CCACHE_DIR=/ccache_files
     # The *_DEPLOY_* environment variables are set in the Variables sectionhere: https://gitlab-master.nvidia.com/haog/gqe-python/-/settings/ci_cd
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
