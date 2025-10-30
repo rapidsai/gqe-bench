@@ -34,6 +34,7 @@
 #include <gqe/expression/scalar_function.hpp>
 #include <gqe/logical/from_substrait.hpp>
 #include <gqe/memory_resource/boost_shared_memory_resource.hpp>
+#include <gqe/memory_resource/memory_utilities.hpp>
 #include <gqe/optimizer/logical_optimization.hpp>
 #include <gqe/optimizer/physical_transformation.hpp>
 #include <gqe/physical/aggregate.hpp>
@@ -504,15 +505,8 @@ struct context {
         std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(_mr));
     } else {
-      using upstream_mr_type       = rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>;
-      using mr_type                = rmm::mr::pool_memory_resource<upstream_mr_type>;
-      static auto upstream_cuda_mr = rmm::mr::cuda_memory_resource();
-      static auto pool_size        = gqe::utility::default_device_memory_pool_size();
-      static auto upstream_mr =
-        std::make_shared<upstream_mr_type>(upstream_cuda_mr, pool_size, pool_size);
-      auto mr = std::make_unique<rmm::mr::owning_wrapper<mr_type, upstream_mr_type>>(
-        upstream_mr, pool_size, pool_size);
-      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(mr));
+      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(
+        gqe::memory_resource::create_static_memory_pool());
     }
 
     gqe::optimization_parameters parameters(false);

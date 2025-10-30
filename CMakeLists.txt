@@ -53,7 +53,7 @@ else()
     set(GQE_GIT_REPOSITORY "ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git")
   endif()
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "5fe498a66069e38ab77b7e2f903ea61e867b7c13")
+    set(GQE_GIT_TAG "1ca630e850b724921acea0f9701bea0136a53edd")
   endif()
 
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")
