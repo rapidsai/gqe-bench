@@ -169,7 +169,7 @@ def parse_bool(value: str) -> bool:
 
 
 def parse_scale_factor(path: str) -> float:
-    predicate = re.compile(".*(?:sf|SF)([0-9.]+)([kK]?).*")
+    predicate = re.compile(r".*(?:sf|SF)[-_]?([0-9.]+)([kK]?).*")
     matches = predicate.match(path)
 
     if matches is None:
