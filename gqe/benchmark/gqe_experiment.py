@@ -14,6 +14,7 @@ from database_benchmarking_tools.experiment import (
     ExperimentConnection,
     ParametersId,
     SutInfoId,
+    RunId,
 )
 from database_benchmarking_tools import sql_generator
 
@@ -50,6 +51,27 @@ class GqeDataInfoExt:
     data_info_id: DataInfoId | None = None  # Don't set manually
 
 
+type MetricInfoId = int
+type GqeRunExtId = int
+
+
+@dataclass
+class GqeMetricInfo:
+    _table_name = "gqe_metric_info"
+    _table_prefix = "m_"
+    name: str
+
+
+@dataclass
+class GqeRunExt:
+    _table_name = "gqe_run_ext"
+    _table_prefix = "re_"
+    metric_value: float
+
+    run_id: RunId | None = None  # Don't set manually
+    metric_info_id: MetricInfoId | None = None  # Don't set manually
+
+
 class GqeExperimentConnection(ExperimentConnection):
     def __init__(self, db_path, hostname):
         super().__init__(db_path, hostname)
@@ -59,5 +81,13 @@ class GqeExperimentConnection(ExperimentConnection):
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_gqe_data_info_ext(self, entry: GqeDataInfoExt) -> DataInfoId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_metric_info(self, entry: GqeMetricInfo) -> MetricInfoId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gqe_run_ext(self, entry: GqeRunExt) -> GqeRunExtId:
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)

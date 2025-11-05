@@ -75,6 +75,29 @@ CREATE VIEW gqe_data_info AS
          JOIN gqe_data_info_ext ON d_id = de_data_info_id
                 ;
 
+-- GQE metric information.
+--
+-- A dimension table for describing profiler metrics, typically obtained from
+-- CUPTI.
+CREATE TABLE gqe_metric_info (
+  m_id INTEGER PRIMARY KEY,
+  m_name TEXT NOT NULL,
+  UNIQUE (m_name)
+);
+
+-- GQE extended run.
+--
+-- A fact table that extends `run` with profiler metrics, typically obtained
+-- from CUPTI.
+CREATE TABLE gqe_run_ext(
+  re_id INTEGER PRIMARY KEY,
+  re_run_id INTEGER NOT NULL,
+  re_metric_info_id INTEGER NOT NULL,
+  re_metric_value REAL NOT NULL,
+  FOREIGN KEY (re_run_id) REFERENCES run(r_id),
+  FOREIGN KEY (re_metric_info_id) REFERENCES gqe_metric_info(m_id)
+);
+
 -- A short description of a GQE run.
 --
 -- A virtual view that joins runs with their experiment description and

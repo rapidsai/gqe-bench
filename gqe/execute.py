@@ -39,7 +39,19 @@ class Context:
         filter_use_like_shift_and: bool = False,
         aggregation_use_perfect_hash: bool = False,
         debug_mem_usage=False,
+        cupti_metrics: list[str] | None = None,
     ):
+        """
+        Create a new context.
+
+        See the GQE documentation for a description of standard parameters.
+
+        Additional parameters are:
+
+        :param debug_mem_usage=False,
+        :param cupti_metrics: The CUPTI range metrics to profile. If this argument is `None`, the profiler is completely disabled.
+        """
+
         self._context = gqe.lib.Context(
             max_num_workers,
             max_num_partitions,
@@ -58,6 +70,7 @@ class Context:
             use_partition_pruning,
             filter_use_like_shift_and,
             aggregation_use_perfect_hash,
+            cupti_metrics,
         )
 
     def execute(
@@ -65,7 +78,7 @@ class Context:
         catalog: Catalog,
         relation: Relation | gqe.lib.Relation,
         output_path: str | None,
-    ) -> float:
+    ) -> tuple[float, dict]:
         """
         Execute the query plan.
 
@@ -76,7 +89,7 @@ class Context:
             that the behavior is undefined if `output_path` is valid but `relation` does not produce
             an output.
 
-        :return: The execution time in ms.
+        :return: A tuple containing the execution time in seconds and a dictionary of the specified CUPTI metrics.
         """
         if isinstance(relation, Relation):
             relation = relation._to_cpp()
@@ -143,7 +156,7 @@ class MultiProcessContext:
         catalog: Catalog,
         relation: Relation | gqe.lib.Relation,
         output_path: str | None,
-    ) -> float:
+    ) -> tuple[float, dict]:
         """
         Execute the query plan.
 
@@ -154,7 +167,7 @@ class MultiProcessContext:
             that the behavior is undefined if `output_path` is valid but `relation` does not produce
             an output.
 
-        :return: The execution time in ms.
+        :return: A tuple containing the execution time in seconds and a dictionary of the specified CUPTI metrics.
         """
         if isinstance(relation, Relation):
             relation = relation._to_cpp()

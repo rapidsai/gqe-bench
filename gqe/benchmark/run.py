@@ -12,7 +12,12 @@ from gqe import Catalog, Context, MultiProcessContext
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
-from gqe.benchmark.gqe_experiment import GqeParameters, GqeDataInfoExt
+from gqe.benchmark.gqe_experiment import (
+    GqeParameters,
+    GqeDataInfoExt,
+    GqeMetricInfo,
+    GqeRunExt,
+)
 from gqe.relation import (
     Relation,
     ReadRelation,
@@ -486,6 +491,7 @@ def run_tpc(
     parameters: list[QueryExecutionContext],
     edb_file: str,
     edb_info: EdbInfo,
+    cupti_metrics: list[str] | None,
     errors: list,
     invalid_results: list,
     repeat: int,
@@ -510,6 +516,7 @@ def run_tpc(
                 parameters,
                 edb,
                 edb_info,
+                cupti_metrics,
                 errors,
                 invalid_results,
                 repeat,
@@ -528,6 +535,7 @@ def run_tpc(
             parameters,
             None,
             edb_info,
+            None,
             errors,
             invalid_results,
             repeat,
@@ -566,6 +574,7 @@ def _run_tpc(
     parameters: list[QueryExecutionContext],
     edb: exp.ExperimentDB,
     edb_info: EdbInfo,
+    cupti_metrics: list[str] | None,
     errors: list,
     invalid_results: list,
     repeat: int,
@@ -710,7 +719,11 @@ def _run_tpc(
                     lib.scheduler_type.ROUND_ROBIN,
                 )
             else:
-                context = Context(*context_params, debug_mem_usage=debug_mem_usage)
+                context = Context(
+                    *context_params,
+                    debug_mem_usage=debug_mem_usage,
+                    cupti_metrics=cupti_metrics,
+                )
         except Exception as error:
             print("Error constructing query context")
             print(f"{type(error).__name__}: {error}")
@@ -754,7 +767,7 @@ def _run_tpc(
                         f"Starting query {query.identifier} repetition {count}...",
                         is_root_rank and not quiet,
                     )
-                    elapsed_time = context.execute(
+                    duration_s, metric_values = context.execute(
                         catalog, query.root_relation, out_file
                     )
                 except Exception as error:
@@ -786,13 +799,26 @@ def _run_tpc(
             # helps order the print messages w/o having to resort to more complicated syncronization.
             pipe_send(pipe, True)
             if is_root_rank:
-                edb.insert_run(
+                run_id = edb.insert_run(
                     exp.Run(
                         experiment_id=experiment_id,
                         number=count,
                         nvtx_marker=None,
-                        duration_s=elapsed_time / 1000,
+                        duration_s=duration_s,
                     )
                 )
+
+                if cupti_metrics:
+                    for metric in cupti_metrics:
+                        metric_id = edb.insert_metric_info(GqeMetricInfo(name=metric))
+
+                        edb.insert_gqe_run_ext(
+                            GqeRunExt(
+                                run_id=run_id,
+                                metric_info_id=metric_id,
+                                metric_value=metric_values[metric],
+                            )
+                        )
+
         del context
         gc.collect()

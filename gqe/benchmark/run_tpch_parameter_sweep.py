@@ -202,6 +202,16 @@ def main():
         type=int,
         choices=[0, 1],
     )
+    # CUPTI support hasn't been added for multi-process yet. Mark these options as mutually exclusive.
+    metrics_group = arg_parser.add_mutually_exclusive_group()
+    metrics_group.add_argument(
+        "--metrics",
+        help='Profile CUPTI range metrics. Examples: "pcie__read_bytes.sum", "pcie__write_bytes.sum"',
+        nargs="+",
+        action="extend",
+        type=str,
+        default=None,
+    )
     arg_parser.add_argument(
         "--partition-pruning",
         "-spp",
@@ -227,7 +237,7 @@ def main():
         nargs="+",
         default=["numa_pinned_memory"],
     )
-    arg_parser.add_argument(
+    metrics_group.add_argument(
         "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
     )
     arg_parser.add_argument(
@@ -563,6 +573,7 @@ def main():
                     parameters,
                     edb_file,
                     edb_info,
+                    args.metrics,
                     all_errors,
                     all_invalid_results,
                     args.repeat,
@@ -600,6 +611,7 @@ def main():
                                 parameter_queue,
                                 edb_file,
                                 edb_info,
+                                args.metrics,
                                 errors,
                                 invalid_results,
                                 args.repeat,

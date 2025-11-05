@@ -10,6 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
+#include <pybind11/pytypes.h>
 #include <tpch/q10/fused_probes_task.hpp>
 #include <tpch/q10/sort_limit_task.hpp>
 #include <tpch/q10/unique_key_inner_join_task.hpp>
@@ -52,6 +53,7 @@
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
+#include <gqe/utility/cupti.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
@@ -482,23 +484,24 @@ nvcompType_t parse_compression_data_type(std::string compression_data_type)
 }
 
 struct context {
-  context(int32_t max_num_workers                           = 1,
-          int32_t max_num_partitions                        = 8,
-          std::string in_memory_table_compression_format    = "none",
-          std::string in_memory_table_compression_data_type = "char",
-          int32_t compression_chunk_size                    = 65536,
-          size_t zone_map_partition_size                    = 100000,
-          bool debug_mem_usage                              = false,
-          bool use_opt_type_for_single_char_col             = true,
-          bool use_overlap_mtx                              = true,
-          bool join_use_hash_map_cache                      = false,
-          bool read_use_zero_copy                           = false,
-          bool join_use_unique_keys                         = true,
-          bool join_use_perfect_hash                        = true,
-          bool join_use_mark_join                           = false,
-          bool use_partition_pruning                        = false,
-          bool filter_use_like_shift_and                    = false,
-          bool aggregation_use_perfect_hash                 = true)
+  context(int32_t max_num_workers                               = 1,
+          int32_t max_num_partitions                            = 8,
+          std::string in_memory_table_compression_format        = "none",
+          std::string in_memory_table_compression_data_type     = "char",
+          int32_t compression_chunk_size                        = 65536,
+          size_t zone_map_partition_size                        = 100000,
+          bool debug_mem_usage                                  = false,
+          bool use_opt_type_for_single_char_col                 = true,
+          bool use_overlap_mtx                                  = true,
+          bool join_use_hash_map_cache                          = false,
+          bool read_use_zero_copy                               = false,
+          bool join_use_unique_keys                             = true,
+          bool join_use_perfect_hash                            = true,
+          bool join_use_mark_join                               = false,
+          bool use_partition_pruning                            = false,
+          bool filter_use_like_shift_and                        = false,
+          bool aggregation_use_perfect_hash                     = true,
+          std::optional<std::vector<std::string>> cupti_metrics = std::nullopt)
   {
     if (debug_mem_usage) {
       auto _mr =
@@ -531,23 +534,47 @@ struct context {
     parameters.compression_chunk_size = compression_chunk_size;
 
     _query_ctx = std::make_unique<gqe::query_context>(parameters);
+
+    // Configure the CUPTI profiler.
+    if (cupti_metrics) {
+      gqe::utility::user_range_profiler::configuration profiler_config;
+      profiler_config.metrics = *cupti_metrics;
+      _profiler = std::make_unique<gqe::utility::user_range_profiler>(std::move(profiler_config));
+    }
   }
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
-  // Return execution time in ms.
-  float execute(gqe::catalog* catalog,
-                std::shared_ptr<gqe::physical::relation> relation,
-                std::optional<std::string> output_path = std::nullopt)
+  // Return execution time in s.
+  py::tuple execute(gqe::catalog* catalog,
+                    std::shared_ptr<gqe::physical::relation> relation,
+                    std::optional<std::string> output_path = std::nullopt)
   {
     gqe::task_graph_builder graph_builder(
       gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
     auto task_graph = graph_builder.build(relation.get());
 
+    // Initialize profile result outside of measurement range.
+    py::dict profile;
+
+    // Start profiling.
+    if (_profiler) { _profiler->start(); }
+
+    // Start timing.
     auto start_time = std::chrono::high_resolution_clock::now();
     execute_task_graph_single_gpu(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()},
                                   task_graph.get());
+    // Stop timing.
     auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float, std::milli> elapsed_time_ms = end_time - start_time;
+
+    // Stop profiling.
+    if (_profiler) {
+      auto cupti_profile = _profiler->stop();
+
+      // Convert profile from C++ map to Python dict.
+      for (auto& metric_value : cupti_profile.metric_values) {
+        profile[metric_value.first.c_str()] = metric_value.second;
+      }
+    }
 
     // Output the result to disk
     if (output_path) {
@@ -557,11 +584,15 @@ struct context {
       cudf::io::write_parquet(options);
     }
 
-    return elapsed_time_ms.count();
+    std::chrono::duration<double> elapsed_time_s = end_time - start_time;
+    py::tuple performance                        = py::make_tuple(elapsed_time_s.count(), profile);
+
+    return performance;
   }
 
   std::unique_ptr<gqe::query_context> _query_ctx;
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
+  std::unique_ptr<gqe::utility::user_range_profiler> _profiler;
 };
 
 // FIXME: multiprocess context duplicates a lot of code from context class.
@@ -616,9 +647,9 @@ struct multi_process_context {
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
   // Return execution time in ms.
-  float execute(gqe::catalog* catalog,
-                std::shared_ptr<gqe::physical::relation> relation,
-                std::optional<std::string> output_path = std::nullopt)
+  py::tuple execute(gqe::catalog* catalog,
+                    std::shared_ptr<gqe::physical::relation> relation,
+                    std::optional<std::string> output_path = std::nullopt)
   {
     gqe::task_graph_builder graph_builder(
       gqe::context_reference{_task_manager_ctx, _query_ctx.get()}, catalog);
@@ -631,7 +662,6 @@ struct multi_process_context {
     execute_task_graph_multi_process(gqe::context_reference{_task_manager_ctx, _query_ctx.get()},
                                      task_graph.get());
     auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float, std::milli> elapsed_time_ms = end_time - start_time;
 
     // Output the result to disk
     if (output_path && _task_manager_ctx->comm->rank() == 0) {
@@ -644,7 +674,10 @@ struct multi_process_context {
     // Wait for result to be written to disk
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
 
-    return elapsed_time_ms.count();
+    std::chrono::duration<double> elapsed_time_s = end_time - start_time;
+    py::tuple performance = py::make_tuple(elapsed_time_s.count(), py::none());
+
+    return performance;
   }
 
   std::unique_ptr<gqe::query_context> _query_ctx;
@@ -1053,23 +1086,24 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("date_from_days", &lib::date_from_days);
 
   py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t,      // max_num_workers
-                  int32_t,      // max_num_partitions
-                  std::string,  // in_memory_table_compression_format
-                  std::string,  // in_memory_table_compression_data_type
-                  int32_t,      // compression_chunk_size
-                  size_t,       // zone_map_partition_size
-                  bool,         // debug_mem_usage
-                  bool,         // use_opt_type_for_single_char_col
-                  bool,         // use_overlap_mtx
-                  bool,         // join_use_hash_map_cache
-                  bool,         // read_use_zero_copy
-                  bool,         // join_use_unique_keys
-                  bool,         // join_use_perfect_hash
-                  bool,         // join_use_mark_join
-                  bool,         // use_partition_pruning
-                  bool,         // filter_use_like_shift_and
-                  bool          // aggregation_use_perfect_hash
+    .def(py::init<int32_t,                                 // max_num_workers
+                  int32_t,                                 // max_num_partitions
+                  std::string,                             // in_memory_table_compression_format
+                  std::string,                             // in_memory_table_compression_data_type
+                  int32_t,                                 // compression_chunk_size
+                  size_t,                                  // zone_map_partition_size
+                  bool,                                    // debug_mem_usage
+                  bool,                                    // use_opt_type_for_single_char_col
+                  bool,                                    // use_overlap_mtx
+                  bool,                                    // join_use_hash_map_cache
+                  bool,                                    // read_use_zero_copy
+                  bool,                                    // join_use_unique_keys
+                  bool,                                    // join_use_perfect_hash
+                  bool,                                    // join_use_mark_join
+                  bool,                                    // use_partition_pruning
+                  bool,                                    // filter_use_like_shift_and
+                  bool,                                    // aggregation_use_perfect_hash
+                  std::optional<std::vector<std::string>>  // cupti_metrics
                   >())
     .def("execute", &lib::context::execute);
 
