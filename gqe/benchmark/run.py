@@ -711,6 +711,7 @@ def _run_tpc(
             parameter.aggregation_use_perfect_hash,
         )
         print_mp("Building query execution context...", is_root_rank and not quiet)
+        context = None  # To make sure that the old one is destroyed before the new one is created.
         try:
             if is_mp:
                 context = MultiProcessContext(
@@ -819,6 +820,3 @@ def _run_tpc(
                                 metric_value=metric_values[metric],
                             )
                         )
-
-        del context
-        gc.collect()
