@@ -13,6 +13,9 @@
 import argparse
 import csv
 from enum import Enum
+from functools import reduce
+from itertools import groupby
+from operator import itemgetter
 import sqlite3
 
 
@@ -63,6 +66,7 @@ pid_from_global_tid = lambda global_tid_str: f"{global_tid_str} / 0x1000000 % 0x
 
 GQE_DOMAIN_NAME = "GQE"
 GQE_IN_MEMORY_READ_TASK_NVTX_RANGE = "in_memory_read_task"
+GQE_STAGE_GLOB = "Stage *"
 
 
 def merge_ranges(ranges: list) -> list:
@@ -134,40 +138,74 @@ def kernel_time_effective(connection, nvtx_range_glob, args):
         # GROUP_CONCAT in the below expression with output values in kernel0_start,kernel0_end;kernel1_start,kernel1_end;... format.
         # We then use the output string to get individual kernel timings restricted to a query run.
         query = f"""
+        WITH NVTX_FILT_EVENTS AS (
+            SELECT nvtx.start, nvtx.end, nvtx.text, nvtx_string.value AS string_value
+            FROM NVTX_EVENTS nvtx
+            LEFT JOIN StringIds nvtx_string ON nvtx_string.id = nvtx.textId
+            WHERE 
+                (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
+                OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
+                )  -- push-pop and start-end ranges
+                AND {pid_from_global_tid("nvtx.globalTid")} = {pid}
+        )
         SELECT
-        nvtx_string.value,
+        nvtx.start,
+        nvtx.string_value,
+        nvtx_stage.text,
         GROUP_CONCAT(
             ROUND(kernel.start / 1000000.0, 3) || "," || ROUND(kernel.end / 1000000.0, 3),
             ";"
         ) AS kernel_ranges
-        
-        FROM NVTX_EVENTS nvtx
-        JOIN StringIds AS nvtx_string
-            ON nvtx_string.id = nvtx.textId -- get nvtx domain names
+        FROM NVTX_FILT_EVENTS nvtx
+        JOIN NVTX_FILT_EVENTS nvtx_stage
+            ON (nvtx_stage.start >= nvtx.start
+                AND nvtx_stage.end <= nvtx.end) -- get stages within nvtx range
         JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
-            ON (runtime_activity.end <= nvtx.end
-                AND runtime_activity.start >= nvtx.start
-                AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
+            ON (runtime_activity.end <= nvtx_stage.end
+                AND runtime_activity.start >= nvtx_stage.start) -- get runtime call within nvtx range
         JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel
-            ON (kernel.correlationId = runtime_activity.correlationId
-            AND {pid_from_global_tid("kernel.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get kernels
+            ON (kernel.correlationId = runtime_activity.correlationId) -- get kernels
         JOIN StringIds kernel_string
             ON (kernel.demangledName = kernel_string.id) -- get kernel names
         WHERE 
-            (nvtx.eventType = 59 OR nvtx.eventType = 60) -- push-pop and start-end ranges
-            AND nvtx_string.value GLOB "{nvtx_range_glob}" 
-            AND {pid_from_global_tid("nvtx.globalTid")} = {pid}
+            nvtx.string_value GLOB "{nvtx_range_glob}"
+            AND nvtx_stage.text GLOB "{GQE_STAGE_GLOB}"
+            AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid}
+            AND {pid_from_global_tid("kernel.globalPid")} = {pid}
             {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'" 
                 if args.exclude_kernel_glob 
                 else ""
             }
         GROUP BY 
-            nvtx_string.value, nvtx.start, nvtx.end
+            nvtx.string_value, nvtx.start, nvtx.end, nvtx_stage.text
         ORDER BY 
-            nvtx.start
+            nvtx.start, nvtx_stage.text
         """
+
         rows = list(connection.execute(query))
-        kernel_ranges[pid] = rows
+        grouped_rows = []
+        # group by the NVTX start to identify distinct runs
+        for _, run in groupby(rows, key=itemgetter(0)):
+            stages = []
+            for stage in run:
+                stages.append(
+                    {
+                        "nvtx_domain": stage[1],
+                        "nvtx_stage": stage[2],
+                        "kernel_time_effective": reduce(
+                            lambda acc, range: range[1] - range[0] + acc,
+                            merge_ranges(
+                                [
+                                    tuple(map(float, range.split(",")))
+                                    for range in stage[3].split(";")
+                                ]
+                            ),
+                            0,
+                        ),
+                    }
+                )
+            grouped_rows.append(stages)
+        kernel_ranges[pid] = grouped_rows
 
     # We assume that all processes participate in all runs
     # TODO: To relax this assumption, we need to have unique identifiers for each run
@@ -176,31 +214,37 @@ def kernel_time_effective(connection, nvtx_range_glob, args):
 
     merged_rows = []
     for run in range(num_runs):
-        combined_ranges = []
-        nvtx_domain = kernel_ranges[process_ids[0]][run][
-            0
-        ]  # NVTX domain of the first process for a given run
-        for pid in process_ids:
-            process_nvtx_domain, process_kernel_ranges = kernel_ranges[pid][run]
-            if process_nvtx_domain != nvtx_domain:
-                raise ValueError(
-                    f"NVTX domain mismatch for run {run} and process {pid}"
+        num_stages = len(kernel_ranges[process_ids[0]][run])
+
+        if num_stages == 0:
+            print("No stages in the run, skipping...")
+            continue
+        nvtx_domain = kernel_ranges[process_ids[0]][run][0]["nvtx_domain"]
+        curr_run = {
+            "nvtx_domain": nvtx_domain,
+            "kernel_time_effective_ms": 0,
+            "per_stage_kernel_time_ms": [],
+        }
+        for stage in range(num_stages):
+            stage_kernel_time = 0
+            for pid in process_ids:
+                curr_stage = kernel_ranges[pid][run][stage]
+                if curr_stage["nvtx_domain"] != nvtx_domain:
+                    raise ValueError(
+                        f"NVTX domain mismatch for run {run} and process {pid}"
+                    )
+                if len(kernel_ranges[pid][run]) != num_stages:
+                    raise ValueError(
+                        f"Each processes must execute the same number of stages"
+                    )
+                stage_kernel_time = max(
+                    stage_kernel_time, curr_stage["kernel_time_effective"]
                 )
-            combined_ranges.extend(
-                [
-                    tuple(map(float, range.split(",")))
-                    for range in process_kernel_ranges.split(";")
-                ]
+            curr_run["kernel_time_effective_ms"] += stage_kernel_time
+            curr_run["per_stage_kernel_time_ms"].append(
+                {f"{kernel_ranges[pid][run][stage]["nvtx_stage"]}": stage_kernel_time}
             )
-        merged_ranges = merge_ranges(combined_ranges)
-        merged_rows.append(
-            {
-                "nvtx_domain": nvtx_domain,
-                "kernel_time_effective_ms": sum(
-                    range[1] - range[0] for range in merged_ranges
-                ),
-            }
-        )
+        merged_rows.append(curr_run)
     return merged_rows
 
 
