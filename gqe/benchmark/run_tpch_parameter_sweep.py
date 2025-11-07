@@ -542,6 +542,21 @@ def main():
                             )
                             continue
 
+                        # Skip parameter configuration where scale factor is so large that small partition/row group counts run into cuDF type limitations
+                        # FIXME: Temp fix until partition redesign is complete: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/221
+                        # Q11 and Q20 do not exhibit this issue and perform better with fewer partitions, so they are exceptional in this condition
+                        if (
+                            scale_factor > 500
+                            and num_partitions < 4
+                            and query_idx != 20
+                            and query_idx != 11
+                        ):
+                            print_mp(
+                                f"Skipping num_partitions: {num_partitions}, num_row_groups: {num_row_groups}, scale_factor: {scale_factor} because configuration is likely to encounter cuDF concatenate error",
+                                is_root_rank and not args.quiet,
+                            )
+                            continue
+
                         parameters.append(
                             QueryExecutionContext(
                                 num_workers,
