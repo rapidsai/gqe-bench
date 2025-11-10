@@ -614,7 +614,7 @@ def _run_tpc(
                 f"load_all_data failed to load, discarding remaining {len(parameters)} experiments",
             )
             pipe_send(pipe, False)
-            errors.append(("load_all_data", error))
+            errors.append(("load_all_data", f"{error}"))
             parameters[:] = []
             return
         # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
@@ -660,7 +660,9 @@ def _run_tpc(
                 )
                 pipe_send(pipe, False)
                 # Query is not built yet without table definitions so just build the Q identifier here.
-                errors.append((f"Q{query_info_ctx.query_str} load_query_data", error))
+                errors.append(
+                    (f"Q{query_info_ctx.query_str} load_query_data", f"{error}")
+                )
                 # Since we failed to load this data set, purge the remaining matching queries.
                 parameters[:] = list(
                     filter(
@@ -728,7 +730,9 @@ def _run_tpc(
         except Exception as error:
             print("Error constructing query context")
             print(f"{type(error).__name__}: {error}")
-            errors.append((f"{query.identifier} construct_context", parameter, error))
+            errors.append(
+                (f"{query.identifier} construct_context", parameter, f"{error}")
+            )
             pipe_send(pipe, False)
             if is_unrecoverable_error(error):
                 break
@@ -775,7 +779,7 @@ def _run_tpc(
                     print("Error during query execution")
                     print(f"{type(error).__name__}: {error}")
                     errors.append(
-                        (f"{query.identifier} query execution", parameter, error)
+                        (f"{query.identifier} query execution", parameter, f"{error}")
                     )
                     pipe_send(pipe, False)
                     break
