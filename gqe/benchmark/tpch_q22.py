@@ -94,7 +94,7 @@ class tpch_q22(Query):
         # Find customers with no orders using left anti join
         orders = read("orders", ["o_custkey"], None, table_defs)
         customers_no_orders = high_balance_customers.broadcast_join(
-            orders, CR(0) == CR(3), [1, 2], "left_anti"
+            orders, CR(0) == CR(3), [1, 2], "left_anti", broadcast_left=True
         )
 
         # Group by country code and calculate aggregates
