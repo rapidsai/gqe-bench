@@ -139,7 +139,9 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
   std::vector<cudf::size_type> projection_indices,
   bool broadcast_left_side,
   gqe::unique_keys_policy unique_keys_pol = gqe::unique_keys_policy::none,
-  bool perfect_hashing                    = false)
+  bool perfect_hashing                    = false,
+  gqe::expression const* left_filter      = nullptr,
+  gqe::expression const* right_filter     = nullptr)
 {
   gqe::physical::broadcast_policy policy = gqe::physical::broadcast_policy::right;
   if (broadcast_left_side) policy = gqe::physical::broadcast_policy::left;
@@ -152,7 +154,9 @@ std::shared_ptr<gqe::physical::relation> broadcast_join(
     std::move(projection_indices),
     policy,
     unique_keys_pol,
-    perfect_hashing);
+    perfect_hashing,
+    left_filter ? left_filter->clone() : nullptr,
+    right_filter ? right_filter->clone() : nullptr);
 }
 
 std::shared_ptr<gqe::physical::relation> shuffle_join(

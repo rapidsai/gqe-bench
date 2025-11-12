@@ -62,6 +62,8 @@ class Relation(ABC):
         broadcast_left: bool = False,
         unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
         perfect_hashing: bool = False,
+        left_filter: Expression = None,
+        right_filter: Expression = None,
     ) -> Relation:
         """
         Join with another table by broadcasting
@@ -75,6 +77,11 @@ class Relation(ABC):
         :param type: Type of the join. Acceptable values are `"inner"`, `"left"`, `"left_semi"`,
             `"left_anti"` and `"full"`.
         :param broadcast_left: Whether to broadcast the left table.
+        :param unique_keys_policy: Policy to handle unique keys violations. Acceptable values are
+            `UniqueKeysPolicy.none`, `UniqueKeysPolicy.left`, `UniqueKeysPolicy.right`.
+        :param perfect_hashing: Whether to use perfect hashing for the join.
+        :param left_filter: An optional expression to filter rows from the left table before the join.
+        :param right_filter: An optional expression to filter rows from the right table before the join.
         """
         return BroadcastJoinRelation(
             self,
@@ -85,6 +92,8 @@ class Relation(ABC):
             broadcast_left,
             unique_keys_policy,
             perfect_hashing,
+            left_filter,
+            right_filter,
         )
 
     def shuffle_join(
@@ -295,6 +304,8 @@ class BroadcastJoinRelation(Relation):
         broadcast_left: bool = False,
         unique_keys_policy: gqe.lib.UniqueKeysPolicy = gqe.lib.UniqueKeysPolicy.none,
         perfect_hashing: bool = False,
+        left_filter: Expression = None,
+        right_filter: Expression = None,
     ):
         self.left_table = left_table
         self.right_table = right_table
@@ -303,6 +314,8 @@ class BroadcastJoinRelation(Relation):
         self.broadcast_left = broadcast_left
         self.unique_keys_policy = unique_keys_policy
         self.perfect_hashing = perfect_hashing
+        self.left_filter = left_filter
+        self.right_filter = right_filter
 
         if type not in _join_type_to_cpp:
             raise ValueError(f"Unknown join type: {type}")
@@ -319,6 +332,8 @@ class BroadcastJoinRelation(Relation):
             self.broadcast_left,
             self.unique_keys_policy,
             self.perfect_hashing,
+            self.left_filter._cpp if self.left_filter else None,
+            self.right_filter._cpp if self.right_filter else None,
         )
 
 
