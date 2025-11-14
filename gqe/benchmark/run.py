@@ -824,3 +824,7 @@ def _run_tpc(
                                 metric_value=metric_values[metric],
                             )
                         )
+
+        # This line explicitly destroys Context so that GPU memory is freed before
+        # catalog registration for the next iteration. See https://docs.python.org/3.14/library/gc.html
+        context = None
