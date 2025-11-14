@@ -638,10 +638,10 @@ def _run_tpc(
 
         # Reload dataset if new query and not load_all
         if not load_all_data and cat_ctx.load_data_of_query != query_info_ctx.query_idx:
-            # there is a potential race condition with the garbage collector on reassignment, so
-            # let's just explicitly delete and try to reclaim
-            del catalog
-            gc.collect()
+            # Python uses refcounting for object destruction. Objects are immediately destroyed when the reference count reaches 0.
+            # GC is only required when we have reference cycles which cant be cleaned up by refcounting.
+            # Reference: https://docs.python.org/2/library/gc.html
+            catalog = None
             print_mp(
                 f"Attempting to load TPCH Query {query_info_ctx.query_idx} data into memory",
                 is_root_rank,
