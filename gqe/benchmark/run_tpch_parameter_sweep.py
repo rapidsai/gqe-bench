@@ -38,6 +38,7 @@ from database_benchmarking_tools.utility import generate_db_path
 import argparse
 import importlib
 import itertools
+import functools
 
 # We rename this because of namespace clash with multiprocessing in GQE
 import multiprocessing as subprocessing
@@ -126,8 +127,39 @@ def get_queries(query_source: str, queries: list[str] = None):
     return handcoded_queries, substrait_queries
 
 
-def main():
+# Helper method used to specify arguments that can take multiple boolean values
+def add_boolean_list_argument(self, *args, **kwargs):
+    """Specify an argument which takes a combination of true/false"""
+    if "nargs" in kwargs or "type" in kwargs:
+        raise argparse.ArgumentError(
+            'Overwriting parameters "nargs" or "type" inside a boolean list argument definition'
+        )
+    if not "default" in kwargs:
+        kwargs["default"] = [False, True]
+    self.add_argument(*args, **kwargs, type=parse_bool, nargs="+")
+
+
+# Helper method used to specify arguments that can take multiple int values
+def add_int_list_argument(self, *args, **kwargs):
+    """Specify an argument which takes a list of int values"""
+    if "nargs" in kwargs or "type" in kwargs:
+        raise argparse.ArgumentError(
+            'Overwriting parameters "nargs" or "type" inside a int list argument definition'
+        )
+    self.add_argument(*args, **kwargs, type=int, nargs="+")
+
+
+def parse_args():
     arg_parser = argparse.ArgumentParser()
+
+    # Monkey patch arg_parser to simplify definition of int and boolean arguments
+    arg_parser.add_boolean_list_argument = functools.partial(
+        add_boolean_list_argument, arg_parser
+    )
+    arg_parser.add_int_list_argument = functools.partial(
+        add_int_list_argument, arg_parser
+    )
+
     arg_parser.add_argument("dataset", help="TPC-H dataset location")
     arg_parser.add_argument("plan", help="Substrait query plan location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
@@ -150,28 +182,22 @@ def main():
         action="extend",
         type=str,
     )
-    arg_parser.add_argument(
+    arg_parser.add_int_list_argument(
         "--row-groups",
         "-r",
         help="Number of row groups to use",
-        nargs="+",
         action="extend",
-        type=int,
     )
-    arg_parser.add_argument(
+    arg_parser.add_int_list_argument(
         "--partitions",
         "-p",
         help="Number of partitions to use",
-        nargs="+",
-        type=int,
         default=[1, 2, 4, 8],
     )
-    arg_parser.add_argument(
+    arg_parser.add_int_list_argument(
         "--workers",
         "-w",
         help="Number of workers to use",
-        nargs="+",
-        type=int,
         default=[1],
     )
     arg_parser.add_argument(
@@ -217,14 +243,6 @@ def main():
         action="extend",
         type=str,
         default=None,
-    )
-    arg_parser.add_argument(
-        "--partition-pruning",
-        "-spp",
-        help="Enable partition pruning optimization",
-        type=parse_bool,
-        nargs="*",
-        default=[False],
     )
     arg_parser.add_argument(
         "--storage-kind",
@@ -278,7 +296,49 @@ def main():
         type=parse_bool,
         default=True,
     )
-    args = arg_parser.parse_args()
+
+    # Arguments to enable/disable functionality
+    arg_parser.add_boolean_list_argument(
+        "--read-use-filter-pruning",
+        "--partition-pruning",
+        "-spp",
+        help="Enable filter pruning (requires clustered dataset)",
+        default=[False],
+    )
+    arg_parser.add_boolean_list_argument(
+        "--read-use-overlap-mtx",
+        "--use-overlap-mtx",
+        help="Enable overlap mutex for read task",
+    )
+    arg_parser.add_boolean_list_argument(
+        "--read-use-zero-copy", help="Enable zero-copy reads"
+    )
+    arg_parser.add_boolean_list_argument(
+        "--filter-use-like-shift-and", help="Enable shift/and for LIKE expressions"
+    )
+    arg_parser.add_boolean_list_argument(
+        "--join-use-hash-map-cache",
+        help="Cache the join build-side hash map for multiple partitions",
+    )
+    arg_parser.add_boolean_list_argument(
+        "--join-use-unique-keys", help="Enable unique key joins", default=[True]
+    )
+    arg_parser.add_boolean_list_argument(
+        "--join-use-perfect-hash", help="Enable perfect hashing for joins"
+    )
+    arg_parser.add_boolean_list_argument(
+        "--join-use-mark-join", help="Enable mark join"
+    )
+    arg_parser.add_boolean_list_argument(
+        "--aggregation-use-perfect-hash", help="Enable perfect hashing for aggregations"
+    )
+
+    return arg_parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    print(f"Arguments: {args}")
 
     if args.query_timeout < 0 or args.data_timeout < 0:
         print(f"Timeouts cannot be negative: {args.query_timeout}, {args.data_timeout}")
@@ -479,15 +539,15 @@ def main():
                     ) in itertools.product(
                         args.workers,
                         args.partitions,
-                        [False, True],
-                        [False, True],
-                        [False, True],
-                        [True],
-                        [False, True],
-                        [False, True],
-                        args.partition_pruning,
-                        [False, True],
-                        [False, True],
+                        args.read_use_overlap_mtx,
+                        args.join_use_hash_map_cache,
+                        args.read_use_zero_copy,
+                        args.join_use_unique_keys,
+                        args.join_use_perfect_hash,
+                        args.join_use_mark_join,
+                        args.read_use_filter_pruning,
+                        args.filter_use_like_shift_and,
+                        args.aggregation_use_perfect_hash,
                     ):
                         # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                         if read_use_zero_copy and (num_partitions != num_row_groups):
