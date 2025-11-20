@@ -22,6 +22,18 @@ You can also pass the path to a local GQE clone to the install command.
 pip install -e . -C cmake.define.GQE_SOURCE_DIR=<path_to_local_gqe>
 ```
 
+You can also use a custom gqe-nvcomp branch/tag to use
+
+```
+pip install -e . -C cmake.define.GQE_NVCOMP_TAG=<gqe-nvcomp commit/branch>
+```
+
+Or you could also point it to a local nvcomp directory (This takes precedence over the git tag)
+
+```
+pip install -e . -C cmake.define.GQE_NVCOMP_SOURCE_DIR=<path_to_nvcomp_folder>
+```
+
 ## Benchmarking
 
 Used for benchmarking TPC-H queries using GQE.
