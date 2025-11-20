@@ -684,16 +684,6 @@ def _run_tpc(
         # if we make it here, communicate we succeeded data load and/or didn't need to load data
         pipe_send(pipe, True)
 
-        # need to load query info regardless of which catalog path we take
-        query = _get_tpc_query_info(
-            query_info_ctx,
-            load_all_data,
-            cat_ctx.storage_kind,
-            table_definitions,
-            catalog,
-            multiprocess_runtime_context,
-        )
-
         context_params = (
             parameter.num_workers,
             parameter.num_partitions,
@@ -715,6 +705,15 @@ def _run_tpc(
         print_mp("Building query execution context...", is_root_rank and not quiet)
         context = None  # To make sure that the old one is destroyed before the new one is created.
         try:
+            # Build QueryInfo in try to catch file not found or permissions exception with substrait file
+            query = _get_tpc_query_info(
+                query_info_ctx,
+                load_all_data,
+                cat_ctx.storage_kind,
+                table_definitions,
+                catalog,
+                multiprocess_runtime_context,
+            )
             if is_mp:
                 context = MultiProcessContext(
                     multiprocess_runtime_context,
@@ -731,7 +730,11 @@ def _run_tpc(
             print("Error constructing query context")
             print(f"{type(error).__name__}: {error}")
             errors.append(
-                (f"{query.identifier} construct_context", parameter, f"{error}")
+                (
+                    f"Q{query_info_ctx.query_str} construct_context",
+                    parameter,
+                    f"{error}",
+                )
             )
             pipe_send(pipe, False)
             if is_unrecoverable_error(error):
