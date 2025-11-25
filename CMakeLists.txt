@@ -31,7 +31,7 @@ project(gqe-python LANGUAGES CXX CUDA)
 include(cmake/CPM.cmake)
 
 # CMake variable for gqe-nvcomp tag
-set(GQE_NVCOMP_TAG "069ebf2144f4efde8fee0c6b20b87a4a5f7f69ab" CACHE STRING "Git tag for gqe-nvcomp")
+set(GQE_NVCOMP_TAG "aab6b669b6e5fe1a370aa5c87c2dfdf0dbe82c69" CACHE STRING "Git tag for gqe-nvcomp")
 set(GQE_NVCOMP_SOURCE_DIR "" CACHE PATH "Local source directory for gqe-nvcomp (overrides GIT_TAG if set)")
 
 # needed for clang-tidy
@@ -60,7 +60,7 @@ else()
     set(GQE_GIT_REPOSITORY "ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git")
   endif()
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "30580c32656f5f6625abbc71e3538558dd5cc0a0")
+    set(GQE_GIT_TAG "4a0a7ce72b9286b8e86b29dd51010bb99a2f063c")
   endif()
 
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")
