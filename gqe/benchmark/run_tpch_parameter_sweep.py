@@ -29,6 +29,14 @@ from gqe.benchmark.run import (
     print_mp,
     boost_shared_memory_pool_size,
 )
+from gqe.param_sweep_config import (
+    load_json_config,
+    config_to_args,
+    check_cli_overrides,
+    get_query_execution_params,
+    BENCHMARK_CONFIG_DEFAULTS,
+    QUERY_CONFIG_DEFAULTS,
+)
 from gqe import lib
 
 
@@ -39,6 +47,7 @@ import argparse
 import importlib
 import itertools
 import functools
+import json
 
 # We rename this because of namespace clash with multiprocessing in GQE
 import multiprocessing as subprocessing
@@ -134,8 +143,6 @@ def add_boolean_list_argument(self, *args, **kwargs):
         raise argparse.ArgumentError(
             'Overwriting parameters "nargs" or "type" inside a boolean list argument definition'
         )
-    if not "default" in kwargs:
-        kwargs["default"] = [False, True]
     self.add_argument(*args, **kwargs, type=parse_bool, nargs="+")
 
 
@@ -160,9 +167,21 @@ def parse_args():
         add_int_list_argument, arg_parser
     )
 
-    arg_parser.add_argument("dataset", help="TPC-H dataset location")
-    arg_parser.add_argument("plan", help="Substrait query plan location")
-    arg_parser.add_argument("solution", help="Reference results location with pattern")
+    # JSON config file (when provided, other args are ignored)
+    arg_parser.add_argument(
+        "--json",
+        "-j",
+        help="Path to JSON configuration file. When provided, all other CLI arguments are ignored.",
+        type=str,
+        default=None,
+    )
+
+    # Positional arguments are optional when using --json
+    arg_parser.add_argument("dataset", nargs="?", help="TPC-H dataset location")
+    arg_parser.add_argument("plan", nargs="?", help="Substrait query plan location")
+    arg_parser.add_argument(
+        "solution", nargs="?", help="Reference results location with pattern"
+    )
     arg_parser.add_argument("--output", "-o", help="Output file path")
     arg_parser.add_argument("--quiet", help="Quiet mode", action="store_true")
     arg_parser.add_argument(
@@ -192,19 +211,19 @@ def parse_args():
         "--partitions",
         "-p",
         help="Number of partitions to use",
-        default=[1, 2, 4, 8],
+        default=QUERY_CONFIG_DEFAULTS["partitions"],
     )
     arg_parser.add_int_list_argument(
         "--workers",
         "-w",
         help="Number of workers to use",
-        default=[1],
+        default=QUERY_CONFIG_DEFAULTS["workers"],
     )
     arg_parser.add_argument(
         "--query-source",
         help="Query source",
         choices=["handcoded", "substrait", "both"],
-        default="both",
+        default=BENCHMARK_CONFIG_DEFAULTS["query_source"],
     )
     arg_parser.add_argument(
         "--compression-format",
@@ -225,7 +244,7 @@ def parse_args():
             "best_decompression_speed",
         ],
         nargs="+",
-        default=["none"],
+        default=BENCHMARK_CONFIG_DEFAULTS["compression_format"],
     )
     arg_parser.add_argument(
         "--load-all-data",
@@ -259,27 +278,31 @@ def parse_args():
             "parquet_file",
         ],
         nargs="+",
-        default=["numa_pinned_memory"],
+        default=BENCHMARK_CONFIG_DEFAULTS["storage_kind"],
     )
     metrics_group.add_argument(
         "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
     )
     arg_parser.add_argument(
-        "--repeat", "-rep", help="How many times to run each query", type=int, default=6
+        "--repeat",
+        "-rep",
+        help="How many times to run each query",
+        type=int,
+        default=BENCHMARK_CONFIG_DEFAULTS["repeat"],
     )
     arg_parser.add_argument(
         "--query-timeout",
         "-qt",
         help="Timeout in (s) for queries in subprocesses. Used to kill suspected hanging jobs after timeout exceeded. Ignored if -sb is not set. Ignored if -m is set. Default: 30m",
         type=int,
-        default=1800,
+        default=BENCHMARK_CONFIG_DEFAULTS["query_timeout"],
     )
     arg_parser.add_argument(
         "--data-timeout",
         "-dt",
         help="Timeout in (s) for data load subprocesses. Used to kill suspected hanging jobs after timeout exceeded. Ignored if -sb is not set. Ignored if -m is set. Default: 3hr",
         type=int,
-        default=10800,
+        default=BENCHMARK_CONFIG_DEFAULTS["data_timeout"],
     )
     arg_parser.add_argument(
         "--boost_pool_size", help="Boost pool size in GBs", type=int, default=None
@@ -294,7 +317,7 @@ def parse_args():
         "--verify-results",
         help="Verify results before writing the timing entries to the database. Defaults to True.",
         type=parse_bool,
-        default=True,
+        default=BENCHMARK_CONFIG_DEFAULTS["verify_results"],
     )
 
     # Arguments to enable/disable functionality
@@ -303,34 +326,48 @@ def parse_args():
         "--partition-pruning",
         "-spp",
         help="Enable filter pruning (requires clustered dataset)",
-        default=[False],
+        default=QUERY_CONFIG_DEFAULTS["read_use_filter_pruning"],
     )
     arg_parser.add_boolean_list_argument(
         "--read-use-overlap-mtx",
         "--use-overlap-mtx",
         help="Enable overlap mutex for read task",
+        default=QUERY_CONFIG_DEFAULTS["read_use_overlap_mtx"],
     )
     arg_parser.add_boolean_list_argument(
-        "--read-use-zero-copy", help="Enable zero-copy reads"
+        "--read-use-zero-copy",
+        help="Enable zero-copy reads",
+        default=QUERY_CONFIG_DEFAULTS["read_use_zero_copy"],
     )
     arg_parser.add_boolean_list_argument(
-        "--filter-use-like-shift-and", help="Enable shift/and for LIKE expressions"
+        "--filter-use-like-shift-and",
+        help="Enable shift/and for LIKE expressions",
+        default=QUERY_CONFIG_DEFAULTS["filter_use_like_shift_and"],
     )
     arg_parser.add_boolean_list_argument(
         "--join-use-hash-map-cache",
         help="Cache the join build-side hash map for multiple partitions",
+        default=QUERY_CONFIG_DEFAULTS["join_use_hash_map_cache"],
     )
     arg_parser.add_boolean_list_argument(
-        "--join-use-unique-keys", help="Enable unique key joins", default=[True]
+        "--join-use-unique-keys",
+        help="Enable unique key joins",
+        default=QUERY_CONFIG_DEFAULTS["join_use_unique_keys"],
     )
     arg_parser.add_boolean_list_argument(
-        "--join-use-perfect-hash", help="Enable perfect hashing for joins"
+        "--join-use-perfect-hash",
+        help="Enable perfect hashing for joins",
+        default=QUERY_CONFIG_DEFAULTS["join_use_perfect_hash"],
     )
     arg_parser.add_boolean_list_argument(
-        "--join-use-mark-join", help="Enable mark join"
+        "--join-use-mark-join",
+        help="Enable mark join",
+        default=QUERY_CONFIG_DEFAULTS["join_use_mark_join"],
     )
     arg_parser.add_boolean_list_argument(
-        "--aggregation-use-perfect-hash", help="Enable perfect hashing for aggregations"
+        "--aggregation-use-perfect-hash",
+        help="Enable perfect hashing for aggregations",
+        default=QUERY_CONFIG_DEFAULTS["aggregation_use_perfect_hash"],
     )
 
     return arg_parser.parse_args()
@@ -338,6 +375,35 @@ def parse_args():
 
 def main():
     args = parse_args()
+
+    # Handle JSON configuration file
+    if args.json:
+        # Warn if other CLI args were provided
+        check_cli_overrides(sys.argv)
+
+        # Load JSON config and convert to args namespace
+        json_path = args.json
+        try:
+            config = load_json_config(json_path)
+            args = config_to_args(config)
+            print(f"Loaded configuration from {json_path}")
+        except FileNotFoundError:
+            print(f"Error: Config file not found: {json_path}")
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON in config file: {e}")
+            sys.exit(1)
+        except ValueError as e:
+            print(f"Error: Invalid config: {e}")
+            sys.exit(1)
+    else:
+        # Validate required positional arguments when not using JSON
+        if not args.dataset or not args.plan or not args.solution:
+            print(
+                "Error: dataset, plan, and solution are required when not using --json"
+            )
+            sys.exit(1)
+
     print(f"Arguments: {args}")
 
     if args.query_timeout < 0 or args.data_timeout < 0:
@@ -524,6 +590,9 @@ def main():
                         physical_plan_folder,
                     )
 
+                    # Get query-specific parameters (merges JSON overrides with args defaults)
+                    qp = get_query_execution_params(args, query_str)
+
                     for (
                         num_workers,
                         num_partitions,
@@ -537,17 +606,17 @@ def main():
                         filter_use_like_shift_and,
                         aggregation_use_perfect_hash,
                     ) in itertools.product(
-                        args.workers,
-                        args.partitions,
-                        args.read_use_overlap_mtx,
-                        args.join_use_hash_map_cache,
-                        args.read_use_zero_copy,
-                        args.join_use_unique_keys,
-                        args.join_use_perfect_hash,
-                        args.join_use_mark_join,
-                        args.read_use_filter_pruning,
-                        args.filter_use_like_shift_and,
-                        args.aggregation_use_perfect_hash,
+                        qp["workers"],
+                        qp["partitions"],
+                        qp["read_use_overlap_mtx"],
+                        qp["join_use_hash_map_cache"],
+                        qp["read_use_zero_copy"],
+                        qp["join_use_unique_keys"],
+                        qp["join_use_perfect_hash"],
+                        qp["join_use_mark_join"],
+                        qp["read_use_filter_pruning"],
+                        qp["filter_use_like_shift_and"],
+                        qp["aggregation_use_perfect_hash"],
                     ):
                         # Skip zero copy for partition-row-group combinations where zero copy is not supported.
                         if read_use_zero_copy and (num_partitions != num_row_groups):

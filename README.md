@@ -38,7 +38,51 @@ pip install -e . -C cmake.define.GQE_NVCOMP_SOURCE_DIR=<path_to_nvcomp_folder>
 
 Used for benchmarking TPC-H queries using GQE.
 
- Instruction for running the benchmark can be found [here](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=Run+TPC+Benchmarks), in the section "Run TPC-H Queries with Python interface".
+Instruction for running the benchmark can be found [here](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=Run+TPC+Benchmarks), in the section "Run TPC-H Queries with Python interface".
+
+### JSON Configuration
+
+Instead of passing all parameters via command line, you can use a JSON config file:
+
+```bash
+python -m gqe.benchmark.run_tpch_parameter_sweep --json config.json
+```
+
+Example `config.json`:
+
+```json
+{
+  "dataset": "/path/to/tpch/sf100",
+  "plan": "/path/to/substrait/plans",
+  "solution": "/path/to/solutions/q%d.parquet",
+  "output": "results.db",
+  "queries": ["1", "2", "3", "2_fused_filter", "3_fused_filter", "11"],
+  "partitions": [1, 2, 4, 8],
+  "workers": [1],
+  "repeat": 6,
+  "storage_kind": ["numa_pinned_memory"],
+  "query_source": "both",
+  "verify_results": true,
+
+  "query_overrides": [
+    {
+      "queries": ["2_fused_filter", "3_fused_filter"],
+      "partitions": [4, 8],
+      "join_use_perfect_hash": [true]
+    },
+    {
+      "queries": ["11"],
+      "partitions": [1, 2]
+    }
+  ]
+}
+```
+
+The `query_overrides` section is a list of override objects. Each object has a `queries` field containing a list of query strings (matched exactly) that the overrides apply to. When an override specifies a parameter, it replaces the global config value for that query. Parameters not specified in any override inherit from the global config. If a query matches multiple override entries, their values are merged (keeping unique values).
+
+Override-able parameters: `partitions`, `workers`, `read_use_filter_pruning`, `read_use_overlap_mtx`, `read_use_zero_copy`, `filter_use_like_shift_and`, `join_use_hash_map_cache`, `join_use_unique_keys`, `join_use_perfect_hash`, `join_use_mark_join`, `aggregation_use_perfect_hash`.
+
+When using `--json`, all other CLI arguments are ignored (a warning is printed if any are provided).
 
 ## Substrait Plan Generation
 
