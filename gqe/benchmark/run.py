@@ -259,7 +259,7 @@ def boost_shared_memory_pool_size(
 
 
 def fix_partial_filter_column_references(
-    relation: Relation, query: int, fixed_read_relations: list[int] = []
+    relation: Relation, query: int, fixed_read_relations: list[int] | None = None
 ):
     """Fix the column references in partial filters.
 
@@ -300,6 +300,9 @@ def fix_partial_filter_column_references(
             fix_column_references(expression.if_expr, relation)
             fix_column_references(expression.then_expr, relation)
             fix_column_references(expression.else_expr, relation)
+
+    if fixed_read_relations is None:
+        fixed_read_relations = []
 
     # Fix partial filter of ReadRelation
     if isinstance(relation, ReadRelation):
