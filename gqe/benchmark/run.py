@@ -559,10 +559,10 @@ def pipe_send(pipe: subprocessing.Pipe, status: bool):
 # if cuda error matches any of these regex, it's unrecoverable and we need a new process
 def is_unrecoverable_error(e):
     error = f"{e}"
+    # This should catch all "cudaError" types. Leaving structure in case we have non-cuda errors of this class.
+    # https://docs.nvidia.com/cuda//cuda-runtime-api/group__CUDART__TYPES.html#group__CUDART__TYPES_1g3f51e3575c2178246db0a94a430e0038
     messages = [
-        "cudaErrorIllegalAddress",
-        "cudaErrorInvalidAddressSpace",
-        "cudaErrorMisalignedAddress",
+        "cudaError",
     ]
     for message in messages:
         if message in error:
