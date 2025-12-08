@@ -17,7 +17,7 @@ This module provides functionality to load experiment configurations from JSON f
 with support for global parameters and query-specific overrides.
 """
 
-import json
+import json5
 import sys
 from argparse import Namespace
 from typing import Any
@@ -69,21 +69,20 @@ REQUIRED_FIELDS = ["dataset", "plan", "solution"]
 
 def load_json_config(path: str) -> dict:
     """
-    Load and validate a JSON configuration file.
+    Load and validate a JSON5 configuration file (supports comments and trailing commas).
 
     Args:
-        path: Path to the JSON configuration file.
+        path: Path to the JSON/JSON5 configuration file.
 
     Returns:
         Parsed configuration dictionary.
 
     Raises:
         FileNotFoundError: If the config file doesn't exist.
-        json.JSONDecodeError: If the file contains invalid JSON.
-        ValueError: If required fields are missing.
+        ValueError: If the file contains invalid JSON5 or required fields are missing.
     """
     with open(path, "r") as f:
-        config = json.load(f)
+        config = json5.load(f)
 
     # Check for required fields
     missing = [field for field in REQUIRED_FIELDS if field not in config]

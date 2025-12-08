@@ -1,0 +1,80 @@
+{
+  // "dataset": "/path/to/dataset",
+  // "plan": "/path/to/substrait/plans",
+  // "solution": "/path/to/reference/results",
+
+  "compression_format": ["none"],
+  "read_use_overlap_mtx": [true], // Change to false when running with compression enabled
+  "join_use_mark_join": [false],
+  "filter_use_like_shift_and": [false],
+  "aggregation_use_perfect_hash": [false], // Set to true when using clustered dataset
+  "use_partition_pruning": [false],
+
+  "query_overrides": [
+    {
+      "queries": [
+        "1",
+        "2_fused_filter",
+        "3_fused_filter",
+        "4",
+        "6",
+        "7_fused_filter",
+        "8",
+        "10_fused_filter",
+        "10_opt",
+        "13",
+        "13_opt",
+        "13_fused",
+        "14",
+        "16",
+        "16_opt",
+        "17",
+        "18_opt",
+        "19",
+        "20_fused_filter",
+        "21_fused_filter",
+        "21_opt",
+        "22",
+        "22_opt"
+      ],
+      "join_use_perfect_hash": [false],
+      "join_use_hash_map_cache": [true]
+    },
+    {
+      "queries": [
+        "4",
+        "16",
+        "20",
+        "21",
+        "22"
+      ],
+      "join_use_mark_join": [true]
+    },
+    {
+      "queries": [
+        "2",
+        "9",
+        "13",
+        "14",
+        "16",
+        "20"
+      ],
+      "filter_use_like_shift_and": [true]
+    },
+    {
+      "queries": [
+        "1",
+        "2",
+        "3",
+        "6",
+        "11",
+        "15",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "aggregation_use_perfect_hash": [true]
+    }
+  ]
+}
