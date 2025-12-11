@@ -18,14 +18,17 @@ At the moment, we can only register TPC-H tables through
 in the future.
 """
 
+from typing import Union
+
 import gqe.lib
 from .table_definition import TPCHTableDefinitions
-from .execute import MultiProcessRuntimeContext
+from .execute import Context, MultiProcessContext, MultiProcessRuntimeContext
 
 
 class Catalog:
-    def __init__(self) -> None:
-        self._catalog = gqe.lib.Catalog()
+    def __init__(self, context: Union[Context, MultiProcessContext]) -> None:
+        self._context = context
+        self._catalog = gqe.lib.Catalog(context._context)
 
     def register_tpch(
         self,
@@ -86,6 +89,7 @@ class Catalog:
         ]:
 
             gqe.lib.register_tpch_in_memory(
+                self._context._context,
                 self._catalog,
                 dataset,
                 num_row_groups,

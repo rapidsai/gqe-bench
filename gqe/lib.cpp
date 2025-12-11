@@ -306,7 +306,6 @@ struct multi_process_runtime_context {
     if (storage_kind != "boost_shared_memory") { return; }
 
     use_in_memory_table_multigpu = true;
-    mr = std::make_shared<gqe::memory_resource::boost_shared_memory_resource>();
   }
 
   gqe::multi_process_task_manager_context* get_task_manager_ctx()
@@ -317,7 +316,6 @@ struct multi_process_runtime_context {
   void finalize() { _task_manager_ctx->finalize(); }
 
   std::unique_ptr<gqe::multi_process_task_manager_context> _task_manager_ctx;
-  std::shared_ptr<gqe::memory_resource::boost_shared_memory_resource> mr;
   bool use_in_memory_table_multigpu = false;
 };
 
@@ -334,7 +332,10 @@ void share_statistics_interprocess(
   int rank;
   GQE_MPI_TRY(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
 
-  auto& segment = multi_process_runtime_ctx->mr->segment();
+  auto* mr_ptr = multi_process_runtime_ctx->get_task_manager_ctx()->get_table_memory_resource_ptr(
+    gqe::memory_kind::boost_shared{});
+  auto& segment =
+    dynamic_cast<gqe::memory_resource::boost_shared_memory_resource*>(mr_ptr)->segment();
 
   if (rank == 0) {
     for (auto const& table_name : catalog->table_names()) {
@@ -437,105 +438,39 @@ void log_physical_plan(std::shared_ptr<gqe::physical::relation> relation, std::s
   }
 }
 
-gqe::compression_format parse_compression_format(std::string compression_format)
-{
-  // FIXME: DRY compression format
-  if (compression_format == "none") {
-    return gqe::compression_format::none;
-  } else if (compression_format == "ans") {
-    return gqe::compression_format::ans;
-  } else if (compression_format == "lz4") {
-    return gqe::compression_format::lz4;
-  } else if (compression_format == "snappy") {
-    return gqe::compression_format::snappy;
-  } else if (compression_format == "gdeflate") {
-    return gqe::compression_format::gdeflate;
-  } else if (compression_format == "deflate") {
-    return gqe::compression_format::deflate;
-  } else if (compression_format == "cascaded") {
-    return gqe::compression_format::cascaded;
-  } else if (compression_format == "zstd") {
-    return gqe::compression_format::zstd;
-  } else if (compression_format == "gzip") {
-    return gqe::compression_format::gzip;
-  } else if (compression_format == "bitcomp") {
-    return gqe::compression_format::bitcomp;
-  } else if (compression_format == "best_compression_ratio") {
-    return gqe::compression_format::best_compression_ratio;
-  } else if (compression_format == "best_decompression_speed") {
-    return gqe::compression_format::best_decompression_speed;
-  } else {
-    throw std::logic_error("Unrecognized compression format");
-  }
-}
+struct base_context {
+  virtual gqe::task_manager_context* get_task_manager_ctx()                        = 0;
+  virtual py::tuple execute(gqe::catalog* catalog,
+                            std::shared_ptr<gqe::physical::relation> relation,
+                            std::optional<std::string> output_path = std::nullopt) = 0;
+  virtual void refresh_query_context(gqe::optimization_parameters parameters)      = 0;
+  virtual ~base_context() {}
 
-nvcompType_t parse_compression_data_type(std::string compression_data_type)
-{
-  // FIXME: DRY compression data type
-  if (compression_data_type == "char") {
-    return NVCOMP_TYPE_CHAR;
-  } else if (compression_data_type == "short") {
-    return NVCOMP_TYPE_SHORT;
-  } else if (compression_data_type == "int") {
-    return NVCOMP_TYPE_INT;
-  } else if (compression_data_type == "longlong") {
-    return NVCOMP_TYPE_LONGLONG;
-  } else if (compression_data_type == "bits") {
-    return NVCOMP_TYPE_BITS;
-  } else {
-    throw std::logic_error("Unrecognized data type format");
-  }
-}
+ protected:
+  base_context() {}
+};
 
-struct context {
-  context(int32_t max_num_workers                               = 1,
-          int32_t max_num_partitions                            = 8,
-          std::string in_memory_table_compression_format        = "none",
-          std::string in_memory_table_compression_data_type     = "char",
-          int32_t compression_chunk_size                        = 65536,
-          size_t zone_map_partition_size                        = 100000,
+struct context : base_context {
+  context(gqe::optimization_parameters parameters,
           bool debug_mem_usage                                  = false,
-          bool use_opt_type_for_single_char_col                 = true,
-          bool use_overlap_mtx                                  = true,
-          bool join_use_hash_map_cache                          = false,
-          bool read_use_zero_copy                               = false,
-          bool join_use_unique_keys                             = true,
-          bool join_use_perfect_hash                            = true,
-          bool join_use_mark_join                               = false,
-          bool use_partition_pruning                            = false,
-          bool filter_use_like_shift_and                        = false,
-          bool aggregation_use_perfect_hash                     = true,
           std::optional<std::vector<std::string>> cupti_metrics = std::nullopt)
   {
     if (debug_mem_usage) {
       auto _mr =
         std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
-      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(std::move(_mr));
+      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(parameters, std::move(_mr));
     } else {
-      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(
-        gqe::memory_resource::create_static_memory_pool());
+      using upstream_mr = rmm::mr::cuda_memory_resource;
+      using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
+      using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
+
+      auto upstream = std::make_unique<upstream_mr>();
+      auto mr       = std::make_unique<wrapper_mr>(std::move(upstream),
+                                             parameters.initial_query_memory,
+                                             std::make_optional(parameters.max_query_memory));
+
+      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(parameters, std::move(mr));
     }
-
-    gqe::optimization_parameters parameters(false);
-    parameters.max_num_workers                  = max_num_workers;
-    parameters.max_num_partitions               = max_num_partitions;
-    parameters.use_opt_type_for_single_char_col = use_opt_type_for_single_char_col;
-    parameters.use_overlap_mtx                  = use_overlap_mtx;
-    parameters.join_use_hash_map_cache          = join_use_hash_map_cache;
-    parameters.read_zero_copy_enable            = read_use_zero_copy;
-    parameters.join_use_unique_keys             = join_use_unique_keys;
-    parameters.join_use_perfect_hash            = join_use_perfect_hash;
-    parameters.join_use_mark_join               = join_use_mark_join;
-    parameters.use_partition_pruning            = use_partition_pruning;
-    parameters.zone_map_partition_size          = zone_map_partition_size;
-    parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
-    parameters.aggregation_use_perfect_hash     = aggregation_use_perfect_hash;
-
-    parameters.in_memory_table_compression_format =
-      parse_compression_format(in_memory_table_compression_format);
-    parameters.in_memory_table_compression_data_type =
-      parse_compression_data_type(in_memory_table_compression_data_type);
-    parameters.compression_chunk_size = compression_chunk_size;
 
     _query_ctx = std::make_unique<gqe::query_context>(parameters);
 
@@ -545,6 +480,13 @@ struct context {
       profiler_config.metrics = *cupti_metrics;
       _profiler = std::make_unique<gqe::utility::user_range_profiler>(std::move(profiler_config));
     }
+  }
+
+  gqe::task_manager_context* get_task_manager_ctx() { return _task_manager_ctx.get(); }
+
+  void refresh_query_context(gqe::optimization_parameters parameters) override
+  {
+    _query_ctx = std::make_unique<gqe::query_context>(parameters);
   }
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
@@ -599,54 +541,26 @@ struct context {
   std::unique_ptr<gqe::utility::user_range_profiler> _profiler;
 };
 
-// FIXME: multiprocess context duplicates a lot of code from context class.
-// We should encapsulate parameters into a an object.
-struct multi_process_context {
+struct multi_process_context : base_context {
   multi_process_context(std::shared_ptr<lib::multi_process_runtime_context> runtime_ctx,
-                        int32_t max_num_workers                           = 1,
-                        int32_t max_num_partitions                        = 8,
-                        std::string in_memory_table_compression_format    = "none",
-                        std::string in_memory_table_compression_data_type = "char",
-                        int32_t compression_chunk_size                    = 65536,
-                        size_t zone_map_partition_size                    = 100000,
-                        gqe::SCHEDULER_TYPE scheduler_type    = gqe::SCHEDULER_TYPE::ROUND_ROBIN,
-                        bool use_opt_type_for_single_char_col = true,
-                        bool use_overlap_mtx                  = true,
-                        bool join_use_hash_map_cache          = false,
-                        bool read_use_zero_copy               = false,
-                        bool join_use_unique_keys             = true,
-                        bool join_use_perfect_hash            = true,
-                        bool join_use_mark_join               = false,
-                        bool use_partition_pruning            = false,
-                        bool filter_use_like_shift_and        = false,
-                        bool aggregation_use_perfect_hash     = true)
+                        gqe::optimization_parameters parameters,
+                        gqe::SCHEDULER_TYPE scheduler_type = gqe::SCHEDULER_TYPE::ROUND_ROBIN)
+    : _runtime_ctx(runtime_ctx)
   {
     _task_manager_ctx = runtime_ctx->get_task_manager_ctx();
     _task_manager_ctx->update_scheduler(scheduler_type);
 
-    gqe::optimization_parameters parameters(false);
-    parameters.max_num_workers                  = max_num_workers;
-    parameters.max_num_partitions               = max_num_partitions;
-    parameters.use_opt_type_for_single_char_col = use_opt_type_for_single_char_col;
-    parameters.use_overlap_mtx                  = use_overlap_mtx;
-    parameters.join_use_hash_map_cache          = join_use_hash_map_cache;
-    parameters.read_zero_copy_enable            = read_use_zero_copy;
-    parameters.join_use_unique_keys             = join_use_unique_keys;
-    parameters.join_use_perfect_hash            = join_use_perfect_hash;
-    parameters.join_use_mark_join               = join_use_mark_join;
-    parameters.use_partition_pruning            = use_partition_pruning;
-    parameters.zone_map_partition_size          = zone_map_partition_size;
-    parameters.filter_use_like_shift_and        = filter_use_like_shift_and;
-    parameters.aggregation_use_perfect_hash     = aggregation_use_perfect_hash;
-
-    parameters.in_memory_table_compression_format =
-      parse_compression_format(in_memory_table_compression_format);
-    parameters.in_memory_table_compression_data_type =
-      parse_compression_data_type(in_memory_table_compression_data_type);
-    parameters.compression_chunk_size       = compression_chunk_size;
     parameters.use_in_memory_table_multigpu = runtime_ctx->use_in_memory_table_multigpu;
 
     _query_ctx = std::make_unique<gqe::query_context>(parameters);
+  }
+
+  gqe::task_manager_context* get_task_manager_ctx() { return _task_manager_ctx; }
+
+  void refresh_query_context(gqe::optimization_parameters parameters) override
+  {
+    parameters.use_in_memory_table_multigpu = _runtime_ctx->use_in_memory_table_multigpu;
+    _query_ctx                              = std::make_unique<gqe::query_context>(parameters);
   }
 
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
@@ -684,6 +598,7 @@ struct multi_process_context {
     return performance;
   }
 
+  std::shared_ptr<lib::multi_process_runtime_context> _runtime_ctx;
   std::unique_ptr<gqe::query_context> _query_ctx;
   gqe::multi_process_task_manager_context* _task_manager_ctx;
 };
@@ -704,10 +619,8 @@ void register_tpch_parquet(
 }
 
 // TODO: duplicate code with tpc.cpp
-gqe::storage_kind::type parse_storage_kind(
-  const std::string& storage_kind_description,
-  const std::vector<std::string>& file_paths,
-  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr)
+gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_description,
+                                           const std::vector<std::string>& file_paths)
 {
   std::string normalized_description;
   normalized_description.reserve(storage_kind_description.size());
@@ -730,17 +643,13 @@ gqe::storage_kind::type parse_storage_kind(
   } else if (normalized_description == "parquet_file") {
     return gqe::storage_kind::parquet_file{file_paths};
   } else if (normalized_description == "boost_shared_memory") {
-    if (multi_process_runtime_ctx == nullptr ||
-        !multi_process_runtime_ctx->use_in_memory_table_multigpu) {
-      throw std::runtime_error(
-        "Multi process task manager context is not set or is not using boost_shared_memory");
-    }
-    return gqe::storage_kind::boost_shared_memory{multi_process_runtime_ctx->mr};
+    return gqe::storage_kind::boost_shared_memory{};
   }
   throw std::logic_error("Unrecognized storage kind: " + storage_kind_description);
 }
 
 void register_table_in_memory(
+  lib::base_context* ctx,
   gqe::catalog* catalog,
   int32_t num_row_groups,
   std::string in_memory_table_compression_format,
@@ -778,29 +687,11 @@ void register_table_in_memory(
   auto write_table =
     std::make_shared<gqe::physical::write_relation>(read_table, column_names, name);
 
-  if (multi_process_runtime_ctx) {
-    multi_process_context ctx(multi_process_runtime_ctx,
-                              1,
-                              num_row_groups,
-                              in_memory_table_compression_format,
-                              in_memory_table_compression_data_type,
-                              compression_chunk_size,
-                              zone_map_partition_size,
-                              gqe::SCHEDULER_TYPE::ALL_TO_ALL);
-    ctx.execute(catalog, write_table, std::nullopt);
-  } else {
-    context ctx(1,
-                num_row_groups,
-                in_memory_table_compression_format,
-                in_memory_table_compression_data_type,
-                compression_chunk_size,
-                zone_map_partition_size,
-                debug_mem_usage);
-    ctx.execute(catalog, write_table, std::nullopt);
-  }
+  ctx->execute(catalog, write_table, std::nullopt);
 }
 
 void register_tpch_in_memory(
+  lib::base_context* ctx,
   gqe::catalog* catalog,
   std::string dataset_location,
   int32_t num_row_groups,
@@ -813,13 +704,13 @@ void register_tpch_in_memory(
   std::shared_ptr<lib::multi_process_runtime_context> multiprocess_runtime_ctx = nullptr,
   bool debug_mem_usage                                                         = false)
 {
-  gqe::storage_kind::type storage_kind =
-    parse_storage_kind(storage_kind_description, {}, multiprocess_runtime_ctx);
+  gqe::storage_kind::type storage_kind = parse_storage_kind(storage_kind_description, {});
   GQE_LOG_TRACE("Storage kind created: {}", storage_kind_description);
 
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
-    register_table_in_memory(catalog,
+    register_table_in_memory(ctx,
+                             catalog,
                              num_row_groups,
                              in_memory_table_compression_format,
                              in_memory_table_compression_data_type,
@@ -939,8 +830,87 @@ PYBIND11_MODULE(lib, py_module)
     .value("millisecond", cudf::datetime::datetime_component::MILLISECOND)
     .value("nanosecond", cudf::datetime::datetime_component::NANOSECOND);
 
+  // Optimization Parameters
+  py::enum_<gqe::compression_format>(py_module, "CompressionFormat")
+    .value("none", gqe::compression_format::none)
+    .value("ans", gqe::compression_format::ans)
+    .value("lz4", gqe::compression_format::lz4)
+    .value("snappy", gqe::compression_format::snappy)
+    .value("gdeflate", gqe::compression_format::gdeflate)
+    .value("deflate", gqe::compression_format::deflate)
+    .value("cascaded", gqe::compression_format::cascaded)
+    .value("zstd", gqe::compression_format::zstd)
+    .value("gzip", gqe::compression_format::gzip)
+    .value("bitcomp", gqe::compression_format::bitcomp)
+    .value("best_compression_ratio", gqe::compression_format::best_compression_ratio)
+    .value("best_decompression_speed", gqe::compression_format::best_decompression_speed);
+
+  py::enum_<gqe::io_engine_type>(py_module, "IoEngineType")
+    .value("automatic", gqe::io_engine_type::automatic)
+    .value("io_uring", gqe::io_engine_type::io_uring)
+    .value("psync", gqe::io_engine_type::psync);
+
+  py::enum_<nvcompType_t>(py_module, "NvcompType")
+    .value("char", NVCOMP_TYPE_CHAR)
+    .value("uchar", NVCOMP_TYPE_UCHAR)
+    .value("short", NVCOMP_TYPE_SHORT)
+    .value("ushort", NVCOMP_TYPE_USHORT)
+    .value("int", NVCOMP_TYPE_INT)
+    .value("uint", NVCOMP_TYPE_UINT)
+    .value("longlong", NVCOMP_TYPE_LONGLONG)
+    .value("ulonglong", NVCOMP_TYPE_ULONGLONG)
+    .value("bits", NVCOMP_TYPE_BITS);
+
+  py::class_<gqe::optimization_parameters>(py_module, "OptimizationParameters")
+    .def(py::init<bool>(), py::arg("only_defaults") = false)
+    .def_readwrite("max_num_workers", &gqe::optimization_parameters::max_num_workers)
+    .def_readwrite("max_num_partitions", &gqe::optimization_parameters::max_num_partitions)
+    .def_readwrite("log_level", &gqe::optimization_parameters::log_level)
+    .def_readwrite("initial_query_memory", &gqe::optimization_parameters::initial_query_memory)
+    .def_readwrite("max_query_memory", &gqe::optimization_parameters::max_query_memory)
+    .def_readwrite("initial_task_manager_memory",
+                   &gqe::optimization_parameters::initial_task_manager_memory)
+    .def_readwrite("max_task_manager_memory",
+                   &gqe::optimization_parameters::max_task_manager_memory)
+    .def_readwrite("join_use_hash_map_cache",
+                   &gqe::optimization_parameters::join_use_hash_map_cache)
+    .def_readwrite("join_use_unique_keys", &gqe::optimization_parameters::join_use_unique_keys)
+    .def_readwrite("join_use_perfect_hash", &gqe::optimization_parameters::join_use_perfect_hash)
+    .def_readwrite("join_use_mark_join", &gqe::optimization_parameters::join_use_mark_join)
+    .def_readwrite("read_zero_copy_enable", &gqe::optimization_parameters::read_zero_copy_enable)
+    .def_readwrite("use_customized_io", &gqe::optimization_parameters::use_customized_io)
+    .def_readwrite("io_bounce_buffer_size", &gqe::optimization_parameters::io_bounce_buffer_size)
+    .def_readwrite("io_auxiliary_threads", &gqe::optimization_parameters::io_auxiliary_threads)
+    .def_readwrite("use_opt_type_for_single_char_col",
+                   &gqe::optimization_parameters::use_opt_type_for_single_char_col)
+    .def_readwrite("use_in_memory_table_multigpu",
+                   &gqe::optimization_parameters::use_in_memory_table_multigpu)
+    .def_readwrite("in_memory_table_compression_format",
+                   &gqe::optimization_parameters::in_memory_table_compression_format)
+    .def_readwrite("in_memory_table_compression_data_type",
+                   &gqe::optimization_parameters::in_memory_table_compression_data_type)
+    .def_readwrite("compression_chunk_size", &gqe::optimization_parameters::compression_chunk_size)
+    .def_readwrite("io_block_size", &gqe::optimization_parameters::io_block_size)
+    .def_readwrite("io_engine", &gqe::optimization_parameters::io_engine)
+    .def_readwrite("io_pipelining", &gqe::optimization_parameters::io_pipelining)
+    .def_readwrite("io_alignment", &gqe::optimization_parameters::io_alignment)
+    .def_readwrite("use_overlap_mtx", &gqe::optimization_parameters::use_overlap_mtx)
+    .def_readwrite("use_partition_pruning", &gqe::optimization_parameters::use_partition_pruning)
+    .def_readwrite("zone_map_partition_size",
+                   &gqe::optimization_parameters::zone_map_partition_size)
+    .def_readwrite("filter_use_like_shift_and",
+                   &gqe::optimization_parameters::filter_use_like_shift_and)
+    .def_readwrite("aggregation_use_perfect_hash",
+                   &gqe::optimization_parameters::aggregation_use_perfect_hash)
+    .def_readwrite("num_shuffle_partitions", &gqe::optimization_parameters::num_shuffle_partitions)
+    .def_readwrite("compression_ratio_threshold",
+                   &gqe::optimization_parameters::compression_ratio_threshold);
+
   // Catalog
-  py::class_<gqe::catalog>(py_module, "Catalog").def(py::init<>());
+  py::class_<gqe::catalog>(py_module, "Catalog")
+    .def(py::init([](lib::base_context* ctx) -> gqe::catalog {
+      return gqe::catalog(ctx->get_task_manager_ctx());
+    }));
   py::class_<gqe::column_traits>(py_module, "ColumnTraits")
     .def(py::init<std::string const&,
                   cudf::data_type const&,
@@ -1089,27 +1059,19 @@ PYBIND11_MODULE(lib, py_module)
 
   py_module.def("date_from_days", &lib::date_from_days);
 
-  py::class_<lib::context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<int32_t,                                 // max_num_workers
-                  int32_t,                                 // max_num_partitions
-                  std::string,                             // in_memory_table_compression_format
-                  std::string,                             // in_memory_table_compression_data_type
-                  int32_t,                                 // compression_chunk_size
-                  size_t,                                  // zone_map_partition_size
+  // Base context class - needed for Catalog to accept both Context and MultiProcessContext
+  py::class_<lib::base_context, std::shared_ptr<lib::base_context>>(py_module, "BaseContext");
+
+  py::class_<lib::context, lib::base_context, std::shared_ptr<lib::context>>(py_module, "Context")
+    .def(py::init<gqe::optimization_parameters,            // parameters
                   bool,                                    // debug_mem_usage
-                  bool,                                    // use_opt_type_for_single_char_col
-                  bool,                                    // use_overlap_mtx
-                  bool,                                    // join_use_hash_map_cache
-                  bool,                                    // read_use_zero_copy
-                  bool,                                    // join_use_unique_keys
-                  bool,                                    // join_use_perfect_hash
-                  bool,                                    // join_use_mark_join
-                  bool,                                    // use_partition_pruning
-                  bool,                                    // filter_use_like_shift_and
-                  bool,                                    // aggregation_use_perfect_hash
                   std::optional<std::vector<std::string>>  // cupti_metrics
-                  >())
-    .def("execute", &lib::context::execute);
+                  >(),
+         py::arg("parameters"),
+         py::arg("debug_mem_usage") = false,
+         py::arg("cupti_metrics")   = std::nullopt)
+    .def("execute", &lib::context::execute)
+    .def("refresh_query_context", &lib::context::refresh_query_context);
 
   py_module.def("mpi_init", &lib::mpi_init);
   py_module.def("mpi_finalize", &lib::mpi_finalize);
@@ -1130,26 +1092,16 @@ PYBIND11_MODULE(lib, py_module)
     .def("get_task_manager_ctx", &lib::multi_process_runtime_context::get_task_manager_ctx)
     .def("finalize", &lib::multi_process_runtime_context::finalize);
 
-  py::class_<lib::multi_process_context, std::shared_ptr<lib::multi_process_context>>(
-    py_module, "MultiProcessContext")
+  py::class_<lib::multi_process_context,
+             lib::base_context,
+             std::shared_ptr<lib::multi_process_context>>(py_module, "MultiProcessContext")
     .def(py::init<std::shared_ptr<lib::multi_process_runtime_context>,  // runtime_ctx
-                  int32_t,                                              // max_num_workers
-                  int32_t,                                              // max_num_partitions
-                  std::string,          // in_memory_table_compression_format
-                  std::string,          // in_memory_table_compression_data_type
-                  int32_t,              // compression_chunk_size
-                  size_t,               // zone_map_partition_size
-                  gqe::SCHEDULER_TYPE,  // scheduler_type
-                  bool,                 // use_opt_type_for_single_char_col
-                  bool,                 // use_overlap_mtx
-                  bool,                 // join_use_hash_map_cache
-                  bool,                 // read_use_zero_copy
-                  bool,                 // join_use_unique_keys
-                  bool,                 // join_use_perfect_hash
-                  bool,                 // join_use_mark_join
-                  bool,                 // use_partition_pruning
-                  bool,                 // filter_use_like_shift_and
-                  bool                  // aggregation_use_perfect_hash
-                  >())
-    .def("execute", &lib::multi_process_context::execute);
+                  gqe::optimization_parameters,                         // parameters
+                  gqe::SCHEDULER_TYPE                                   // scheduler_type
+                  >(),
+         py::arg("runtime_ctx"),
+         py::arg("parameters"),
+         py::arg("scheduler_type") = gqe::SCHEDULER_TYPE::ROUND_ROBIN)
+    .def("execute", &lib::multi_process_context::execute)
+    .def("refresh_query_context", &lib::multi_process_context::refresh_query_context);
 }

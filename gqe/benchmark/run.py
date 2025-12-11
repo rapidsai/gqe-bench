@@ -12,6 +12,7 @@ from gqe import Catalog, Context, MultiProcessContext
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 import gqe.lib
 from gqe.benchmark.verify import verify_parquet
+from gqe import optimization_parameters
 from gqe.benchmark.gqe_experiment import (
     GqeParameters,
     GqeDataInfoExt,
@@ -598,6 +599,24 @@ def _run_tpc(
     debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
     cat_ctx.debug_mem_usage = debug_mem_usage
 
+    # Create the task manager context
+    task_manager_params = optimization_parameters.from_catalog_context(cat_ctx)
+    if is_mp:
+        # FIXME: Scheduler type needs to be reworked to use query context
+        # instead of task manager context. It's currently set to ALL_TO_ALL for
+        # data loading, but we use ROUND_ROBIN for query execution.
+        context = MultiProcessContext(
+            multiprocess_runtime_context,
+            task_manager_params,
+            lib.scheduler_type.ALL_TO_ALL,
+        )
+    else:
+        context = Context(
+            task_manager_params,
+            debug_mem_usage=debug_mem_usage,
+            cupti_metrics=cupti_metrics,
+        )
+
     load_all_data = cat_ctx.load_data_of_query == 0
     catalog = None
     if load_all_data:
@@ -606,7 +625,7 @@ def _run_tpc(
             is_root_rank and not quiet,
         )
         try:
-            catalog = Catalog()
+            catalog = Catalog(context)
             table_definitions = catalog.register_tpch(
                 **asdict(cat_ctx),
                 multiprocess_runtime_context=multiprocess_runtime_context,
@@ -641,16 +660,41 @@ def _run_tpc(
 
         # Reload dataset if new query and not load_all
         if not load_all_data and cat_ctx.load_data_of_query != query_info_ctx.query_idx:
-            # Python uses refcounting for object destruction. Objects are immediately destroyed when the reference count reaches 0.
-            # GC is only required when we have reference cycles which cant be cleaned up by refcounting.
-            # Reference: https://docs.python.org/2/library/gc.html
+            # Python uses refcounting for object destruction. Objects are
+            # immediately destroyed when the reference count reaches 0.  GC is
+            # only required when we have reference cycles which cant be cleaned
+            # up by refcounting.
+            #
+            # Context is explicitly destroyed after the Catalog so that GPU
+            # memory is freed before table registration.  Catalog holds a
+            # pointer to task_manager_ctx from Context, so it must be destroyed
+            # first.
+            #
+            # Reference:
+            # See https://docs.python.org/3.14/library/gc.html
             catalog = None
+            context = None
+
             print_mp(
                 f"Attempting to load TPCH Query {query_info_ctx.query_idx} data into memory",
                 is_root_rank,
             )
             try:
-                catalog = Catalog()
+                # Recreate context for new query data
+                opt_params = optimization_parameters.from_catalog_context(cat_ctx)
+                if is_mp:
+                    context = MultiProcessContext(
+                        multiprocess_runtime_context,
+                        opt_params,
+                        lib.scheduler_type.ROUND_ROBIN,
+                    )
+                else:
+                    context = Context(
+                        opt_params,
+                        debug_mem_usage=debug_mem_usage,
+                        cupti_metrics=cupti_metrics,
+                    )
+                catalog = Catalog(context)
                 # Set up context with new query ID
                 cat_ctx.load_data_of_query = query_info_ctx.query_idx
                 table_definitions = catalog.register_tpch(
@@ -684,29 +728,12 @@ def _run_tpc(
             print_mp(
                 "No load required - data already in memory", is_root_rank and not quiet
             )
+
         # if we make it here, communicate we succeeded data load and/or didn't need to load data
         pipe_send(pipe, True)
 
-        context_params = (
-            parameter.num_workers,
-            parameter.num_partitions,
-            data.char_type == "char",
-            parameter.use_overlap_mtx,
-            parameter.join_use_hash_map_cache,
-            parameter.read_use_zero_copy,
-            parameter.join_use_unique_keys,
-            parameter.join_use_perfect_hash,
-            parameter.join_use_mark_join,
-            data.compression_format,
-            data.compression_data_type,
-            data.compression_chunk_size,
-            parameter.use_partition_pruning,
-            data.zone_map_partition_size,
-            parameter.filter_use_like_shift_and,
-            parameter.aggregation_use_perfect_hash,
-        )
-        print_mp("Building query execution context...", is_root_rank and not quiet)
-        context = None  # To make sure that the old one is destroyed before the new one is created.
+        opt_params = optimization_parameters.from_query_context(parameter, data)
+        print_mp("Refreshing query execution context...", is_root_rank and not quiet)
         try:
             # Build QueryInfo in try to catch file not found or permissions exception with substrait file
             query = _get_tpc_query_info(
@@ -717,24 +744,14 @@ def _run_tpc(
                 catalog,
                 multiprocess_runtime_context,
             )
-            if is_mp:
-                context = MultiProcessContext(
-                    multiprocess_runtime_context,
-                    *context_params,
-                    lib.scheduler_type.ROUND_ROBIN,
-                )
-            else:
-                context = Context(
-                    *context_params,
-                    debug_mem_usage=debug_mem_usage,
-                    cupti_metrics=cupti_metrics,
-                )
+            # Refresh the query context with new optimization parameters
+            context.refresh_query_context(opt_params)
         except Exception as error:
-            print("Error constructing query context")
+            print("Error refreshing query context")
             print(f"{type(error).__name__}: {error}")
             errors.append(
                 (
-                    f"Q{query_info_ctx.query_str} construct_context",
+                    f"Q{query_info_ctx.query_str} refresh_context",
                     parameter,
                     f"{error}",
                 )
@@ -744,7 +761,7 @@ def _run_tpc(
                 break
             else:
                 continue
-        # confirm we loaded context properly
+        # confirm we refreshed context properly
         pipe_send(pipe, True)
 
         if is_root_rank:
@@ -831,6 +848,7 @@ def _run_tpc(
                             )
                         )
 
-        # This line explicitly destroys Context so that GPU memory is freed before
-        # catalog registration for the next iteration. See https://docs.python.org/3.14/library/gc.html
-        context = None
+    # Explicit cleanup in correct order to avoid segfault at exit.
+    # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
+    catalog = None
+    context = None

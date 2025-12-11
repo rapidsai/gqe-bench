@@ -22,54 +22,21 @@ if TYPE_CHECKING:
 class Context:
     def __init__(
         self,
-        max_num_workers: int = 1,
-        max_num_partitions: int = 8,
-        use_opt_type_for_single_char_col: bool = False,
-        use_overlap_mtx: bool = False,
-        join_use_hash_map_cache: bool = False,
-        read_use_zero_copy: bool = False,
-        join_use_unique_keys: bool = False,
-        join_use_perfect_hash: bool = False,
-        join_use_mark_join: bool = False,
-        in_memory_table_compression_format: str = "none",
-        in_memory_table_compression_data_type: str = "char",
-        compression_chunk_size: int = 65536,
-        use_partition_pruning: bool = False,
-        zone_map_partition_size: int = 100000,
-        filter_use_like_shift_and: bool = False,
-        aggregation_use_perfect_hash: bool = False,
-        debug_mem_usage=False,
+        optimization_parameters: gqe.lib.OptimizationParameters,
+        debug_mem_usage: bool = False,
         cupti_metrics: list[str] | None = None,
     ):
         """
         Create a new context.
 
-        See the GQE documentation for a description of standard parameters.
-
-        Additional parameters are:
-
-        :param debug_mem_usage=False,
+        :param optimization_parameters: Optimization parameters for query execution.
+        :param debug_mem_usage: Enable debug memory usage tracking.
         :param cupti_metrics: The CUPTI range metrics to profile. If this argument is `None`, the profiler is completely disabled.
         """
 
         self._context = gqe.lib.Context(
-            max_num_workers,
-            max_num_partitions,
-            in_memory_table_compression_format,
-            in_memory_table_compression_data_type,
-            compression_chunk_size,
-            zone_map_partition_size,
+            optimization_parameters,
             debug_mem_usage,
-            use_opt_type_for_single_char_col,
-            use_overlap_mtx,
-            join_use_hash_map_cache,
-            read_use_zero_copy,
-            join_use_unique_keys,
-            join_use_perfect_hash,
-            join_use_mark_join,
-            use_partition_pruning,
-            filter_use_like_shift_and,
-            aggregation_use_perfect_hash,
             cupti_metrics,
         )
 
@@ -96,6 +63,16 @@ class Context:
 
         return self._context.execute(catalog._catalog, relation, output_path)
 
+    def refresh_query_context(
+        self, optimization_parameters: gqe.lib.OptimizationParameters
+    ) -> None:
+        """
+        Refresh the query context with new optimization parameters.
+
+        :param optimization_parameters: New optimization parameters for query execution.
+        """
+        self._context.refresh_query_context(optimization_parameters)
+
 
 class MultiProcessRuntimeContext:
     def __init__(self, scheduler_type: gqe.lib.scheduler_type, storage_kind: str):
@@ -112,43 +89,20 @@ class MultiProcessContext:
     def __init__(
         self,
         runtime_context: MultiProcessRuntimeContext,
-        max_num_workers: int = 1,
-        max_num_partitions: int = 8,
-        use_opt_type_for_single_char_col: bool = False,
-        use_overlap_mtx: bool = False,
-        join_use_hash_map_cache: bool = False,
-        read_use_zero_copy: bool = False,
-        join_use_unique_keys: bool = False,
-        join_use_perfect_hash: bool = False,
-        join_use_mark_join: bool = False,
-        in_memory_table_compression_format: str = "none",
-        in_memory_table_compression_data_type: str = "char",
-        compression_chunk_size: int = 65536,
-        use_partition_pruning: bool = False,
-        zone_map_partition_size: int = 100000,
-        filter_use_like_shift_and: bool = False,
-        aggregation_use_perfect_hash: bool = False,
+        optimization_parameters: gqe.lib.OptimizationParameters,
         scheduler_type: gqe.lib.scheduler_type = gqe.lib.scheduler_type.ROUND_ROBIN,
     ):
+        """
+        Create a new multi-process context.
+
+        :param runtime_context: The multi-process runtime context.
+        :param optimization_parameters: Optimization parameters for query execution.
+        :param scheduler_type: The scheduler type for multi-process execution.
+        """
         self._context = gqe.lib.MultiProcessContext(
-            runtime_context,
-            max_num_workers,
-            max_num_partitions,
-            in_memory_table_compression_format,
-            in_memory_table_compression_data_type,
-            compression_chunk_size,
-            zone_map_partition_size,
+            runtime_context._context,
+            optimization_parameters,
             scheduler_type,
-            use_opt_type_for_single_char_col,
-            use_overlap_mtx,
-            join_use_hash_map_cache,
-            read_use_zero_copy,
-            join_use_unique_keys,
-            join_use_perfect_hash,
-            join_use_mark_join,
-            use_partition_pruning,
-            filter_use_like_shift_and,
-            aggregation_use_perfect_hash,
         )
 
     def execute(
@@ -173,3 +127,13 @@ class MultiProcessContext:
             relation = relation._to_cpp()
 
         return self._context.execute(catalog._catalog, relation, output_path)
+
+    def refresh_query_context(
+        self, optimization_parameters: gqe.lib.OptimizationParameters
+    ) -> None:
+        """
+        Refresh the query context with new optimization parameters.
+
+        :param optimization_parameters: New optimization parameters for query execution.
+        """
+        self._context.refresh_query_context(optimization_parameters)
