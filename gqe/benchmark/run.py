@@ -732,9 +732,9 @@ def _run_tpc(
         # if we make it here, communicate we succeeded data load and/or didn't need to load data
         pipe_send(pipe, True)
 
-        opt_params = optimization_parameters.from_query_context(parameter, data)
         print_mp("Refreshing query execution context...", is_root_rank and not quiet)
         try:
+            opt_params = optimization_parameters.from_query_context(parameter, data)
             # Build QueryInfo in try to catch file not found or permissions exception with substrait file
             query = _get_tpc_query_info(
                 query_info_ctx,
