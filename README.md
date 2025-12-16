@@ -131,6 +131,9 @@ python scripts/nsys_analysis.py io --analysis_type htod_copy_time_sum /path/to/t
 # IO: effective in-memory read task time (GQE NVTX ranges merged)
 python scripts/nsys_analysis.py io --analysis_type read_time_effective /path/to/trace.sqlite "*Run Q13*" 
 
+# IO: total decompression engine decompress time
+python scripts/nsys_analysis.py io --analysis_type hw_decompress_time_sum /path/to/trace.sqlite "*Run Q2*" 
+
 ## Formatting
 
 To fix formatting of python code:

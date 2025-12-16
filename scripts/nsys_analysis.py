@@ -374,6 +374,36 @@ def read_time_effective(connection, nvtx_range_glob, args) -> list[dict[str, flo
     return merged_rows
 
 
+def hw_decompress_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, float]]:
+    headers = ["nvtx_domain", "mem_decompress_sum_ms"]
+    sql_str = f"""
+    SELECT
+        nvtx_string.value,
+        ROUND(SUM(decompress.end - decompress.start) / 1000000.0, 3) AS total_mem_decompress_time_ms
+    FROM NVTX_EVENTS nvtx
+    JOIN StringIds AS nvtx_string
+        ON nvtx_string.id = nvtx.textId -- get nvtx domain names
+    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity
+        ON (runtime_activity.start >= nvtx.start
+            AND runtime_activity.end <= nvtx.end
+            AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
+    JOIN CUPTI_ACTIVITY_KIND_MEM_DECOMPRESS decompress
+        ON decompress.correlationId = runtime_activity.correlationId
+        AND {pid_from_global_tid("decompress.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")} -- get decompress calls
+    WHERE
+        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value}
+        OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
+        )  -- push-pop and start-end ranges
+        AND nvtx_string.value GLOB "{nvtx_range_glob}"
+    GROUP BY
+        nvtx_string.value, nvtx.start, nvtx.end
+    ORDER BY
+        nvtx.start
+    """
+    rows = list(connection.execute(sql_str))
+    return [dict(zip(headers, row)) for row in rows]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Perform analysis on the supplied nvtx range from an nsys SQLite file"
@@ -419,7 +449,12 @@ if __name__ == "__main__":
     io_tool_parser.add_argument(
         "--analysis_type",
         default="read_time_effective",
-        choices=["htod_copy_time_sum", "htod_copy_size", "read_time_effective"],
+        choices=[
+            "htod_copy_time_sum",
+            "htod_copy_size",
+            "read_time_effective",
+            "hw_decompress_time_sum",
+        ],
         help=(
             "Type of IO analysis to perform. Options: "
             "htod_copy_time_sum - Total time spent copying host pinned column data to device (HtoD). "
@@ -430,6 +465,7 @@ if __name__ == "__main__":
 
     analysis_tool = None
     args = parser.parse_args()
+
     if args.tool == "kernel":
         if args.analysis_type == "kernel_time_sum":
             analysis_tool = kernel_time_sum
@@ -442,6 +478,8 @@ if __name__ == "__main__":
             analysis_tool = htod_copy_size
         elif args.analysis_type == "read_time_effective":
             analysis_tool = read_time_effective
+        elif args.analysis_type == "hw_decompress_time_sum":
+            analysis_tool = hw_decompress_time_sum
 
     conn = sqlite3.connect(args.sqlite)
     rows = analysis_tool(conn, args.nvtx_range_glob, args)
