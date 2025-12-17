@@ -9,12 +9,11 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal, LikeExpr, DatePartExpr
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import DatePartExpr, LikeExpr, Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
-
 
 """
 -- TPC-H Query 9
@@ -58,10 +57,7 @@ List of optimization over substrait plans:
 
 class tpch_q9(Query):
     def root_relation(self, table_defs: TPCHTableDefinitions):
-
-        partsupp = read(
-            "partsupp", ["ps_suppkey", "ps_partkey", "ps_supplycost"], None, table_defs
-        )
+        partsupp = read("partsupp", ["ps_suppkey", "ps_partkey", "ps_supplycost"], None, table_defs)
 
         # part has "p_partkey"
         part = read("part", ["p_partkey", "p_name"], None, table_defs).filter(
@@ -149,8 +145,6 @@ class tpch_q9(Query):
             [("sum", CR(2))],
             perfect_hashing=False,
         )
-        sorted_output = agg.sort(
-            [(CR(0), "ascending", "before"), (CR(1), "descending", "before")]
-        )
+        sorted_output = agg.sort([(CR(0), "ascending", "before"), (CR(1), "descending", "before")])
 
         return sorted_output

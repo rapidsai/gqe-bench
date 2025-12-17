@@ -10,51 +10,46 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe.benchmark.gqe_experiment import GqeExperimentConnection
-from gqe.benchmark.run import (
-    CatalogContext,
-    QueryInfoContext,
-    run_tpc,
-    DataInfo,
-    QueryInfo,
-    QueryExecutionContext,
-    setup_db,
-    parse_scale_factor,
-    set_eager_module_loading,
-    parse_bool,
-    parse_identifier_type,
-    is_valid_identifier_type,
-    fix_partial_filter_column_references,
-    get_query_validator,
-    print_mp,
-    boost_shared_memory_pool_size,
-)
-from gqe.param_sweep_config import (
-    load_json_config,
-    config_to_args,
-    check_cli_overrides,
-    get_query_execution_params,
-    BENCHMARK_CONFIG_DEFAULTS,
-    QUERY_CONFIG_DEFAULTS,
-)
-from gqe import lib
-
-
-from database_benchmarking_tools.experiment import ExperimentDB
-from database_benchmarking_tools.utility import generate_db_path
-
 import argparse
-import importlib
-import itertools
 import functools
+import itertools
 import json
 
 # We rename this because of namespace clash with multiprocessing in GQE
 import multiprocessing as subprocessing
+import os
 import signal
 import sys
 import time
-import os
+
+from database_benchmarking_tools.experiment import ExperimentDB
+from database_benchmarking_tools.utility import generate_db_path
+
+from gqe import lib
+from gqe.benchmark.gqe_experiment import GqeExperimentConnection
+from gqe.benchmark.run import (
+    CatalogContext,
+    DataInfo,
+    QueryExecutionContext,
+    QueryInfoContext,
+    boost_shared_memory_pool_size,
+    is_valid_identifier_type,
+    parse_bool,
+    parse_identifier_type,
+    parse_scale_factor,
+    print_mp,
+    run_tpc,
+    set_eager_module_loading,
+    setup_db,
+)
+from gqe.param_sweep_config import (
+    BENCHMARK_CONFIG_DEFAULTS,
+    QUERY_CONFIG_DEFAULTS,
+    check_cli_overrides,
+    config_to_args,
+    get_query_execution_params,
+    load_json_config,
+)
 
 
 def get_queries(query_source: str, queries: list[str] = None):
@@ -160,12 +155,8 @@ def parse_args():
     arg_parser = argparse.ArgumentParser()
 
     # Monkey patch arg_parser to simplify definition of int and boolean arguments
-    arg_parser.add_boolean_list_argument = functools.partial(
-        add_boolean_list_argument, arg_parser
-    )
-    arg_parser.add_int_list_argument = functools.partial(
-        add_int_list_argument, arg_parser
-    )
+    arg_parser.add_boolean_list_argument = functools.partial(add_boolean_list_argument, arg_parser)
+    arg_parser.add_int_list_argument = functools.partial(add_int_list_argument, arg_parser)
 
     # JSON config file (when provided, other args are ignored)
     arg_parser.add_argument(
@@ -179,9 +170,7 @@ def parse_args():
     # Positional arguments are optional when using --json
     arg_parser.add_argument("dataset", nargs="?", help="TPC-H dataset location")
     arg_parser.add_argument("plan", nargs="?", help="Substrait query plan location")
-    arg_parser.add_argument(
-        "solution", nargs="?", help="Reference results location with pattern"
-    )
+    arg_parser.add_argument("solution", nargs="?", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
     arg_parser.add_argument("--quiet", help="Quiet mode", action="store_true")
     arg_parser.add_argument(
@@ -399,9 +388,7 @@ def main():
     else:
         # Validate required positional arguments when not using JSON
         if not args.dataset or not args.plan or not args.solution:
-            print(
-                "Error: dataset, plan, and solution are required when not using --json"
-            )
+            print("Error: dataset, plan, and solution are required when not using --json")
             sys.exit(1)
 
     print(f"Arguments: {args}")
@@ -420,16 +407,12 @@ def main():
     gqe_host = "localhost"
     scale_factor = parse_scale_factor(args.dataset)
     load_all_data = (
-        args.load_all_data
-        if args.load_all_data is not None
-        else (1 if scale_factor <= 200 else 0)
+        args.load_all_data if args.load_all_data is not None else (1 if scale_factor <= 200 else 0)
     )
 
     multiprocess_runtime_context = None
     if args.multiprocess:
-        if args.storage_kind != ["parquet_file"] and args.storage_kind != [
-            "boost_shared_memory"
-        ]:
+        if args.storage_kind != ["parquet_file"] and args.storage_kind != ["boost_shared_memory"]:
             raise ValueError(
                 "Multiprocess mode is only supported with parquet_file storage kind or boost_shared_memory storage kind"
             )
@@ -461,13 +444,9 @@ def main():
     edb_info = None
     is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
     if is_root_rank:
-        edb_file = (
-            args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
-        )
+        edb_file = args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
 
-        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
-            GqeExperimentConnection
-        )
+        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         edb_config.create_experiment_db()
         edb_info = None
         with edb_config as edb:
@@ -745,11 +724,7 @@ def main():
                     # explicitly replace errors list with list proxy
                     errors = manager.list()
                     invalid_results = manager.list()
-                    print_mp(
-                        "Running experiments with subprocess sandbox", is_root_rank
-                    )
-                    num_starting_params = len(parameter_queue)
-                    iters = 0
+                    print_mp("Running experiments with subprocess sandbox", is_root_rank)
                     while parameter_queue:
                         parent_pipe, child_pipe = subproc_ctx.Pipe()
                         subproc = subproc_ctx.Process(
@@ -800,12 +775,8 @@ def main():
             print_mp(result, is_root_rank)
 
     if errors:
-        print_mp(
-            f"The following {len(errors)} configurations produced errors", is_root_rank
-        )
-        print_mp(
-            "note: hard crashes e.g. segfault will not be recorded here:", is_root_rank
-        )
+        print_mp(f"The following {len(errors)} configurations produced errors", is_root_rank)
+        print_mp("note: hard crashes e.g. segfault will not be recorded here:", is_root_rank)
         for error in errors:
             print_mp(error, is_root_rank)
 
@@ -848,10 +819,7 @@ def do_poll(subproc, pipe, timeout):
 def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, args):
     query_timeout = args.query_timeout
     data_timeout = args.data_timeout
-    prev_items = len(parameter_queue)
-    print(
-        f"Starting parameter set execution with {len(parameter_queue)} sets remaining"
-    )
+    print(f"Starting parameter set execution with {len(parameter_queue)} sets remaining")
     print(f"Using {query_timeout}s query timeout and {data_timeout}s data load timeout")
     subproc.start()
 

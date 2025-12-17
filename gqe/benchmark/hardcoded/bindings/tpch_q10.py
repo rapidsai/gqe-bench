@@ -8,8 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe.relation import Relation
 import gqe.lib
+from gqe.relation import Relation
 
 
 class Q10UniqueKeyInnerJoinBuildRelation(Relation):
@@ -17,9 +17,7 @@ class Q10UniqueKeyInnerJoinBuildRelation(Relation):
     Q10-specific unique-key inner join build relation.
     """
 
-    def __init__(
-        self, build_side_table: Relation, key_column_idx: int, enable_bloom_filter: bool
-    ):
+    def __init__(self, build_side_table: Relation, key_column_idx: int, enable_bloom_filter: bool):
         self.build_side_table = build_side_table
         self.key_column_idx = key_column_idx
         self.enable_bloom_filter = enable_bloom_filter

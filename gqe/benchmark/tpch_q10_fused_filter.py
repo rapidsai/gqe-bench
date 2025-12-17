@@ -9,10 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import DateLiteral
-from gqe.expression import Literal
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import DateLiteral, Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
 
@@ -91,8 +90,7 @@ class tpch_q10_fused_filter(Query):
             unique_keys_policy=UniqueKeysPolicy.right,
             perfect_hashing=True,
             left_filter=(
-                (CR(2) >= DateLiteral("1993-10-01"))
-                & (CR(2) < DateLiteral("1994-01-01"))
+                (CR(2) >= DateLiteral("1993-10-01")) & (CR(2) < DateLiteral("1994-01-01"))
             ),
         )
 
@@ -152,6 +150,4 @@ class tpch_q10_fused_filter(Query):
         # c_address,
         # c_phone,
         # c_comment
-        return sort_limit.project(
-            [CR(1), CR(2), CR(7), CR(3), CR(0), CR(5), CR(4), CR(6)]
-        )
+        return sort_limit.project([CR(1), CR(2), CR(7), CR(3), CR(0), CR(5), CR(4), CR(6)])

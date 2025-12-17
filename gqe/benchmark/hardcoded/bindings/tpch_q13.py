@@ -8,8 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe.relation import Relation
 import gqe.lib
+from gqe.relation import Relation
 
 
 class Q13FilterOrdersRelation(Relation):
@@ -60,9 +60,7 @@ class Q13FusedFilterProbeRelation(Relation):
         self.orders = orders
 
     def _to_cpp(self):
-        return gqe.lib.q13_fused_filter_probe(
-            self.groupjoin_build._cpp, self.orders._cpp
-        )
+        return gqe.lib.q13_fused_filter_probe(self.groupjoin_build._cpp, self.orders._cpp)
 
 
 class Q13GroupjoinRetrieveRelation(Relation):

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -8,16 +8,15 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal
-from gqe.benchmark.query import Query
-from gqe.lib import UniqueKeysPolicy
-from gqe.table_definition import TPCHTableDefinitions
-
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
+from gqe import read
+from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import Literal
+from gqe.lib import UniqueKeysPolicy
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 select
@@ -71,9 +70,7 @@ class tpch_q11(Query):
     def root_relation(self, table_defs: TPCHTableDefinitions):
         # n_name = 'GERMANY'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read(
-            "nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"), table_defs
-        )
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("GERMANY"), table_defs)
         nation = nation.filter(CR(1) == Literal("GERMANY"), [0])
 
         # s_nationkey = n_nationkey
@@ -109,9 +106,7 @@ class tpch_q11(Query):
 
         # sum(ps_supplycost * ps_availqty) group by ps_partkey
         # After this operation, `partsupp` contains columns ["ps_partkey", value]
-        partsupp = partsupp.aggregate(
-            [CR(0)], [("sum", CR(1) * CR(2))], perfect_hashing=True
-        )
+        partsupp = partsupp.aggregate([CR(0)], [("sum", CR(1) * CR(2))], perfect_hashing=True)
 
         # having sum(ps_supplycost * ps_availqty) > [FRACTION] * ...
         # After this operation, `partsupp` contains columns ["ps_partkey", value]
@@ -128,9 +123,7 @@ class tpch_q11(Query):
 
         return partsupp
 
-    def validate_query(
-        self, query_result: pd.DataFrame, reference: pd.DataFrame, atol: float
-    ):
+    def validate_query(self, query_result: pd.DataFrame, reference: pd.DataFrame, atol: float):
         """
         Validates the query result.
 
@@ -158,9 +151,7 @@ class tpch_q11(Query):
         r_value_name = reference.columns[1]
 
         # Validate sort order.
-        assert_frame_equal(
-            query_result[[q_value_name]], reference[[r_value_name]], atol=atol
-        )
+        assert_frame_equal(query_result[[q_value_name]], reference[[r_value_name]], atol=atol)
 
         # Round to two fractional digits, as specified by TPC-H DECIMAL.
         query_result[q_value_name] = query_result[q_value_name].round(2)

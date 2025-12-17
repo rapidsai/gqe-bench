@@ -9,15 +9,14 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, LikeExpr
-from gqe.benchmark.query import Query
-from gqe.relation import Relation
 from gqe.benchmark.hardcoded.bindings.tpch_q16 import (
-    Q16FusedFilterJoinRelation,
     Q16AggregationRelation,
+    Q16FusedFilterJoinRelation,
 )
+from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import LikeExpr
 from gqe.table_definition import TPCHTableDefinitions
-
 
 """
 select
@@ -65,9 +64,7 @@ class tpch_q16_opt(Query):
             "supplier", ["s_suppkey", "s_comment"], None, table_defs
         ).filter(LikeExpr(CR(1), "%Customer%Complaints%"), [0])
 
-        part = read(
-            "part", ["p_partkey", "p_brand", "p_type", "p_size"], None, table_defs
-        )
+        part = read("part", ["p_partkey", "p_brand", "p_type", "p_size"], None, table_defs)
 
         # Read partsupp table and exclude suppliers with complaints
         partsupp = read("partsupp", ["ps_partkey", "ps_suppkey"], None, table_defs)

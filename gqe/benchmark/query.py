@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,6 +9,7 @@
 # its affiliates is strictly prohibited.
 
 from abc import ABC, abstractmethod
+
 from gqe.relation import Relation
 from gqe.table_definition import TPCHTableDefinitions
 

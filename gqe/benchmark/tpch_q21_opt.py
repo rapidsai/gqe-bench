@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,16 +9,16 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, Literal
-from gqe.benchmark.query import Query
-from gqe.lib import UniqueKeysPolicy
-from gqe.relation import Relation
 from gqe.benchmark.hardcoded.bindings.tpch_q21 import (
     Q21LeftAntiJoinProbeRelation,
-    Q21LeftSemiJoinProbeRelation,
     Q21LeftAntiJoinRetrieveRelation,
+    Q21LeftSemiJoinProbeRelation,
     Q21LeftSemiJoinRetrieveRelation,
 )
+from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import Literal
+from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
 
 """
@@ -74,9 +74,9 @@ class tpch_q21_opt(Query):
     def root_relation(self, table_defs: TPCHTableDefinitions):
         # `supplier` has columns ["s_suppkey", "s_name"] which satisfies
         # s_nationkey = n_nationkey and n_name = 'SAUDI ARABIA'
-        nation = read(
-            "nation", ["n_nationkey", "n_name"], CR(1) == Literal("SAUDI ARABIA")
-        ).filter(CR(1) == Literal("SAUDI ARABIA"), [0])
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("SAUDI ARABIA")).filter(
+            CR(1) == Literal("SAUDI ARABIA"), [0]
+        )
         supplier = read(
             "supplier", ["s_suppkey", "s_name", "s_nationkey"], None, table_defs
         ).broadcast_join(
@@ -127,9 +127,7 @@ class tpch_q21_opt(Query):
         joined2 = Q21LeftAntiJoinRetrieveRelation(joined1, l2_probe)
 
         # o_orderkey = l1.l_orderkey and o_orderstatus = 'F'
-        order = read(
-            "orders", ["o_orderkey", "o_orderstatus"], CR(2) == Literal(70), table_defs
-        )
+        order = read("orders", ["o_orderkey", "o_orderstatus"], CR(2) == Literal(70), table_defs)
         order = order.filter(CR(1) == Literal(70), [0])
         joined2 = order.broadcast_join(
             joined2,

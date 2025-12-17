@@ -8,10 +8,11 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-import gqe.lib
-from typing import Dict
-from gqe import table_definition
 import argparse
+from typing import Dict
+
+import gqe.lib
+from gqe import table_definition
 
 
 def get_row_counts(scale_factor: float) -> Dict[str, int]:
@@ -49,9 +50,7 @@ def calculate_memory_requirements(
     table_to_mem_usage = {}
 
     for table_name, columns in definitions.items():
-        row_size = sum(
-            type_sizes[column_traits.data_type.type_id()] for column_traits in columns
-        )
+        row_size = sum(type_sizes[column_traits.data_type.type_id()] for column_traits in columns)
         table_to_mem_usage[table_name] = row_size * row_counts[table_name]
     total_memory = sum(table_to_mem_usage.values())
 
@@ -61,9 +60,7 @@ def calculate_memory_requirements(
 def estimate_memory_for_all_queries(
     scale_factor: float, identifier_type: gqe.lib.TypeId, use_opt_char_type: bool
 ):
-    table_defs = table_definition.TPCHTableDefinitions(
-        identifier_type, use_opt_char_type
-    )
+    table_defs = table_definition.TPCHTableDefinitions(identifier_type, use_opt_char_type)
 
     for query_idx in range(23):  # 0-22 inclusive
         definitions = table_defs.query_table_definitions(query_idx)
@@ -76,9 +73,7 @@ def estimate_memory_for_all_queries(
         else:
             print(f"Query {query_idx}", end="")
 
-        print(
-            f" memory needed: {memory_needed_for_query / (1024 * 1024 * 1024):.2f} GiB"
-        )
+        print(f" memory needed: {memory_needed_for_query / (1024 * 1024 * 1024):.2f} GiB")
         for table_name, mem_needed in memory_needed_by_table.items():
             print(
                 f"  Table: {table_name}, memory needed: {mem_needed / (1024 * 1024 * 1024):.3f} GiB"
@@ -119,9 +114,7 @@ def main():
     str_to_type = {"int32": gqe.lib.TypeId.int32, "int64": gqe.lib.TypeId.int64}
     identifier_type = str_to_type[args.identifier_type]
 
-    estimate_memory_for_all_queries(
-        args.scale_factor, identifier_type, args.use_opt_char_type
-    )
+    estimate_memory_for_all_queries(args.scale_factor, identifier_type, args.use_opt_char_type)
 
 
 if __name__ == "__main__":

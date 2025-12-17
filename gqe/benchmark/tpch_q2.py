@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,12 +9,11 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal, LikeExpr
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import LikeExpr, Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
-
 
 """
 select
@@ -87,9 +86,7 @@ class tpch_q2(Query):
         region = region.filter(CR(1) == Literal("EUROPE"), [0])
 
         # After these operations, `nation` contains columns ["n_nationkey", "n_name"]
-        nation = read(
-            "nation", ["n_nationkey", "n_regionkey", "n_name"], None, table_defs
-        )
+        nation = read("nation", ["n_nationkey", "n_regionkey", "n_name"], None, table_defs)
         nation = nation.broadcast_join(
             region,
             CR(1) == CR(3),
@@ -125,9 +122,7 @@ class tpch_q2(Query):
         # Because p_partkey is a primary key, we can push the filter into the subquery
         # After these operations, `partsupp` contains columns
         # ["ps_partkey", "ps_suppkey", "ps_supplycost", "p_mfgr"]
-        partsupp = read(
-            "partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost"], None, table_defs
-        )
+        partsupp = read("partsupp", ["ps_partkey", "ps_suppkey", "ps_supplycost"], None, table_defs)
         partsupp = partsupp.broadcast_join(
             part,
             CR(0) == CR(3),

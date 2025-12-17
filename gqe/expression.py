@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -16,12 +16,14 @@ associated with a :class:`join relation <gqe.relation.JoinRelation>`. An express
 by an object of the :class:`Expression <gqe.expression.Expression>` class.
 """
 
-import gqe.lib
-import gqe.type
+import datetime
 from abc import ABC, abstractmethod
 from functools import cached_property
-import datetime
+
 import numpy as np
+
+import gqe.lib
+import gqe.type
 
 
 class Expression(ABC):
@@ -234,9 +236,7 @@ class SubstrExpr(Expression):
 
 
 class IfThenElseExpr(Expression):
-    def __init__(
-        self, if_expr: Expression, then_expr: Expression, else_expr: Expression
-    ):
+    def __init__(self, if_expr: Expression, then_expr: Expression, else_expr: Expression):
         """
         Construct a if then else expression.
 
@@ -249,9 +249,7 @@ class IfThenElseExpr(Expression):
         self.else_expr = else_expr
 
     def _to_cpp(self):
-        return gqe.lib.IfThenElse(
-            self.if_expr._cpp, self.then_expr._cpp, self.else_expr._cpp
-        )
+        return gqe.lib.IfThenElse(self.if_expr._cpp, self.then_expr._cpp, self.else_expr._cpp)
 
 
 _date_time_component_to_cpp: dict[str, gqe.lib.DateTimeComponent] = {
@@ -282,15 +280,11 @@ class DatePartExpr(Expression):
         self.component = component
 
     def _to_cpp(self):
-        return gqe.lib.DatePart(
-            self.input._to_cpp(), _date_time_component_to_cpp[self.component]
-        )
+        return gqe.lib.DatePart(self.input._to_cpp(), _date_time_component_to_cpp[self.component])
 
 
 class Literal(Expression):
-    def __init__(
-        self, value: int | np.int32 | np.int64 | str | float | np.float32 | np.float64
-    ):
+    def __init__(self, value: int | np.int32 | np.int64 | str | float | np.float32 | np.float64):
         """
         Construct a literal expression.
 

@@ -1,6 +1,6 @@
 # GPU Query Executor (GQE) python interface
 
-This repository contains the python interface for the GPU Query Executor (GQE). In addition it also contains scripts for generating TPC-H dataset, and reference files. 
+This repository contains the python interface for the GPU Query Executor (GQE). In addition it also contains scripts for generating TPC-H dataset, and reference files.
 
 ## Installation
 
@@ -123,24 +123,45 @@ python scripts/nsys_analysis.py <tool> <sqlite> "<nvtx_range_glob>" [options]
 python scripts/nsys_analysis.py kernel --analysis_type kernel_time_effective /path/to/trace.sqlite "*Run Q13*" -o kernel_effective.csv
 
 # Kernel: total kernel time excluding a kernel pattern
-python scripts/nsys_analysis.py kernel --analysis_type kernel_time_sum --exclude_kernel_glob "*fused_concatenate*" /path/to/trace.sqlite "*Run Q13*" 
+python scripts/nsys_analysis.py kernel --analysis_type kernel_time_sum --exclude_kernel_glob "*fused_concatenate*" /path/to/trace.sqlite "*Run Q13*"
 
 # IO: total HtoD copy time from pinned host memory within the NVTX range
 python scripts/nsys_analysis.py io --analysis_type htod_copy_time_sum /path/to/trace.sqlite "*Run Q13*"  -o io_htod_time.csv
 
 # IO: effective in-memory read task time (GQE NVTX ranges merged)
-python scripts/nsys_analysis.py io --analysis_type read_time_effective /path/to/trace.sqlite "*Run Q13*" 
+python scripts/nsys_analysis.py io --analysis_type read_time_effective /path/to/trace.sqlite "*Run Q13*"
 
 # IO: total decompression engine decompress time
-python scripts/nsys_analysis.py io --analysis_type hw_decompress_time_sum /path/to/trace.sqlite "*Run Q2*" 
+python scripts/nsys_analysis.py io --analysis_type hw_decompress_time_sum /path/to/trace.sqlite "*Run Q2*"
 
-## Formatting
+## Pre-commit Hooks
 
-To fix formatting of python code:
+This project uses [pre-commit](https://pre-commit.com/) to enforce code style and quality. The hooks include:
+- **Ruff** for Python linting and formatting (replaces flake8, isort, black, autoflake)
+- **clang-format** for C++/CUDA formatting
 
+### Setup
+
+Install the pre-commit hooks (one-time setup):
+
+```bash
+pre-commit install
 ```
-conda install black=25.1.0
-black .
+
+### Usage
+
+The hooks will run automatically on `git commit`. To run manually on all files:
+
+```bash
+pre-commit run --all-files
+```
+
+To run a specific hook:
+
+```bash
+pre-commit run ruff --all-files        # linting with auto-fix
+pre-commit run ruff-format --all-files # formatting
+pre-commit run clang-format --all-files
 ```
 
 ## Data generation and validation generation scripts

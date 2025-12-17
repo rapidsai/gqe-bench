@@ -12,11 +12,10 @@
 
 import argparse
 import os
-import sys
-from typing import Dict, List
 import subprocess
+import sys
 import tempfile
-
+from typing import Dict, List
 
 TPCH_TABLES: List[str] = [
     "part",
@@ -57,9 +56,7 @@ def derive_output_path(sql_file_path: str, output_dir: str, output_format: str) 
     return os.path.join(output_dir, f"{stem}.{output_format}")
 
 
-def render_yaml(
-    sql_text: str, output_binary: str, tables_map: Dict[str, Dict[str, str]]
-) -> str:
+def render_yaml(sql_text: str, output_binary: str, tables_map: Dict[str, Dict[str, str]]) -> str:
     """Render the YAML text manually to control block scalars and indentation.
 
     Example:

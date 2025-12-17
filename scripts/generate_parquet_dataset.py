@@ -10,12 +10,13 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-import os
 import argparse
-import uuid
 import math
-import duckdb
+import os
 import tempfile
+import uuid
+
+import duckdb
 
 
 def parse_args():
@@ -23,12 +24,8 @@ def parse_args():
         description="Generate TPC-H data in Parquet format",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
-        "-t", "--tmp", default="", type=str, help="Path for temporary DB on disk"
-    )
-    parser.add_argument(
-        "-o", "--output", default="./data", type=str, help="Output path"
-    )
+    parser.add_argument("-t", "--tmp", default="", type=str, help="Path for temporary DB on disk")
+    parser.add_argument("-o", "--output", default="./data", type=str, help="Output path")
     parser.add_argument("-s", "--scale", default=1, type=float, help="Scale factor")
     parser.add_argument(
         "-c",
@@ -71,14 +68,12 @@ def gen_parquet_data(tmp, opath, scale_factor, chunk_size, sf_per_child):
     ROW_GROUPS_PER_FILE 1,
     PER_THREAD_OUTPUT true,
     OVERWRITE true
-  );""".format(
-            opath, chunk_size
-        )
+  );""".format(opath, chunk_size)
     )
     con.close()
     try:
         os.remove(tmp_db)
-    except:
+    except OSError:
         print(f"Error removing temporary DB at {tmp_db}!")
     else:
         print(f"Removing temporary DB at {tmp_db}")
@@ -94,6 +89,4 @@ if __name__ == "__main__":
     # Parse cmd arguments
     args = parse_args()
 
-    gen_parquet_data(
-        args.tmp, args.output, args.scale, args.chunksize, args.sf_per_child
-    )
+    gen_parquet_data(args.tmp, args.output, args.scale, args.chunksize, args.sf_per_child)

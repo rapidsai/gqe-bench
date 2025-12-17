@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -20,13 +20,13 @@ relations includes :class:`filter <gqe.relation.FilterRelation>`,
 
 from __future__ import annotations  # Enable forward references for type annotations
 
-from gqe.expression import Expression
-from gqe import table_definition
-import gqe.lib
+import os
 from abc import ABC, abstractmethod
 from functools import cached_property
 
-import os
+import gqe.lib
+from gqe import table_definition
+from gqe.expression import Expression
 
 
 class Relation(ABC):
@@ -253,9 +253,7 @@ def read(
     column_defs = None
     if table_defs:
         # query all tables
-        tables = table_defs.query_table_definitions(
-            query_idx=0, load_all_data_from="full"
-        )
+        tables = table_defs.query_table_definitions(query_idx=0, load_all_data_from="full")
         if table in tables:
             column_defs = tables[table]
     return ReadRelation(table, columns, partial_filter, column_defs)
@@ -266,17 +264,13 @@ class FilterRelation(Relation):
     A filter relation selects a subset of rows from the input table based on the filter condition.
     """
 
-    def __init__(
-        self, input: Relation, condition: Expression, projection_indices: list[int]
-    ):
+    def __init__(self, input: Relation, condition: Expression, projection_indices: list[int]):
         self.input = input
         self.condition = condition
         self.projection_indices = projection_indices
 
     def _to_cpp(self):
-        return gqe.lib.filter(
-            self.input._cpp, self.condition._cpp, self.projection_indices
-        )
+        return gqe.lib.filter(self.input._cpp, self.condition._cpp, self.projection_indices)
 
 
 _join_type_to_cpp: dict[str, gqe.lib.JoinType] = {
@@ -387,9 +381,7 @@ class ShuffleRelation(Relation):
         self.shuffle_cols = shuffle_cols
 
     def _to_cpp(self):
-        return gqe.lib.shuffle(
-            self.input._cpp, [expr._cpp for expr in self.shuffle_cols]
-        )
+        return gqe.lib.shuffle(self.input._cpp, [expr._cpp for expr in self.shuffle_cols])
 
 
 _aggregation_kind_to_cpp: dict[str, gqe.lib.AggregationKind] = {
@@ -438,10 +430,7 @@ class AggregateRelation(Relation):
         return gqe.lib.aggregate(
             self.input._cpp,
             [key._cpp for key in self.keys],
-            [
-                (_aggregation_kind_to_cpp[kind], expr._cpp)
-                for (kind, expr) in self.measures
-            ],
+            [(_aggregation_kind_to_cpp[kind], expr._cpp) for (kind, expr) in self.measures],
             self.condition._cpp if self.condition else None,
             self.perfect_hashing,
         )
@@ -499,9 +488,7 @@ class SortRelation(Relation):
             orders.append(_order_to_cpp[order])
             null_orders.append(_null_order_to_cpp[null_order])
 
-        return gqe.lib.sort(
-            self.input._cpp, orders, null_orders, [expr._cpp for expr in exprs]
-        )
+        return gqe.lib.sort(self.input._cpp, orders, null_orders, [expr._cpp for expr in exprs])
 
 
 class FetchRelation(Relation):

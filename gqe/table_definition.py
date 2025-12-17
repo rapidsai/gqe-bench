@@ -118,26 +118,24 @@ class TPCHTableDefinitions:
 
     def get_column_types(
         self, tables: dict[str, list[str]]
-    ) -> dict[str, list[ColumnTraits]]:
+    ) -> dict[str, list["gqe.lib.ColumnTraits"]]:
         definitions = {}
         for table, columns in tables.items():
             definitions[table] = [
-                gqe.lib.ColumnTraits(col, *self.definitions[table][col])
-                for col in columns
+                gqe.lib.ColumnTraits(col, *self.definitions[table][col]) for col in columns
             ]
         return definitions
 
     def query_table_definitions(
         self, query_idx: int, load_all_data_from: str = "required"
-    ) -> dict[str, list[ColumnTraits]]:
+    ) -> dict[str, list["gqe.lib.ColumnTraits"]]:
         """Return the tables and and columns (encoded as C++ ColumnTraits) requrired by a query."""
 
         # All data from the TPC-H schema
         if query_idx == 0 and load_all_data_from == "full":
             return {
                 table: [
-                    gqe.lib.ColumnTraits(col, *type_traits)
-                    for col, type_traits in cols.items()
+                    gqe.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()
                 ]
                 for table, cols in self.definitions.items()
             }

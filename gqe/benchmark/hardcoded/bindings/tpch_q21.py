@@ -8,8 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe.relation import Relation
 import gqe.lib
+from gqe.relation import Relation
 
 
 class Q21LeftAntiJoinProbeRelation(Relation):
@@ -35,9 +35,7 @@ class Q21LeftAntiJoinRetrieveRelation(Relation):
         self.probe = probe
 
     def _to_cpp(self):
-        return gqe.lib.q21_left_anti_join_retrieve(
-            self.left_table._cpp, self.probe._cpp
-        )
+        return gqe.lib.q21_left_anti_join_retrieve(self.left_table._cpp, self.probe._cpp)
 
 
 class Q21LeftSemiJoinProbeRelation(Relation):
@@ -63,6 +61,4 @@ class Q21LeftSemiJoinRetrieveRelation(Relation):
         self.probe = probe
 
     def _to_cpp(self):
-        return gqe.lib.q21_left_semi_join_retrieve(
-            self.left_table._cpp, self.probe._cpp
-        )
+        return gqe.lib.q21_left_semi_join_retrieve(self.left_table._cpp, self.probe._cpp)

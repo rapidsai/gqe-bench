@@ -17,11 +17,10 @@ This module provides functionality to load experiment configurations from JSON f
 with support for global parameters and query-specific overrides.
 """
 
-import json5
 import sys
 from argparse import Namespace
-from typing import Any
 
+import json5
 
 # Fields that can be overridden per-query, with their default values
 QUERY_CONFIG_DEFAULTS = {
@@ -187,9 +186,7 @@ def get_query_execution_params(args: Namespace, query_str: str) -> dict:
     params = {}
     for field in QUERY_CONFIG_FIELDS:
         # Check if any matching override provides this field
-        override_values = [
-            entry[field] for entry in matching_overrides if field in entry
-        ]
+        override_values = [entry[field] for entry in matching_overrides if field in entry]
 
         if override_values:
             # Use only override values, merging multiple overrides together

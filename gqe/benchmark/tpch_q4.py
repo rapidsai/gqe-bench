@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,9 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
+from gqe.benchmark.query import Query
 from gqe.expression import ColumnReference as CR
 from gqe.expression import DateLiteral
-from gqe.benchmark.query import Query
 from gqe.table_definition import TPCHTableDefinitions
 
 """
@@ -71,9 +71,7 @@ class tpch_q4(Query):
         orders = orders.broadcast_join(lineitem, CR(0) == CR(2), [1], "left_semi", True)
 
         # group by o_orderpriority
-        orders = orders.aggregate(
-            [CR(0)], [("count_all", CR(0))], perfect_hashing=False
-        )
+        orders = orders.aggregate([CR(0)], [("count_all", CR(0))], perfect_hashing=False)
 
         # order by o_orderpriority
         return orders.sort([(CR(0), "ascending", "before")])

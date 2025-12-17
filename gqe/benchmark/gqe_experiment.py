@@ -9,14 +9,15 @@
 # its affiliates is strictly prohibited.
 
 from dataclasses import dataclass
+
+from database_benchmarking_tools import sql_generator
 from database_benchmarking_tools.experiment import (
     DataInfoId,
     ExperimentConnection,
     ParametersId,
-    SutInfoId,
     RunId,
+    SutInfoId,
 )
-from database_benchmarking_tools import sql_generator
 
 
 @dataclass

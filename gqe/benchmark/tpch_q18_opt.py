@@ -8,14 +8,13 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal
-from gqe.benchmark.query import Query
-from gqe.relation import Relation
-from gqe.lib import UniqueKeysPolicy
-from gqe.table_definition import TPCHTableDefinitions
 import gqe.lib
+from gqe import read
+from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.lib import UniqueKeysPolicy
+from gqe.relation import Relation
+from gqe.table_definition import TPCHTableDefinitions
 
 
 class Q18GroupByRelation(Relation):
@@ -35,15 +34,15 @@ class Q18GroupByRelation(Relation):
 """
 TPC-H Q18 Optimized: Large Volume Customer Query with Group By Optimization
 
-This is the optimized version of TPC-H Q18 that finds customers who have placed 
-orders with large quantities. It uses a specialized group by approach that first 
+This is the optimized version of TPC-H Q18 that finds customers who have placed
+orders with large quantities. It uses a specialized group by approach that first
 aggregates lineitem quantities, then joins with orders.
 
 The group by optimization provides better performance by:
 1. Direct key comparison (l_orderkey) instead of device_row_comparator, eliminating indirection
-2. Single-pass atomic aggregation using insert_or_apply that atomically initializes buckets and 
+2. Single-pass atomic aggregation using insert_or_apply that atomically initializes buckets and
    accumulates quantities, eliminating separate insert-then-find operations
-3. Integrated filtering (sum_quantity > 300) during hash table retrieval, avoiding materialization 
+3. Integrated filtering (sum_quantity > 300) during hash table retrieval, avoiding materialization
    of unfiltered results as a separate operation
 
 Original Query:
@@ -115,9 +114,7 @@ class tpch_q18_opt(Query):
         # aggregated_lineitem: [l_orderkey, sum_l_quantity]
         # orders: [o_orderkey, o_custkey, o_orderdate, o_totalprice]
         # Result: [l_orderkey, sum_l_quantity, o_custkey, o_orderdate, o_totalprice]
-        orders = read(
-            "orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"]
-        )
+        orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"])
         orders_with_quantities = aggregated_lineitem.broadcast_join(
             orders,
             CR(0) == CR(2),  # l_orderkey == o_orderkey
@@ -168,9 +165,7 @@ class tpch_q18_opt(Query):
                     CR(3),
                     CR(4),
                 ],  # [c_name, o_custkey, l_orderkey, o_orderdate, o_totalprice]
-                [
-                    ("sum", CR(1))
-                ],  # sum(l_quantity) - already aggregated, so this is identity
+                [("sum", CR(1))],  # sum(l_quantity) - already aggregated, so this is identity
             )
             .sort(
                 [

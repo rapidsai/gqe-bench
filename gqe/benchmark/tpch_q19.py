@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -8,13 +8,13 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal
-from gqe.benchmark.query import Query
-from gqe.table_definition import TPCHTableDefinitions
 import numpy as np
 
+from gqe import read
+from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import Literal
+from gqe.table_definition import TPCHTableDefinitions
 
 """
 select
@@ -67,7 +67,7 @@ class tpch_q19(Query):
                 "l_extendedprice",
                 "l_discount",
             ],
-            (((CR(14) == Literal("AIR")) | (CR(14) == Literal("AIR REG"))))
+            ((CR(14) == Literal("AIR")) | (CR(14) == Literal("AIR REG")))
             & (CR(13) == Literal("DELIVER IN PERSON"))
             & ((CR(4) >= Literal(1)) & (CR(4) <= Literal(30))),
             table_defs,
@@ -234,6 +234,4 @@ class tpch_q19(Query):
         )
 
         # sum(l_extendedprice* (1 - l_discount)) as revenue
-        return joined.aggregate(
-            [], [("sum", CR(0) * (Literal(1) - CR(1)))], perfect_hashing=True
-        )
+        return joined.aggregate([], [("sum", CR(0) * (Literal(1) - CR(1)))], perfect_hashing=True)

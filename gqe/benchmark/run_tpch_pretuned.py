@@ -10,34 +10,29 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe.benchmark.gqe_experiment import GqeExperimentConnection
-from gqe.benchmark.run import (
-    run_tpc,
-    DataInfo,
-    CatalogContext,
-    QueryInfoContext,
-    QueryExecutionContext,
-    setup_db,
-    parse_scale_factor,
-    set_eager_module_loading,
-    is_valid_identifier_type,
-    fix_partial_filter_column_references,
-    get_query_validator,
-    boost_shared_memory_pool_size,
-    parse_bool,
-)
-from gqe import lib
-
-
-from database_benchmarking_tools.experiment import ExperimentDB
-from database_benchmarking_tools.utility import generate_db_path
-
 import argparse
-import importlib
 import os
 import re
 import sqlite3
 import sys
+
+from database_benchmarking_tools.experiment import ExperimentDB
+from database_benchmarking_tools.utility import generate_db_path
+
+from gqe import lib
+from gqe.benchmark.gqe_experiment import GqeExperimentConnection
+from gqe.benchmark.run import (
+    CatalogContext,
+    DataInfo,
+    QueryExecutionContext,
+    QueryInfoContext,
+    boost_shared_memory_pool_size,
+    parse_bool,
+    parse_scale_factor,
+    run_tpc,
+    set_eager_module_loading,
+    setup_db,
+)
 
 
 def get_best_parameters_file(sqlite_file: str):
@@ -81,9 +76,7 @@ def get_best_parameters_folder(df_folder: str):
         match = re.search(r"Q(\d+)", e_name)
         return int(match.group(1)) if match else 0
 
-    return sorted(
-        best_param_dict.values(), key=lambda x: extract_query_num(x["e_name"])
-    )
+    return sorted(best_param_dict.values(), key=lambda x: extract_query_num(x["e_name"]))
 
 
 def main():
@@ -101,9 +94,7 @@ def main():
         "--swept-sqlite-folder", help="Folder that has the parameter sweep results"
     )
     arg_parser.add_argument("--output", "-o", help="Output file path")
-    arg_parser.add_argument(
-        "--output-physical-plan", help="Output file folder of physical plans"
-    )
+    arg_parser.add_argument("--output-physical-plan", help="Output file folder of physical plans")
     arg_parser.add_argument(
         "--queries",
         "-q",
@@ -154,9 +145,7 @@ def main():
 
     set_eager_module_loading()
 
-    physical_plan_folder = (
-        args.output_physical_plan if args.output_physical_plan else None
-    )
+    physical_plan_folder = args.output_physical_plan if args.output_physical_plan else None
 
     errors = []
 
@@ -165,9 +154,7 @@ def main():
     elif args.swept_sqlite_folder:
         best_parameters = get_best_parameters_folder(args.swept_sqlite_folder)
     else:
-        raise ValueError(
-            "Either --swept_sqlite_file or --swept_sqlite_folder must be specified"
-        )
+        raise ValueError("Either --swept_sqlite_file or --swept_sqlite_folder must be specified")
 
     # TODO: Multiprocess mode needs to check if spawned ranks is equal to that in the best parameters
     # https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/13
@@ -198,12 +185,8 @@ def main():
     edb_file = None
     edb_config = None
     if is_root_rank:
-        edb_file = (
-            args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
-        )
-        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
-            GqeExperimentConnection
-        )
+        edb_file = args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
+        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         edb_config.create_experiment_db()
         print(f"Writing SQLite file to {edb_file}")
 
@@ -342,9 +325,7 @@ def main():
             print(f"Finished Physical Plan at the folder {physical_plan_folder}")
 
         if invalid_results:
-            print(
-                "The following configurations run successfully but produce incorrect results"
-            )
+            print("The following configurations run successfully but produce incorrect results")
             for result in invalid_results:
                 print(result)
 

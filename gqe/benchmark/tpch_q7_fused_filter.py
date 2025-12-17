@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,8 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, Literal, DatePartExpr, DateLiteral
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import DateLiteral, DatePartExpr, Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
 
@@ -75,9 +76,7 @@ class tpch_q7_fused_filter(Query):
         # join on c_nationkey = n2.n_nationkey
         #   customer has columns ["c_custkey", "c_nationkey"]
         #   returns ["c_custkey", "n_name" as "cust_nation"]
-        customer = read(
-            "customer", ["c_custkey", "c_nationkey"], None, table_defs
-        ).broadcast_join(
+        customer = read("customer", ["c_custkey", "c_nationkey"], None, table_defs).broadcast_join(
             nation,
             CR(1) == CR(2),
             [0, 3],
@@ -89,9 +88,7 @@ class tpch_q7_fused_filter(Query):
         #   orders has columns ["o_orderkey", "o_custkey"]
         #   customer has columns ["c_custkey", "cust_nation"]
         #   returns ["o_orderkey", "cust_nation"]
-        orders = read(
-            "orders", ["o_orderkey", "o_custkey"], None, table_defs
-        ).broadcast_join(
+        orders = read("orders", ["o_orderkey", "o_custkey"], None, table_defs).broadcast_join(
             customer,
             CR(1) == CR(2),
             [0, 3],
@@ -103,14 +100,11 @@ class tpch_q7_fused_filter(Query):
         l1 = read(
             "lineitem",
             ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
-            (CR(10) >= DateLiteral("1995-01-01"))
-            & (CR(10) <= DateLiteral("1996-12-31")),
+            (CR(10) >= DateLiteral("1995-01-01")) & (CR(10) <= DateLiteral("1996-12-31")),
             table_defs,
         )
         # l_shipdate between date '1995-01-01' and date '1996-12-31'
-        l1_filter = (CR(2) >= DateLiteral("1995-01-01")) & (
-            CR(2) <= DateLiteral("1996-12-31")
-        )
+        l1_filter = (CR(2) >= DateLiteral("1995-01-01")) & (CR(2) <= DateLiteral("1996-12-31"))
 
         # join on o_orderkey = l_orderkey
         #   l1 has columns ["l_orderkey", "l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"]
@@ -128,9 +122,7 @@ class tpch_q7_fused_filter(Query):
         # join on s_nationkey = n1.n_nationkey
         #   supplier has columns ["s_suppkey", "s_nationkey"]
         #   returns ["s_suppkey", "n_name" as "supp_nation"]
-        supplier = read(
-            "supplier", ["s_suppkey", "s_nationkey"], None, table_defs
-        ).broadcast_join(
+        supplier = read("supplier", ["s_suppkey", "s_nationkey"], None, table_defs).broadcast_join(
             nation,
             CR(1) == CR(2),
             [0, 3],
@@ -145,18 +137,14 @@ class tpch_q7_fused_filter(Query):
         #   This is UniqueKeysPolicy.right but not marked in the join
         #   because we cannot yet do unique key joins on
         #   non-equijoins.
-        l1 = l1.broadcast_join(
-            supplier, (CR(1) == CR(5)) & (CR(0) != CR(6)), [6, 0, 2, 3, 4]
-        )
+        l1 = l1.broadcast_join(supplier, (CR(1) == CR(5)) & (CR(0) != CR(6)), [6, 0, 2, 3, 4])
 
         # SELECT
         #   supp_nation,
         #   cust_nation,
         #   extract(year from l_shipdate) as l_year,
         #   l_extendedprice * (1 - l_discount) as volume
-        l1 = l1.project(
-            [CR(0), CR(1), DatePartExpr(CR(2), "year"), CR(3) * (Literal(1.0) - CR(4))]
-        )
+        l1 = l1.project([CR(0), CR(1), DatePartExpr(CR(2), "year"), CR(3) * (Literal(1.0) - CR(4))])
 
         # group by
         #   keys ["supp_nation", "cust_nation", "l_year"]
@@ -165,9 +153,7 @@ class tpch_q7_fused_filter(Query):
         #   supp_nation,
         #   cust_nation,
         #   l_year
-        l1 = l1.aggregate(
-            [CR(0), CR(1), CR(2)], [("sum", CR(3))], perfect_hashing=False
-        ).sort(
+        l1 = l1.aggregate([CR(0), CR(1), CR(2)], [("sum", CR(3))], perfect_hashing=False).sort(
             [
                 (CR(0), "ascending", "before"),
                 (CR(1), "ascending", "before"),

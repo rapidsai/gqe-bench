@@ -9,8 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, Literal, SubstrExpr
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import Literal, SubstrExpr
 from gqe.table_definition import TPCHTableDefinitions
 
 """
@@ -56,11 +57,8 @@ order by
 
 class tpch_q22(Query):
     def root_relation(self, table_defs: TPCHTableDefinitions):
-
         # customer: c_custkey, substring(c_phone, 0, 2), c_acctbal
-        customer = read(
-            "customer", ["c_custkey", "c_phone", "c_acctbal"], None, table_defs
-        )
+        customer = read("customer", ["c_custkey", "c_phone", "c_acctbal"], None, table_defs)
         customer = customer.project([CR(0), SubstrExpr(CR(1), 0, 2), CR(2)])
 
         # List of country codes to filter by
@@ -82,9 +80,7 @@ class tpch_q22(Query):
 
         # Calculate average account balance for positive balance customers with matching country codes
         pos_balance_customers = filtered_customers.filter(CR(2) > Literal(0.0), [2])
-        avg_acctbal = pos_balance_customers.aggregate(
-            [], [("avg", CR(0))], perfect_hashing=False
-        )
+        avg_acctbal = pos_balance_customers.aggregate([], [("avg", CR(0))], perfect_hashing=False)
 
         # Filter customers with account balance > average
         high_balance_customers = filtered_customers.broadcast_join(

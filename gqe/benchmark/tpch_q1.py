@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,14 +9,13 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import DateLiteral, Literal
 from gqe.table_definition import TPCHTableDefinitions
 
-
 """
-SQL string: 
+SQL string:
 
 select
         l_returnflag,
@@ -41,22 +40,22 @@ order by
         l_linestatus
 
 List of optimization over substrait plans:
-- We pass the filter condition to the aggregate operator, to save on materialization of columns. 
-    
-    The filter is evaluated on "l_shipdate" before the actual aggregation kernel, which then operates only on the rows that pass the filter.  
-    We don't materialize the other columns, after the filter mask is calculated, instead the mask and the columns are directly passed to the aggregate kernel. 
-    
-    The filter is 98% selective, and if we materialize the other columns, we are simply doing a copy of the data. 
+- We pass the filter condition to the aggregate operator, to save on materialization of columns.
 
-- For aggregations we reuse the sum and count for values. 
-  
+    The filter is evaluated on "l_shipdate" before the actual aggregation kernel, which then operates only on the rows that pass the filter.
+    We don't materialize the other columns, after the filter mask is calculated, instead the mask and the columns are directly passed to the aggregate kernel.
+
+    The filter is 98% selective, and if we materialize the other columns, we are simply doing a copy of the data.
+
+- For aggregations we reuse the sum and count for values.
+
   For ex. we need to calculate sum(l_quantity) and avg(l_quantity).
-  We could instead calculate sum(l_quantity), count(l_quantity) and then calculate avg through these two columns. 
+  We could instead calculate sum(l_quantity), count(l_quantity) and then calculate avg through these two columns.
   GQE effectively already does this via it's multi-partition aggregation implementation.
-  
+
   Additionally, the COUNT(*) == COUNT(l_quantity) as TPC-H columns are guaranteed to be NOT NULL
 
-  We can then reuse the COUNT(*) values across averages of different columns 
+  We can then reuse the COUNT(*) values across averages of different columns
   and sum(l_quantity) across sum(l_quantity) and avg(l_quantity)
 """
 

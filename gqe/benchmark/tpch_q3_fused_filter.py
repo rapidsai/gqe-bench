@@ -9,12 +9,11 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal, DateLiteral
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import DateLiteral, Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
-
 
 """
 select
@@ -50,7 +49,6 @@ The PK-FK join between order and customer on "o_custkey = c_custkey" doesnot cha
 
 class tpch_q3_fused_filter(Query):
     def root_relation(self, table_defs: TPCHTableDefinitions):
-
         customer = read(
             "customer",
             ["c_custkey", "c_mktsegment"],

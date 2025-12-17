@@ -8,55 +8,48 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe import Catalog, Context, MultiProcessContext
-from gqe.benchmark.gqe_experiment import GqeExperimentConnection
-import gqe.lib
-from gqe.benchmark.verify import verify_parquet
-from gqe import optimization_parameters
-from gqe.benchmark.gqe_experiment import (
-    GqeParameters,
-    GqeDataInfoExt,
-    GqeMetricInfo,
-    GqeRunExt,
-)
-from gqe.relation import (
-    Relation,
-    ReadRelation,
-    FilterRelation,
-    AggregateRelation,
-    BroadcastJoinRelation,
-    ShuffleJoinRelation,
-)
-from gqe.expression import (
-    Expression,
-    ColumnReference,
-    BinaryOpExpression,
-    LikeExpr,
-    IfThenElseExpr,
-    DatePartExpr,
-    Cast,
-)
-from gqe.table_definition import TPCHTableDefinitions
-from gqe.execute import MultiProcessContext, MultiProcessRuntimeContext
-
-from database_benchmarking_tools import experiment as exp
-from database_benchmarking_tools.experiment import ExperimentDB
-
-import importlib.resources
-import os
-import nvtx
-import pandas as pd
-import re
-from dataclasses import dataclass, asdict, fields
-from typing import Optional
-from collections.abc import Callable
-import copy
 import argparse
+import importlib.resources
 
 # Alias multiprocessing due to namespace class in GQE
 import multiprocessing as subprocessing
-import gc
-import gqe.lib as lib
+import os
+import re
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, fields
+from typing import Optional
+
+import nvtx
+import pandas as pd
+from database_benchmarking_tools import experiment as exp
+from database_benchmarking_tools.experiment import ExperimentDB
+
+import gqe.lib
+from gqe import Catalog, Context, MultiProcessContext, optimization_parameters
+from gqe.benchmark.gqe_experiment import (
+    GqeDataInfoExt,
+    GqeExperimentConnection,
+    GqeMetricInfo,
+    GqeParameters,
+    GqeRunExt,
+)
+from gqe.benchmark.verify import verify_parquet
+from gqe.expression import (
+    BinaryOpExpression,
+    Cast,
+    ColumnReference,
+    DatePartExpr,
+    Expression,
+    IfThenElseExpr,
+    LikeExpr,
+)
+from gqe.relation import (
+    BroadcastJoinRelation,
+    ReadRelation,
+    Relation,
+    ShuffleJoinRelation,
+)
+from gqe.table_definition import TPCHTableDefinitions
 
 
 # Extended Experiment
@@ -146,9 +139,7 @@ def upcast_to_super(obj, super_class):
 
 
 def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
-    sut_creation_path = importlib.resources.files("gqe.benchmark").joinpath(
-        "system_under_test.sql"
-    )
+    sut_creation_path = importlib.resources.files("gqe.benchmark").joinpath("system_under_test.sql")
     with importlib.resources.as_file(sut_creation_path) as script:
         edb.execute_script(script)
 
@@ -199,9 +190,7 @@ def parse_identifier_type(path: str) -> gqe.lib.TypeId:
         identifier_type = gqe.lib.TypeId.int64
     else:
         scale_factor = parse_scale_factor(path)
-        identifier_type = (
-            gqe.lib.TypeId.int32 if scale_factor < 357 else gqe.lib.TypeId.int64
-        )
+        identifier_type = gqe.lib.TypeId.int32 if scale_factor < 357 else gqe.lib.TypeId.int64
     return identifier_type
 
 
@@ -281,7 +270,6 @@ def fix_partial_filter_column_references(
 
     # Helper to fix the column references in an expression
     def fix_column_references(expression: Expression, relation: Relation):
-
         # Leaf condition: Update the column index to refer to the column in the
         # base table schema.
         if isinstance(expression, ColumnReference):
@@ -316,21 +304,13 @@ def fix_partial_filter_column_references(
 
     # Recursively descent to child relations
     elif isinstance(relation, (BroadcastJoinRelation, ShuffleJoinRelation)):
-        fix_partial_filter_column_references(
-            relation.left_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.right_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.left_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.right_table, query, fixed_read_relations)
     # Only check instance is not enough as import_module would create different class objects.
     elif relation.__class__.__name__ == "Q10FusedProbesJoinMapBuildRelation":
-        fix_partial_filter_column_references(
-            relation.build_side_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.build_side_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q10FusedProbesJoinMultimapBuildRelation":
-        fix_partial_filter_column_references(
-            relation.build_side_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.build_side_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q10FusedProbesJoinProbeRelation":
         fix_partial_filter_column_references(
             relation.o_custkey_to_row_indices_multimap, query, fixed_read_relations
@@ -341,98 +321,48 @@ def fix_partial_filter_column_references(
         fix_partial_filter_column_references(
             relation.join_orders_lineitem_table, query, fixed_read_relations
         )
-        fix_partial_filter_column_references(
-            relation.nation_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.customer_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.nation_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.customer_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q10SortLimitRelation":
-        fix_partial_filter_column_references(
-            relation.input_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.input_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q10UniqueKeyInnerJoinBuildRelation":
-        fix_partial_filter_column_references(
-            relation.build_side_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.build_side_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q10UniqueKeyInnerJoinProbeRelation":
-        fix_partial_filter_column_references(
-            relation.build_side_map, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.build_side_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.probe_side_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.build_side_map, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.build_side_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.probe_side_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q13GroupjoinProbeRelation":
-        fix_partial_filter_column_references(
-            relation.groupjoin_build, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.orders, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.groupjoin_build, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.orders, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q13FusedFilterProbeRelation":
-        fix_partial_filter_column_references(
-            relation.groupjoin_build, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.orders, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.groupjoin_build, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.orders, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q16FusedFilterJoinRelation":
-        fix_partial_filter_column_references(
-            relation.supplier_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.part_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.partsupp_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.supplier_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.part_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.partsupp_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q21LeftAntiJoinProbeRelation":
-        fix_partial_filter_column_references(
-            relation.left_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.right_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.left_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.right_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q21LeftSemiJoinProbeRelation":
-        fix_partial_filter_column_references(
-            relation.left_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.right_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.left_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.right_table, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q21LeftAntiJoinRetrieveRelation":
-        fix_partial_filter_column_references(
-            relation.left_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.probe, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.left_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.probe, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q21LeftSemiJoinRetrieveRelation":
-        fix_partial_filter_column_references(
-            relation.left_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.probe, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.left_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.probe, query, fixed_read_relations)
     elif relation.__class__.__name__ == "Q22MarkJoinRelation":
-        fix_partial_filter_column_references(
-            relation.customer_table, query, fixed_read_relations
-        )
-        fix_partial_filter_column_references(
-            relation.orders_table, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.customer_table, query, fixed_read_relations)
+        fix_partial_filter_column_references(relation.orders_table, query, fixed_read_relations)
     else:
-        fix_partial_filter_column_references(
-            relation.input, query, fixed_read_relations
-        )
+        fix_partial_filter_column_references(relation.input, query, fixed_read_relations)
 
 
-def log_physical_plan(query_str: str, relation: lib.Relation, folder_path: str):
+def log_physical_plan(query_str: str, relation: gqe.lib.Relation, folder_path: str):
     file_path = os.path.join(folder_path, query_str + "_plan.json")
-    lib.log_physical_plan(relation, file_path)
+    gqe.lib.log_physical_plan(relation, file_path)
 
 
 def _get_tpc_query_info(
@@ -441,23 +371,19 @@ def _get_tpc_query_info(
     storage_kind: str,
     table_definitions: TPCHTableDefinitions,
     catalog: gqe.Catalog,
-    multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
 ):
     if query_info_ctx.query_source == "handcoded":
         query_identifier = "tpch_q" + query_info_ctx.query_str
         module = importlib.import_module(f"gqe.benchmark.{query_identifier}")
-        query_object = getattr(module, query_identifier)(
-            scale_factor=query_info_ctx.scale_factor
-        )
+        query_object = getattr(module, query_identifier)(scale_factor=query_info_ctx.scale_factor)
         root_relation = query_object.root_relation(table_definitions)
         query = QueryInfo(
             f"Q{query_info_ctx.query_str}", root_relation, query_info_ctx.reference_file
         )
         # Fix partial filter column references for handcoded queries
         if not load_all_data and (storage_kind != "parquet_file"):
-            fix_partial_filter_column_references(
-                root_relation, query_info_ctx.query_idx
-            )
+            fix_partial_filter_column_references(root_relation, query_info_ctx.query_idx)
         if validator := get_query_validator(query_object):
             query.validator = validator
 
@@ -501,7 +427,7 @@ def run_tpc(
     repeat: int,
     is_root_rank: bool,
     is_mp: bool,
-    multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
     verify_results: bool,
     quiet: bool = False,
     pipe: subprocessing.Pipe = None,
@@ -509,9 +435,7 @@ def run_tpc(
     # only send DB to root rank so we will get error if there is a logic mistake
     if is_root_rank:
         gqe_host = "localhost"
-        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(
-            GqeExperimentConnection
-        )
+        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         with edb_config as edb:
             _run_tpc(
                 cat_ctx,
@@ -584,7 +508,7 @@ def _run_tpc(
     repeat: int,
     is_root_rank: bool,
     is_mp: bool,
-    multiprocess_runtime_context: lib.MultiProcessRuntimeContext,
+    multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
     verify_results: bool,
     quiet: bool,
     pipe: subprocessing.Pipe,
@@ -593,9 +517,7 @@ def _run_tpc(
         data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
 
         data.data_info_id = data_info_id
-        data_info_ext_id = edb.insert_gqe_data_info_ext(
-            upcast_to_super(data, GqeDataInfoExt)
-        )
+        data_info_ext_id = edb.insert_gqe_data_info_ext(upcast_to_super(data, GqeDataInfoExt))
     debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
     cat_ctx.debug_mem_usage = debug_mem_usage
 
@@ -608,7 +530,7 @@ def _run_tpc(
         context = MultiProcessContext(
             multiprocess_runtime_context,
             task_manager_params,
-            lib.scheduler_type.ALL_TO_ALL,
+            gqe.lib.scheduler_type.ALL_TO_ALL,
         )
     else:
         context = Context(
@@ -686,7 +608,7 @@ def _run_tpc(
                     context = MultiProcessContext(
                         multiprocess_runtime_context,
                         opt_params,
-                        lib.scheduler_type.ROUND_ROBIN,
+                        gqe.lib.scheduler_type.ROUND_ROBIN,
                     )
                 else:
                     context = Context(
@@ -707,14 +629,11 @@ def _run_tpc(
                 )
                 pipe_send(pipe, False)
                 # Query is not built yet without table definitions so just build the Q identifier here.
-                errors.append(
-                    (f"Q{query_info_ctx.query_str} load_query_data", f"{error}")
-                )
+                errors.append((f"Q{query_info_ctx.query_str} load_query_data", f"{error}"))
                 # Since we failed to load this data set, purge the remaining matching queries.
                 parameters[:] = list(
                     filter(
-                        lambda p: p.query_info_ctx.query_idx
-                        != query_info_ctx.query_idx,
+                        lambda p: p.query_info_ctx.query_idx != query_info_ctx.query_idx,
                         list(parameters),
                     )
                 )
@@ -725,9 +644,7 @@ def _run_tpc(
                 else:
                     continue
         else:
-            print_mp(
-                "No load required - data already in memory", is_root_rank and not quiet
-            )
+            print_mp("No load required - data already in memory", is_root_rank and not quiet)
 
         # if we make it here, communicate we succeeded data load and/or didn't need to load data
         pipe_send(pipe, True)
@@ -766,9 +683,7 @@ def _run_tpc(
 
         if is_root_rank:
             parameter.sut_info_id = edb_info.sut_info_id
-            parameters_id = edb.insert_gqe_parameters(
-                upcast_to_super(parameter, GqeParameters)
-            )
+            parameters_id = edb.insert_gqe_parameters(upcast_to_super(parameter, GqeParameters))
 
             experiment_id = edb.insert_experiment(
                 Experiment(
@@ -801,9 +716,7 @@ def _run_tpc(
                 except Exception as error:
                     print("Error during query execution")
                     print(f"{type(error).__name__}: {error}")
-                    errors.append(
-                        (f"{query.identifier} query execution", parameter, f"{error}")
-                    )
+                    errors.append((f"{query.identifier} query execution", parameter, f"{error}"))
                     pipe_send(pipe, False)
                     break
             if verify_results:
@@ -816,7 +729,6 @@ def _run_tpc(
                     print(f"{type(error).__name__}: {error}")
                     invalid_results.append((query.identifier, parameter))
                     pipe_send(pipe, False)
-                    success = False
                     if is_unrecoverable_error(error):
                         return
                     else:

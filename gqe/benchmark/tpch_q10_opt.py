@@ -9,10 +9,6 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import DateLiteral
-from gqe.expression import Literal
-from gqe.benchmark.query import Query
 from gqe.benchmark.hardcoded.bindings.tpch_q10 import (
     Q10FusedProbesJoinMapBuildRelation,
     Q10FusedProbesJoinMultimapBuildRelation,
@@ -21,6 +17,9 @@ from gqe.benchmark.hardcoded.bindings.tpch_q10 import (
     Q10UniqueKeyInnerJoinBuildRelation,
     Q10UniqueKeyInnerJoinProbeRelation,
 )
+from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import DateLiteral, Literal
 from gqe.table_definition import TPCHTableDefinitions
 
 """
@@ -95,9 +94,7 @@ class tpch_q10_opt(Query):
         # hardcoded probe filter: l_returnflag = 'R'
         # j1 has columns ["o_custkey", "l_extendedprice", "l_discount"]
         orders_map = Q10UniqueKeyInnerJoinBuildRelation(orders, 0, True)
-        j1 = Q10UniqueKeyInnerJoinProbeRelation(
-            orders_map, orders, lineitem, 0, 0, [1, 4, 5]
-        )
+        j1 = Q10UniqueKeyInnerJoinProbeRelation(orders_map, orders, lineitem, 0, 0, [1, 4, 5])
 
         # build hash multimap on o_custkey in j1
         j1_multimap = Q10FusedProbesJoinMultimapBuildRelation(j1, 0)
@@ -122,9 +119,7 @@ class tpch_q10_opt(Query):
         )
         # probe j1 on c_custkey = o_custkey, then probe nation on c_nationkey = n_nationkey
         # j3 (so named since j2 is fused together) has columns ["l_extendedprice", "l_discount", "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone","c_address", "c_comment"]
-        j3 = Q10FusedProbesJoinProbeRelation(
-            j1_multimap, nation_map, j1, nation, customer
-        )
+        j3 = Q10FusedProbesJoinProbeRelation(j1_multimap, nation_map, j1, nation, customer)
 
         # group by "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone", "c_address", "c_comment"
         # sum l_extendedprice * (1 - l_discount)

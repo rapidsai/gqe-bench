@@ -8,8 +8,8 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from gqe.relation import Relation
 import gqe.lib
+from gqe.relation import Relation
 
 
 class Q16FusedFilterJoinRelation(Relation):
@@ -17,9 +17,7 @@ class Q16FusedFilterJoinRelation(Relation):
     Q16 specific fused filter and join relation.
     """
 
-    def __init__(
-        self, supplier_table: Relation, part_table: Relation, partsupp_table: Relation
-    ):
+    def __init__(self, supplier_table: Relation, part_table: Relation, partsupp_table: Relation):
         self.supplier_table = supplier_table
         self.part_table = part_table
         self.partsupp_table = partsupp_table

@@ -9,8 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, Literal, LikeExpr
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import LikeExpr, Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
 
@@ -59,9 +60,7 @@ class tpch_q16(Query):
         partsupp = read("partsupp", ["ps_partkey", "ps_suppkey"], None, table_defs)
 
         # Filter parts that meet the conditions, selective filters are put first
-        part = read(
-            "part", ["p_partkey", "p_brand", "p_type", "p_size"], None, table_defs
-        ).filter(
+        part = read("part", ["p_partkey", "p_brand", "p_type", "p_size"], None, table_defs).filter(
             (
                 (CR(3) == Literal(49))
                 | (CR(3) == Literal(14))

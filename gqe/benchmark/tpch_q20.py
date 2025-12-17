@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,13 +9,12 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR
-from gqe.expression import Literal, DateLiteral, LikeExpr, Cast
-from gqe.type import Float64
 from gqe.benchmark.query import Query
+from gqe.expression import Cast, DateLiteral, LikeExpr, Literal
+from gqe.expression import ColumnReference as CR
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
-
+from gqe.type import Float64
 
 """
 select
@@ -63,9 +62,7 @@ class tpch_q20(Query):
         # p_name like 'forest%'
         # The selectivity of this filter is ~1%
         # After these operations, `part` contains columns ["p_partkey"]
-        part = read(
-            "part", ["p_partkey", "p_name"], LikeExpr(CR(1), "forest%"), table_defs
-        )
+        part = read("part", ["p_partkey", "p_name"], LikeExpr(CR(1), "forest%"), table_defs)
         part = part.filter(LikeExpr(CR(1), "forest%"), [0])
 
         # l_shipdate >= date '1994-01-01' and l_shipdate < date '1994-01-01' + interval '1' year
@@ -75,8 +72,7 @@ class tpch_q20(Query):
         lineitem = read(
             "lineitem",
             ["l_partkey", "l_suppkey", "l_shipdate", "l_quantity"],
-            (CR(10) >= DateLiteral("1994-01-01"))
-            & (CR(10) < DateLiteral("1995-01-01")),
+            (CR(10) >= DateLiteral("1994-01-01")) & (CR(10) < DateLiteral("1995-01-01")),
             table_defs,
         )
         lineitem = lineitem.filter(
@@ -88,30 +84,22 @@ class tpch_q20(Query):
         # sum(l_quantity) group by (l_partkey, l_suppkey)
         # After these operations,
         # `lineitem` contains columns ["l_partkey", "l_suppkey", sum(l_quantity)]
-        lineitem = lineitem.aggregate(
-            [CR(0), CR(1)], [("sum", CR(2))], perfect_hashing=True
-        )
+        lineitem = lineitem.aggregate([CR(0), CR(1)], [("sum", CR(2))], perfect_hashing=True)
 
         # ps_partkey in (subquery) and ps_availqty > (subquery)
         # After these operations, `partsupp` contains columns ["ps_suppkey"]
-        partsupp = read(
-            "partsupp", ["ps_partkey", "ps_suppkey", "ps_availqty"], None, table_defs
-        )
+        partsupp = read("partsupp", ["ps_partkey", "ps_suppkey", "ps_availqty"], None, table_defs)
         partsupp = partsupp.broadcast_join(part, CR(0) == CR(3), [0, 1, 2], "left_semi")
         partsupp = partsupp.broadcast_join(
             lineitem,
-            (CR(0) == CR(3))
-            & (CR(1) == CR(4))
-            & (Cast(CR(2), Float64()) > Literal(0.5) * CR(5)),
+            (CR(0) == CR(3)) & (CR(1) == CR(4)) & (Cast(CR(2), Float64()) > Literal(0.5) * CR(5)),
             [1],
             "left_semi",
         )
 
         # n_name = 'CANADA'
         # After these operations, `nation` contains columns ["n_nationkey"]
-        nation = read(
-            "nation", ["n_nationkey", "n_name"], CR(1) == Literal("CANADA"), table_defs
-        )
+        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("CANADA"), table_defs)
         nation = nation.filter(CR(1) == Literal("CANADA"), [0])
 
         # s_nationkey = n_nationkey
@@ -132,9 +120,7 @@ class tpch_q20(Query):
 
         # s_suppkey in (subquery)
         # After this operation, `supplier` contains columns ["s_name", "s_address"]
-        supplier = supplier.broadcast_join(
-            partsupp, CR(0) == CR(3), [1, 2], "left_semi"
-        )
+        supplier = supplier.broadcast_join(partsupp, CR(0) == CR(3), [1, 2], "left_semi")
 
         # order by s_name
         supplier = supplier.sort([(CR(0), "ascending", "before")])

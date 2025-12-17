@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -8,6 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+from collections.abc import Callable
+from typing import Optional
+
+import numpy as np
 import pandas as pd
 from pandas.api.types import (
     is_float_dtype,
@@ -15,19 +19,13 @@ from pandas.api.types import (
     is_numeric_dtype,
     is_string_dtype,
 )
-from pandas.testing import assert_frame_equal
-import numpy as np
-from typing import Optional
-from collections.abc import Callable
 
 
 def convert_string_to_int(df1: pd.DataFrame, col: str):
     all_single_char = df1[col].apply(lambda x: len(x) == 1).all()
     if not all_single_char:
         raise Exception("Can only convert single-char (ASCII) strings to INT8 type")
-    df1[col] = df1[col].apply(
-        lambda x: ord(x) if isinstance(x, str) and len(x) == 1 else None
-    )
+    df1[col] = df1[col].apply(lambda x: ord(x) if isinstance(x, str) and len(x) == 1 else None)
     df1[col] = df1[col].astype(np.int8)
 
 

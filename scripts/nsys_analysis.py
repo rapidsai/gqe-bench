@@ -12,11 +12,11 @@
 
 import argparse
 import csv
+import sqlite3
 from enum import Enum
 from functools import reduce
 from itertools import groupby
 from operator import itemgetter
-import sqlite3
 
 
 # source: https://docs.nvidia.com/nsight-systems/2021.5/nsys-exporter/exported_data.html#cuda-copykind-enum
@@ -81,8 +81,10 @@ def merge_ranges(ranges: list) -> list:
 
 
 def get_process_ids(connection):
-    process_id_query = f"""SELECT DISTINCT {pid_from_global_tid("globalTid")} FROM CUPTI_ACTIVITY_KIND_RUNTIME"""
-    return [pid for pid, in connection.execute(process_id_query)]
+    process_id_query = (
+        f"""SELECT DISTINCT {pid_from_global_tid("globalTid")} FROM CUPTI_ACTIVITY_KIND_RUNTIME"""
+    )
+    return [pid for (pid,) in connection.execute(process_id_query)]
 
 
 ## Kernel time tools
@@ -91,7 +93,7 @@ def get_process_ids(connection):
 def kernel_time_sum(connection, nvtx_range_glob, args):
     headers = ["nvtx_domain", "kernel_count", "kernel_time_sum_ms"]
     sql_str = f"""
-    SELECT 
+    SELECT
     nvtx_string.value,
     COUNT(kernel.correlationId) AS kernel_count,
     ROUND(SUM(kernel.end - kernel.start) / 1000000.0, 3) AS total_kernel_time_ms
@@ -99,27 +101,27 @@ def kernel_time_sum(connection, nvtx_range_glob, args):
     FROM NVTX_EVENTS nvtx
     JOIN StringIds AS nvtx_string
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
-    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
+    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity
         ON (runtime_activity.end <= nvtx.end
             AND runtime_activity.start >= nvtx.start
             AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel
-        ON (kernel.correlationId = runtime_activity.correlationId 
+        ON (kernel.correlationId = runtime_activity.correlationId
         AND {pid_from_global_tid("kernel.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get kernels
     JOIN StringIds kernel_string
         ON (kernel.demangledName = kernel_string.id) -- get kernel names
-    WHERE 
-        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
+    WHERE
+        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value}
         OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
         ) -- push-pop and start-end ranges
-        AND nvtx_string.value GLOB "{nvtx_range_glob}" 
-        {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'" 
-            if args.exclude_kernel_glob 
+        AND nvtx_string.value GLOB "{nvtx_range_glob}"
+        {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'"
+            if args.exclude_kernel_glob
             else ""
         }
-    GROUP BY 
-        nvtx_string.value, nvtx.start, nvtx.end 
-    ORDER BY 
+    GROUP BY
+        nvtx_string.value, nvtx.start, nvtx.end
+    ORDER BY
         nvtx.start
     """
     rows = list(connection.execute(sql_str))
@@ -127,12 +129,10 @@ def kernel_time_sum(connection, nvtx_range_glob, args):
 
 
 def kernel_time_effective(connection, nvtx_range_glob, args):
-
     process_ids = get_process_ids(connection)
 
     kernel_ranges = {}  # dict with process_ids as keys
     for pid in process_ids:
-
         # We need to group the nvtx_read_task start and end time with group concat because nvtx string values are the same
         # for a given query run. As a result, we use the nvtx start and end times to uniquely identify a query run.
         # GROUP_CONCAT in the below expression with output values in kernel0_start,kernel0_end;kernel1_start,kernel1_end;... format.
@@ -142,8 +142,8 @@ def kernel_time_effective(connection, nvtx_range_glob, args):
             SELECT nvtx.start, nvtx.end, nvtx.text, nvtx_string.value AS string_value
             FROM NVTX_EVENTS nvtx
             LEFT JOIN StringIds nvtx_string ON nvtx_string.id = nvtx.textId
-            WHERE 
-                (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
+            WHERE
+                (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value}
                 OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
                 )  -- push-pop and start-end ranges
                 AND {pid_from_global_tid("nvtx.globalTid")} = {pid}
@@ -160,25 +160,25 @@ def kernel_time_effective(connection, nvtx_range_glob, args):
         JOIN NVTX_FILT_EVENTS nvtx_stage
             ON (nvtx_stage.start >= nvtx.start
                 AND nvtx_stage.end <= nvtx.end) -- get stages within nvtx range
-        JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
+        JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity
             ON (runtime_activity.end <= nvtx_stage.end
                 AND runtime_activity.start >= nvtx_stage.start) -- get runtime call within nvtx range
         JOIN CUPTI_ACTIVITY_KIND_KERNEL kernel
             ON (kernel.correlationId = runtime_activity.correlationId) -- get kernels
         JOIN StringIds kernel_string
             ON (kernel.demangledName = kernel_string.id) -- get kernel names
-        WHERE 
+        WHERE
             nvtx.string_value GLOB "{nvtx_range_glob}"
             AND nvtx_stage.text GLOB "{GQE_STAGE_GLOB}"
             AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid}
             AND {pid_from_global_tid("kernel.globalPid")} = {pid}
-            {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'" 
-                if args.exclude_kernel_glob 
+            {f"AND kernel_string.value NOT GLOB '{args.exclude_kernel_glob}'"
+                if args.exclude_kernel_glob
                 else ""
             }
-        GROUP BY 
+        GROUP BY
             nvtx.string_value, nvtx.start, nvtx.end, nvtx_stage.text
-        ORDER BY 
+        ORDER BY
             nvtx.start, nvtx_stage.text
         """
 
@@ -230,16 +230,10 @@ def kernel_time_effective(connection, nvtx_range_glob, args):
             for pid in process_ids:
                 curr_stage = kernel_ranges[pid][run][stage]
                 if curr_stage["nvtx_domain"] != nvtx_domain:
-                    raise ValueError(
-                        f"NVTX domain mismatch for run {run} and process {pid}"
-                    )
+                    raise ValueError(f"NVTX domain mismatch for run {run} and process {pid}")
                 if len(kernel_ranges[pid][run]) != num_stages:
-                    raise ValueError(
-                        f"Each processes must execute the same number of stages"
-                    )
-                stage_kernel_time = max(
-                    stage_kernel_time, curr_stage["kernel_time_effective"]
-                )
+                    raise ValueError(f"Each processes must execute the same number of stages")
+                stage_kernel_time = max(stage_kernel_time, curr_stage["kernel_time_effective"])
             curr_run["kernel_time_effective_ms"] += stage_kernel_time
             curr_run["per_stage_kernel_time_ms"].append(
                 {f"{kernel_ranges[pid][run][stage]["nvtx_stage"]}": stage_kernel_time}
@@ -254,29 +248,29 @@ def kernel_time_effective(connection, nvtx_range_glob, args):
 def htod_copy_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, float]]:
     headers = ["nvtx_domain", "memcpy_time_sum_ms"]
     sql_str = f"""
-    SELECT 
+    SELECT
         nvtx_string.value,
         ROUND(SUM(memcpy.end - memcpy.start) / 1000000.0, 3) AS total_memcpy_time_ms
     FROM NVTX_EVENTS nvtx
     JOIN StringIds AS nvtx_string
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
-    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
+    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity
         ON (runtime_activity.start >= nvtx.start
             AND runtime_activity.end <= nvtx.end
             AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_MEMCPY memcpy
         ON (memcpy.correlationId = runtime_activity.correlationId
         AND {pid_from_global_tid("memcpy.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get memcpy calls
-    WHERE 
-        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
+    WHERE
+        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value}
         OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
         )  -- push-pop and start-end ranges
         AND memcpy.copyKind = {CUDA_MEMCPY_KIND.CUDA_MEMCPY_KIND_HTOD.value} -- HtoD copies
         AND memcpy.srcKind = {CUDA_MEMOPR_MEMORY_KIND.CUDA_MEMOPR_MEMORY_KIND_PINNED.value} -- src is Pinned memory
-        AND nvtx_string.value GLOB "{nvtx_range_glob}" 
-    GROUP BY 
-        nvtx_string.value, nvtx.start, nvtx.end 
-    ORDER BY 
+        AND nvtx_string.value GLOB "{nvtx_range_glob}"
+    GROUP BY
+        nvtx_string.value, nvtx.start, nvtx.end
+    ORDER BY
         nvtx.start
     """
     rows = list(connection.execute(sql_str))
@@ -286,29 +280,29 @@ def htod_copy_time_sum(connection, nvtx_range_glob, args) -> list[dict[str, floa
 def htod_copy_size(connection, nvtx_range_glob, args):
     headers = ["nvtx_domain", "memcpy_size_MiB"]
     sql_str = f"""
-    SELECT 
+    SELECT
         nvtx_string.value,
         ROUND(SUM(memcpy.bytes) / 1024.0 / 1024.0, 3) AS total_memcpy_size_MiB
     FROM NVTX_EVENTS nvtx
     JOIN StringIds AS nvtx_string
         ON nvtx_string.id = nvtx.textId -- get nvtx domain names
-    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity 
+    JOIN CUPTI_ACTIVITY_KIND_RUNTIME runtime_activity
         ON (runtime_activity.start >= nvtx.start
             AND runtime_activity.end <= nvtx.end
             AND {pid_from_global_tid("runtime_activity.globalTid")} = {pid_from_global_tid("nvtx.globalTid")}) -- get runtime call within nvtx range
     JOIN CUPTI_ACTIVITY_KIND_MEMCPY memcpy
         ON (memcpy.correlationId = runtime_activity.correlationId
         AND {pid_from_global_tid("memcpy.globalPid")} = {pid_from_global_tid("runtime_activity.globalTid")}) -- get memcpy calls
-    WHERE 
-        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
+    WHERE
+        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value}
         OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
         )  -- push-pop and start-end ranges
         AND memcpy.copyKind = {CUDA_MEMCPY_KIND.CUDA_MEMCPY_KIND_HTOD.value} -- HtoD copies
         AND memcpy.srcKind = {CUDA_MEMOPR_MEMORY_KIND.CUDA_MEMOPR_MEMORY_KIND_PINNED.value} -- src is Pinned memory
-        AND nvtx_string.value GLOB "{nvtx_range_glob}" 
-    GROUP BY 
-        nvtx_string.value, nvtx.start, nvtx.end 
-    ORDER BY 
+        AND nvtx_string.value GLOB "{nvtx_range_glob}"
+    GROUP BY
+        nvtx_string.value, nvtx.start, nvtx.end
+    ORDER BY
         nvtx.start
     """
     rows = list(connection.execute(sql_str))
@@ -316,7 +310,6 @@ def htod_copy_size(connection, nvtx_range_glob, args):
 
 
 def read_time_effective(connection, nvtx_range_glob, args) -> list[dict[str, float]]:
-
     # GQE domain name and tasks nvtx ranges are stored in the text field
     # See https://docs.nvidia.com/nsight-systems/2021.5/nsys-exporter/exported_data.html#difference-between-text-and-textid-columns
 
@@ -331,7 +324,7 @@ def read_time_effective(connection, nvtx_range_glob, args) -> list[dict[str, flo
     # GROUP_CONCAT in the below expression with output values in kernel0_start,kernel0_end;kernel1_start,kernel1_end;... format.
     # We then use the output string to get individual kernel timings restricted to a query run.
     query = f"""
-    SELECT 
+    SELECT
         nvtx_string.value,
         GROUP_CONCAT(
             ROUND(nvtx_read_task.start / 1000000.0, 3) || "," || ROUND(nvtx_read_task.end / 1000000.0, 3),
@@ -343,32 +336,29 @@ def read_time_effective(connection, nvtx_range_glob, args) -> list[dict[str, flo
     JOIN NVTX_EVENTS nvtx_read_task
         ON (nvtx_read_task.start >= nvtx.start
             AND nvtx_read_task.end <= nvtx.end) -- get read task within nvtx range
-    WHERE 
-        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value} 
+    WHERE
+        (nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_PUSH_POP_RANGE.value}
         OR nvtx.eventType = {NVTX_EVENT_TYPE.NVTX_START_END_RANGE.value}
         )  -- push-pop and start-end ranges
         AND nvtx_string.value GLOB "{nvtx_range_glob}"
         AND nvtx_read_task.domainId = {gqe_domain_id}
         AND nvtx_read_task.text = "{GQE_IN_MEMORY_READ_TASK_NVTX_RANGE}" -- GQE ranges are stored in text field
-    GROUP BY 
+    GROUP BY
         nvtx_string.value, nvtx.start, nvtx.end
-    ORDER BY 
+    ORDER BY
         nvtx_read_task.start
     """
     rows = list(connection.execute(query))
     merged_rows = []
     for nvtx_domain, read_tasks_ranges in rows:
         read_task_ranges = [
-            tuple(map(float, range.split(",")))
-            for range in read_tasks_ranges.split(";")
+            tuple(map(float, range.split(","))) for range in read_tasks_ranges.split(";")
         ]
         merged_ranges = merge_ranges(read_task_ranges)
         merged_rows.append(
             {
                 "nvtx_domain": nvtx_domain,
-                "read_time_effective_ms": sum(
-                    range[1] - range[0] for range in merged_ranges
-                ),
+                "read_time_effective_ms": sum(range[1] - range[0] for range in merged_ranges),
             }
         )
     return merged_rows

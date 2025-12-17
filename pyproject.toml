@@ -1,3 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
 [build-system]
 requires = ["scikit-build-core>=0.3.3", "pybind11"]
 build-backend = "scikit_build_core.build"
@@ -24,3 +34,23 @@ install.strip=false
 [project.scripts]
 gqe-tpch-parameter-sweep = "gqe.benchmark.run_tpch_parameter_sweep:main"
 gqe-tpch-pretuned = "gqe.benchmark.run_tpch_pretuned:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort (import sorting)
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E731",   # lambda assignment
+    "F541",   # f-string missing placeholders
+]
+
+[tool.ruff.lint.per-file-ignores]
+"gqe/__init__.py" = ["F401"]  # unused imports in __init__ are intentional

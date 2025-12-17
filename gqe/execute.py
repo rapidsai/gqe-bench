@@ -9,10 +9,11 @@
 # its affiliates is strictly prohibited.
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
-from gqe.relation import Relation
 import gqe.lib
+from gqe.relation import Relation
 
 # Circular import of between execute and catalog
 if TYPE_CHECKING:

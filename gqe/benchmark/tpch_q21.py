@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,8 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, Literal
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
 
@@ -121,9 +122,7 @@ class tpch_q21(Query):
         )
 
         # o_orderkey = l1.l_orderkey and o_orderstatus = 'F'
-        order = read(
-            "orders", ["o_orderkey", "o_orderstatus"], CR(2) == Literal(70), table_defs
-        )
+        order = read("orders", ["o_orderkey", "o_orderstatus"], CR(2) == Literal(70), table_defs)
         order = order.filter(CR(1) == Literal(70), [0])
         l1 = order.broadcast_join(
             l1,
@@ -142,9 +141,7 @@ class tpch_q21(Query):
         #         and l2.l_suppkey <> l1.l_suppkey
         # )
         l2 = read("lineitem", ["l_suppkey", "l_orderkey"], None, table_defs)
-        l1 = l1.broadcast_join(
-            l2, (CR(1) == CR(4)) & (CR(0) != CR(3)), [2], "left_semi", True
-        )
+        l1 = l1.broadcast_join(l2, (CR(1) == CR(4)) & (CR(0) != CR(3)), [2], "left_semi", True)
 
         # group by
         #     s_name

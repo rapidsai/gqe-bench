@@ -70,9 +70,7 @@ def from_query_context(parameter, data) -> lib.OptimizationParameters:
     params.join_use_unique_keys = parameter.join_use_unique_keys
     params.join_use_perfect_hash = parameter.join_use_perfect_hash
     params.join_use_mark_join = parameter.join_use_mark_join
-    params.in_memory_table_compression_format = parse_compression_format(
-        data.compression_format
-    )
+    params.in_memory_table_compression_format = parse_compression_format(data.compression_format)
     params.in_memory_table_compression_data_type = parse_compression_data_type(
         data.compression_data_type
     )

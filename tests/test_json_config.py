@@ -13,12 +13,14 @@
 """
 Tests for JSON configuration parsing in param_sweep_config.py
 """
-import pytest
+
 from argparse import Namespace
 
+import pytest
+
 from gqe.param_sweep_config import (
-    QUERY_CONFIG_FIELDS,
     BENCHMARK_CONFIG_DEFAULTS,
+    QUERY_CONFIG_FIELDS,
     config_to_args,
     get_query_execution_params,
 )

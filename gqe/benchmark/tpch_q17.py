@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -9,9 +9,9 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import Literal
-from gqe.expression import ColumnReference as CR
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import Literal
 from gqe.lib import UniqueKeysPolicy
 from gqe.table_definition import TPCHTableDefinitions
 
@@ -46,9 +46,7 @@ class tpch_q17(Query):
         )
 
         # Filter the part table
-        part = part.filter(
-            (CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")), [0]
-        )
+        part = part.filter((CR(1) == Literal("Brand#23")) & (CR(2) == Literal("MED BOX")), [0])
 
         lineitem = read(
             "lineitem", ["l_partkey", "l_quantity", "l_extendedprice"], None, table_defs
@@ -67,9 +65,7 @@ class tpch_q17(Query):
 
         # Calculate avg(l_quantity) for each `l_partkey`
         # `avg_l_quantity` has columns ["l_partkey", avg(l_quantity)]
-        avg_l_quantity = lineitem.aggregate(
-            [CR(0)], [("avg", CR(1))], perfect_hashing=True
-        )
+        avg_l_quantity = lineitem.aggregate([CR(0)], [("avg", CR(1))], perfect_hashing=True)
 
         # Calculate l_quantity < 0.2 * avg(l_quantity)
         # After this operation, `lineitem` has column ["l_extendedprice"]

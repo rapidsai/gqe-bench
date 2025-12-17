@@ -21,8 +21,9 @@ in the future.
 from typing import Union
 
 import gqe.lib
-from .table_definition import TPCHTableDefinitions
+
 from .execute import Context, MultiProcessContext, MultiProcessRuntimeContext
+from .table_definition import TPCHTableDefinitions
 
 
 class Catalog:
@@ -74,9 +75,7 @@ class Catalog:
             gqe.lib.register_tpch_parquet(
                 self._catalog,
                 dataset,
-                table_definitions.query_table_definitions(
-                    load_data_of_query, load_all_data_from
-                ),
+                table_definitions.query_table_definitions(load_data_of_query, load_all_data_from),
             )
         elif storage_kind in [
             "pinned_memory",
@@ -87,7 +86,6 @@ class Catalog:
             "numa_pinned_memory",
             "boost_shared_memory",
         ]:
-
             gqe.lib.register_tpch_in_memory(
                 self._context._context,
                 self._catalog,
@@ -97,9 +95,7 @@ class Catalog:
                 in_memory_table_compression_data_type,
                 compression_chunk_size,
                 zone_map_partition_size,
-                table_definitions.query_table_definitions(
-                    load_data_of_query, load_all_data_from
-                ),
+                table_definitions.query_table_definitions(load_data_of_query, load_all_data_from),
                 storage_kind,
                 multiprocess_runtime_context,
                 debug_mem_usage,

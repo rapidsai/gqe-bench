@@ -9,10 +9,10 @@
 # its affiliates is strictly prohibited.
 
 from gqe import read
-from gqe.expression import ColumnReference as CR, LikeExpr, Literal
 from gqe.benchmark.query import Query
+from gqe.expression import ColumnReference as CR
+from gqe.expression import LikeExpr, Literal
 from gqe.table_definition import TPCHTableDefinitions
-
 
 """
 select
@@ -58,21 +58,15 @@ class tpch_q13(Query):
 
         # Perform a left outer join between customer and orders on c_custkey = o_custkey
         # After the join, the result contains: c_custkey, o_orderkey
-        customer_orders = customer.broadcast_join(
-            orders, CR(0) == CR(2), [0, 1], "left"
-        )
+        customer_orders = customer.broadcast_join(orders, CR(0) == CR(2), [0, 1], "left")
 
         # Group by c_custkey and calculate count(o_orderkey) as c_count
         # After aggregation, the result contains: c_custkey, c_count
-        grouped_customer_orders = customer_orders.aggregate(
-            [CR(0)], [("count_valid", CR(1))]
-        )
+        grouped_customer_orders = customer_orders.aggregate([CR(0)], [("count_valid", CR(1))])
 
         # Group by c_count and calculate count(*) as custdist
         # After aggregation, the result contains: c_count, custdist
-        grouped_c_count = grouped_customer_orders.aggregate(
-            [CR(1)], [("count_all", CR(1))]
-        )
+        grouped_c_count = grouped_customer_orders.aggregate([CR(1)], [("count_all", CR(1))])
 
         # Sort by custdist DESC, c_count DESC
         result = grouped_c_count.sort(

@@ -10,11 +10,12 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-import sys
-import os
-import duckdb
-import re
 import argparse
+import os
+import re
+import sys
+
+import duckdb
 
 
 # TODO: DRY this function
@@ -103,7 +104,9 @@ def rewrite_query(query_file, result_file, scale_factor):
         )
 
     # Wrap in COPY TO Parquet
-    wrapped_sql = f"COPY ({sql.strip().rstrip(';')}) TO '{result_file}' (FORMAT parquet, COMPRESSION snappy);"
+    wrapped_sql = (
+        f"COPY ({sql.strip().rstrip(';')}) TO '{result_file}' (FORMAT parquet, COMPRESSION snappy);"
+    )
     return wrapped_sql
 
 
@@ -139,9 +142,7 @@ def run_queries(con, query_file_paths, results, scale_factor):
 def main():
     parser = argparse.ArgumentParser(description="DuckDB TPC-H validation script")
     parser.add_argument("dataset", help="Parquet input directory")
-    parser.add_argument(
-        "queries_sql", help="TPC-H SQL files directory or single SQL file"
-    )
+    parser.add_argument("queries_sql", help="TPC-H SQL files directory or single SQL file")
     parser.add_argument("results", help="Validation results directory")
     args = parser.parse_args()
 
