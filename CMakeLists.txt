@@ -33,7 +33,7 @@ include(cmake/CPM.cmake)
 
 # CMake variable for gqe-nvcomp tag
 set(GQE_NVCOMP_TAG
-    "aab6b669b6e5fe1a370aa5c87c2dfdf0dbe82c69"
+    "2f719f2eb5774f81d658a3095c0b56c50976549e"
     CACHE STRING "Git tag for gqe-nvcomp")
 set(GQE_NVCOMP_SOURCE_DIR
     ""
