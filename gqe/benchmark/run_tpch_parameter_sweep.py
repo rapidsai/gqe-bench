@@ -151,12 +151,23 @@ def add_int_list_argument(self, *args, **kwargs):
     self.add_argument(*args, **kwargs, type=int, nargs="+")
 
 
+def add_float_list_argument(self, *args, **kwargs):
+    """Specify an argument which takes a list of float values"""
+    if "nargs" in kwargs or "type" in kwargs:
+        raise argparse.ArgumentError(
+            'Overwriting parameters "nargs" or "type" inside a float list argument definition'
+        )
+    self.add_argument(*args, **kwargs, type=float, nargs="+")
+
+
 def parse_args():
     arg_parser = argparse.ArgumentParser()
 
     # Monkey patch arg_parser to simplify definition of int and boolean arguments
     arg_parser.add_boolean_list_argument = functools.partial(add_boolean_list_argument, arg_parser)
     arg_parser.add_int_list_argument = functools.partial(add_int_list_argument, arg_parser)
+
+    arg_parser.add_float_list_argument = functools.partial(add_float_list_argument, arg_parser)
 
     # JSON config file (when provided, other args are ignored)
     arg_parser.add_argument(
@@ -359,6 +370,44 @@ def parse_args():
         default=QUERY_CONFIG_DEFAULTS["aggregation_use_perfect_hash"],
     )
 
+    arg_parser.add_float_list_argument(
+        "--compression-ratio-threshold",
+        help="Compression ratio threshold",
+        default=BENCHMARK_CONFIG_DEFAULTS["compression_ratio_threshold"],
+    )
+
+    arg_parser.add_argument(
+        "--secondary-compression-format",
+        "-sc",
+        help="Compression format to use",
+        choices=[
+            "none",
+            "ans",
+            "lz4",
+            "snappy",
+            "gdeflate",
+            "deflate",
+            "cascaded",
+            "zstd",
+            "gzip",
+            "bitcomp",
+        ],
+        nargs="+",
+        default=BENCHMARK_CONFIG_DEFAULTS["secondary_compression_format"],
+    )
+
+    arg_parser.add_float_list_argument(
+        "--secondary-compression-ratio-threshold",
+        help="Secondary compression ratio threshold",
+        default=BENCHMARK_CONFIG_DEFAULTS["secondary_compression_ratio_threshold"],
+    )
+
+    arg_parser.add_float_list_argument(
+        "--secondary-compression-multiplier-threshold",
+        help="Secondary compression multiplier threshold",
+        default=BENCHMARK_CONFIG_DEFAULTS["secondary_compression_multiplier_threshold"],
+    )
+
     return arg_parser.parse_args()
 
 
@@ -474,7 +523,10 @@ def main():
             num_row_groups,
             use_opt_type_for_single_char_col,
             compression_format,
-            compression_data_type,
+            compression_ratio_threshold,
+            secondary_compression_format,
+            secondary_compression_ratio_threshold,
+            secondary_compression_multiplier_threshold,
             compression_chunk_size,
             identifier_type,
             storage_kind,
@@ -483,7 +535,10 @@ def main():
             num_row_group_list,
             [True],
             args.compression_format,
-            ["char"],
+            args.compression_ratio_threshold,
+            args.secondary_compression_format,
+            args.secondary_compression_ratio_threshold,
+            args.secondary_compression_multiplier_threshold,
             [2**16],
             identifier_type,
             args.storage_kind,
@@ -509,7 +564,10 @@ def main():
                 decimal_type="float",
                 num_row_groups=num_row_groups,
                 compression_format=compression_format,
-                compression_data_type=compression_data_type,
+                compression_ratio_threshold=compression_ratio_threshold,
+                secondary_compression_format=secondary_compression_format,
+                secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
+                secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
                 compression_chunk_size=compression_chunk_size,
                 zone_map_partition_size=zone_map_partition_size,
             )
@@ -523,10 +581,13 @@ def main():
                     "required",  # Load data required by 22 - TPC-H queries
                     identifier_type,
                     use_opt_type_for_single_char_col,
-                    compression_format,
-                    compression_data_type,
-                    compression_chunk_size,
                     zone_map_partition_size,
+                    compression_format,
+                    compression_chunk_size,
+                    compression_ratio_threshold,
+                    secondary_compression_format,
+                    secondary_compression_ratio_threshold,
+                    secondary_compression_multiplier_threshold,
                 )
             else:
                 # Pass in non-zero value to indicate load_all_data=False
@@ -538,10 +599,13 @@ def main():
                     "required",  # Load data required by 22 - TPC-H queries
                     identifier_type,
                     use_opt_type_for_single_char_col,
-                    compression_format,
-                    compression_data_type,
-                    compression_chunk_size,
                     zone_map_partition_size,
+                    compression_format,
+                    compression_chunk_size,
+                    compression_ratio_threshold,
+                    secondary_compression_format,
+                    secondary_compression_ratio_threshold,
+                    secondary_compression_multiplier_threshold,
                 )
 
             # We use a regular list to build so that we can sort it later before

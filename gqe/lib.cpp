@@ -887,9 +887,20 @@ PYBIND11_MODULE(lib, py_module)
                    &gqe::optimization_parameters::use_in_memory_table_multigpu)
     .def_readwrite("in_memory_table_compression_format",
                    &gqe::optimization_parameters::in_memory_table_compression_format)
-    .def_readwrite("in_memory_table_compression_data_type",
-                   &gqe::optimization_parameters::in_memory_table_compression_data_type)
-    .def_readwrite("compression_chunk_size", &gqe::optimization_parameters::compression_chunk_size)
+    .def_readwrite("in_memory_table_compression_chunk_size",
+                   &gqe::optimization_parameters::in_memory_table_compression_chunk_size)
+    .def_readwrite("in_memory_table_compression_ratio_threshold",
+                   &gqe::optimization_parameters::in_memory_table_compression_ratio_threshold)
+    .def_readwrite("in_memory_table_secondary_compression_format",
+                   &gqe::optimization_parameters::in_memory_table_secondary_compression_format)
+    .def_readwrite(
+      "in_memory_table_secondary_compression_ratio_threshold",
+      &gqe::optimization_parameters::in_memory_table_secondary_compression_ratio_threshold)
+    .def_readwrite(
+      "in_memory_table_secondary_compression_multiplier_threshold",
+      &gqe::optimization_parameters::in_memory_table_secondary_compression_multiplier_threshold)
+    .def_readwrite("in_memory_table_compression_ratio_threshold",
+                   &gqe::optimization_parameters::in_memory_table_compression_ratio_threshold)
     .def_readwrite("io_block_size", &gqe::optimization_parameters::io_block_size)
     .def_readwrite("io_engine", &gqe::optimization_parameters::io_engine)
     .def_readwrite("io_pipelining", &gqe::optimization_parameters::io_pipelining)
@@ -902,9 +913,7 @@ PYBIND11_MODULE(lib, py_module)
                    &gqe::optimization_parameters::filter_use_like_shift_and)
     .def_readwrite("aggregation_use_perfect_hash",
                    &gqe::optimization_parameters::aggregation_use_perfect_hash)
-    .def_readwrite("num_shuffle_partitions", &gqe::optimization_parameters::num_shuffle_partitions)
-    .def_readwrite("compression_ratio_threshold",
-                   &gqe::optimization_parameters::compression_ratio_threshold);
+    .def_readwrite("num_shuffle_partitions", &gqe::optimization_parameters::num_shuffle_partitions);
 
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog")

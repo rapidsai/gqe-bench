@@ -120,10 +120,13 @@ class CatalogContext:
     load_all_data_from: str
     identifier_type: gqe.lib.TypeId
     use_opt_char_type: bool
-    in_memory_table_compression_format: str
-    in_memory_table_compression_data_type: str
-    compression_chunk_size: int
     zone_map_partition_size: int
+    in_memory_table_compression_format: str
+    in_memory_table_compression_chunk_size: int
+    in_memory_table_compression_ratio_threshold: float
+    in_memory_table_secondary_compression_format: str
+    in_memory_table_secondary_compression_ratio_threshold: float
+    in_memory_table_secondary_compression_multiplier_threshold: float
     debug_mem_usage: bool = False
 
 

@@ -51,16 +51,22 @@ CREATE TABLE gqe_data_info_ext(
   de_data_info_id INTEGER NOT NULL,
   de_num_row_groups INTEGER NOT NULL,
   de_compression_format TEXT NOT NULL,
-  de_compression_data_type TEXT NOT NULL,
   de_compression_chunk_size INTEGER NOT NULL,
   de_zone_map_partition_size INTEGER NOT NULL,
+  de_compression_ratio_threshold REAL NOT NULL,
+  de_secondary_compression_format TEXT NOT NULL,
+  de_secondary_compression_ratio_threshold REAL NOT NULL,
+  de_secondary_compression_multiplier_threshold REAL NOT NULL,
   UNIQUE (
     de_data_info_id,
     de_num_row_groups,
     de_compression_format,
-    de_compression_data_type,
     de_compression_chunk_size,
-    de_zone_map_partition_size
+    de_zone_map_partition_size,
+    de_compression_ratio_threshold,
+    de_secondary_compression_format,
+    de_secondary_compression_ratio_threshold,
+    de_secondary_compression_multiplier_threshold
   ),
   FOREIGN KEY (de_data_info_id) REFERENCES data_info(d_id)
 );

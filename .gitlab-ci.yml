@@ -30,8 +30,6 @@ tests:
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - sed "s/database-benchmarking-tools @ git+ssh:\/\/git@gitlab-master.nvidia.com:12051/database-benchmarking-tools @ git+https:\/\/${BENCHMARK_DEPLOY_USERNAME}:${BENCHMARK_DEPLOY_TOKEN}@gitlab-master.nvidia.com/" -i pyproject.toml
-    - sed "s/ssh:\/\/git@gitlab-master.nvidia.com:12051/https:\/\/${GQE_DEPLOY_USERNAME}:${GQE_DEPLOY_TOKEN}@gitlab-master.nvidia.com/" -i CMakeLists.txt
     - pip install -e .
     - conda install -y pytest
     - pytest tests/ -v

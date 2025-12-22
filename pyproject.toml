@@ -18,8 +18,8 @@ version = "0.0.1"
 description = "GPU Query Executor (GQE)"
 requires-python = ">=3.12"
 dependencies = [
-    "database-benchmarking-tools @ git+ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe-benchmarking.git@750c137d",
     "json5",
+    "database-benchmarking-tools @ git+https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking.git@750c137d",
     "nvidia-ml-py",
     "pandas",
     "pyarrow",

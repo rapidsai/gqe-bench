@@ -45,10 +45,12 @@ class GqeDataInfoExt:
     _table_prefix = "de_"
     num_row_groups: int
     compression_format: str
-    compression_data_type: str
     compression_chunk_size: int
     zone_map_partition_size: int
-
+    compression_ratio_threshold: float
+    secondary_compression_format: str
+    secondary_compression_ratio_threshold: float
+    secondary_compression_multiplier_threshold: float
     data_info_id: DataInfoId | None = None  # Don't set manually
 
 

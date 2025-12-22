@@ -33,7 +33,7 @@ include(cmake/CPM.cmake)
 
 # CMake variable for gqe-nvcomp tag
 set(GQE_NVCOMP_TAG
-    "2f719f2eb5774f81d658a3095c0b56c50976549e"
+    "4b0330cb579cc3f0dd868916139044fcc7aca4aa"
     CACHE STRING "Git tag for gqe-nvcomp")
 set(GQE_NVCOMP_SOURCE_DIR
     ""
@@ -64,10 +64,10 @@ if(DEFINED GQE_SOURCE_DIR)
 else()
   if(NOT DEFINED GQE_GIT_REPOSITORY)
     set(GQE_GIT_REPOSITORY
-        "ssh://git@gitlab-master.nvidia.com:12051/Devtech-Compute/gqe.git")
+        "https://gitlab-master.nvidia.com/Devtech-Compute/gqe.git")
   endif()
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "97e2437ffe67154cb05ee0dce60d24d33ff13d7b")
+    set(GQE_GIT_TAG "ca33fb21afd7e89c627d04975106d69fa444c71d")
   endif()
 
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")

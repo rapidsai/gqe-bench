@@ -42,9 +42,13 @@ class Catalog:
         use_opt_char_type: bool = True,
         in_memory_table_compression_format="none",
         in_memory_table_compression_data_type="char",
-        compression_chunk_size=2**16,
+        in_memory_table_compression_chunk_size=2**16,
         zone_map_partition_size=100000,
         multiprocess_runtime_context: MultiProcessRuntimeContext = None,
+        in_memory_table_compression_ratio_threshold: float = 1.0,
+        in_memory_table_secondary_compression_format: str = "none",
+        in_memory_table_secondary_compression_ratio_threshold: float = 1.0,
+        in_memory_table_secondary_compression_multiplier_threshold: float = 1.0,
         debug_mem_usage: bool = False,
     ) -> TPCHTableDefinitions:
         """
@@ -66,9 +70,14 @@ class Catalog:
         :arg use_opt_char_type: If true, use optimized char type for single character columns.
         :arg in_memory_table_compression_format: Compression format for the in-memory table.
         :arg in_memory_table_compression_data_type: Determines how input data is viewed as for compression.
-        :arg compression_chunk_size: Size of each chunk for nvcomp compression.
+        :arg in_memory_table_compression_chunk_size: Size of each chunk for nvcomp compression.
         :arg zone_map_partition_size: Number of rows per zone map partition.
         :arg multiprocess_runtime_context: Context reused for multiprocess tasks execution.
+        :arg compression_ratio_threshold: UNUSED Compression ratio threshold.
+        :arg in_memory_table_secondary_compression_format: UNUSED Secondary compression format.
+        :arg in_memory_table_secondary_compression_ratio_threshold: UNUSED Secondary compression ratio threshold.
+        :arg in_memory_table_secondary_compression_multiplier_threshold: UNUSED Secondary compression multiplier threshold.
+        :arg debug_mem_usage: Whether to use debug memory usage.
         """
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
         if storage_kind == "parquet_file":
@@ -93,7 +102,7 @@ class Catalog:
                 num_row_groups,
                 in_memory_table_compression_format,
                 in_memory_table_compression_data_type,
-                compression_chunk_size,
+                in_memory_table_compression_chunk_size,
                 zone_map_partition_size,
                 table_definitions.query_table_definitions(load_data_of_query, load_all_data_from),
                 storage_kind,

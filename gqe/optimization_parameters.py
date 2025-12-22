@@ -36,22 +36,6 @@ def parse_compression_format(format_str: str) -> lib.CompressionFormat:
     return format_map.get(format_str, lib.CompressionFormat.none)
 
 
-def parse_compression_data_type(data_type_str: str) -> lib.NvcompType:
-    """Convert compression data type string to enum."""
-    type_map = {
-        "char": lib.NvcompType.char,
-        "uchar": lib.NvcompType.uchar,
-        "short": lib.NvcompType.short,
-        "ushort": lib.NvcompType.ushort,
-        "int": lib.NvcompType.int,
-        "uint": lib.NvcompType.uint,
-        "longlong": lib.NvcompType.longlong,
-        "ulonglong": lib.NvcompType.ulonglong,
-        "bits": lib.NvcompType.bits,
-    }
-    return type_map.get(data_type_str, lib.NvcompType.char)
-
-
 def from_query_context(parameter, data) -> lib.OptimizationParameters:
     """
     Build OptimizationParameters from query execution context and data info objects.
@@ -71,10 +55,7 @@ def from_query_context(parameter, data) -> lib.OptimizationParameters:
     params.join_use_perfect_hash = parameter.join_use_perfect_hash
     params.join_use_mark_join = parameter.join_use_mark_join
     params.in_memory_table_compression_format = parse_compression_format(data.compression_format)
-    params.in_memory_table_compression_data_type = parse_compression_data_type(
-        data.compression_data_type
-    )
-    params.compression_chunk_size = data.compression_chunk_size
+    params.in_memory_table_compression_chunk_size = data.compression_chunk_size
     params.use_partition_pruning = parameter.use_partition_pruning
     params.zone_map_partition_size = data.zone_map_partition_size
     params.filter_use_like_shift_and = parameter.filter_use_like_shift_and
@@ -99,9 +80,18 @@ def from_catalog_context(cat_ctx) -> lib.OptimizationParameters:
     params.in_memory_table_compression_format = parse_compression_format(
         cat_ctx.in_memory_table_compression_format
     )
-    params.in_memory_table_compression_data_type = parse_compression_data_type(
-        cat_ctx.in_memory_table_compression_data_type
-    )
-    params.compression_chunk_size = cat_ctx.compression_chunk_size
+    params.in_memory_table_compression_chunk_size = cat_ctx.in_memory_table_compression_chunk_size
     params.zone_map_partition_size = cat_ctx.zone_map_partition_size
+    params.in_memory_table_compression_ratio_threshold = (
+        cat_ctx.in_memory_table_compression_ratio_threshold
+    )
+    params.in_memory_table_secondary_compression_format = parse_compression_format(
+        cat_ctx.in_memory_table_secondary_compression_format
+    )
+    params.in_memory_table_secondary_compression_ratio_threshold = (
+        cat_ctx.in_memory_table_secondary_compression_ratio_threshold
+    )
+    params.in_memory_table_secondary_compression_multiplier_threshold = (
+        cat_ctx.in_memory_table_secondary_compression_multiplier_threshold
+    )
     return params
