@@ -50,7 +50,7 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "query_source": "both",
     "compression_format": ["none"],
     "compression_ratio_threshold": [1.0],
-    "secondary_compression_format": [True],
+    "secondary_compression_format": ["none"],
     "secondary_compression_ratio_threshold": [2.5],
     "secondary_compression_multiplier_threshold": [1.5],
     "load_all_data": None,
