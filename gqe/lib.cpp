@@ -648,20 +648,12 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
   throw std::logic_error("Unrecognized storage kind: " + storage_kind_description);
 }
 
-void register_table_in_memory(
-  lib::base_context* ctx,
-  gqe::catalog* catalog,
-  int32_t num_row_groups,
-  std::string in_memory_table_compression_format,
-  std::string in_memory_table_compression_data_type,
-  int32_t compression_chunk_size,
-  size_t zone_map_partition_size,
-  std::string name,
-  std::vector<gqe::column_traits> const& definition,
-  std::vector<std::string> const& file_paths,
-  gqe::storage_kind::type storage_kind,
-  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr,
-  bool debug_mem_usage                                                          = false)
+void register_table_in_memory(lib::base_context* ctx,
+                              gqe::catalog* catalog,
+                              std::string name,
+                              std::vector<gqe::column_traits> const& definition,
+                              std::vector<std::string> const& file_paths,
+                              gqe::storage_kind::type storage_kind)
 {
   catalog->register_table(name + "_parquet",
                           definition,
@@ -694,34 +686,15 @@ void register_tpch_in_memory(
   lib::base_context* ctx,
   gqe::catalog* catalog,
   std::string dataset_location,
-  int32_t num_row_groups,
-  std::string in_memory_table_compression_format,
-  std::string in_memory_table_compression_data_type,
-  int32_t compression_chunk_size,
-  size_t zone_map_partition_size,
   std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
-  const std::string& storage_kind_description,
-  std::shared_ptr<lib::multi_process_runtime_context> multiprocess_runtime_ctx = nullptr,
-  bool debug_mem_usage                                                         = false)
+  const std::string& storage_kind_description)
 {
   gqe::storage_kind::type storage_kind = parse_storage_kind(storage_kind_description, {});
   GQE_LOG_TRACE("Storage kind created: {}", storage_kind_description);
 
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
-    register_table_in_memory(ctx,
-                             catalog,
-                             num_row_groups,
-                             in_memory_table_compression_format,
-                             in_memory_table_compression_data_type,
-                             compression_chunk_size,
-                             zone_map_partition_size,
-                             name,
-                             definition,
-                             file_paths,
-                             storage_kind,
-                             multiprocess_runtime_ctx,
-                             debug_mem_usage);
+    register_table_in_memory(ctx, catalog, name, definition, file_paths, storage_kind);
   }
 }
 

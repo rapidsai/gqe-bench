@@ -127,7 +127,6 @@ class CatalogContext:
     in_memory_table_secondary_compression_format: str
     in_memory_table_secondary_compression_ratio_threshold: float
     in_memory_table_secondary_compression_multiplier_threshold: float
-    debug_mem_usage: bool = False
 
 
 # Extract only the fields that belong to the superclass
@@ -522,7 +521,6 @@ def _run_tpc(
         data.data_info_id = data_info_id
         data_info_ext_id = edb.insert_gqe_data_info_ext(upcast_to_super(data, GqeDataInfoExt))
     debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
-    cat_ctx.debug_mem_usage = debug_mem_usage
 
     # Create the task manager context
     task_manager_params = optimization_parameters.from_catalog_context(cat_ctx)
@@ -553,7 +551,6 @@ def _run_tpc(
             catalog = Catalog(context)
             table_definitions = catalog.register_tpch(
                 **asdict(cat_ctx),
-                multiprocess_runtime_context=multiprocess_runtime_context,
             )
         except Exception as error:
             print(f"Error registering table: {error}", is_root_rank)
@@ -624,7 +621,6 @@ def _run_tpc(
                 cat_ctx.load_data_of_query = query_info_ctx.query_idx
                 table_definitions = catalog.register_tpch(
                     **asdict(cat_ctx),
-                    multiprocess_runtime_context=multiprocess_runtime_context,
                 )
             except Exception as error:
                 print(

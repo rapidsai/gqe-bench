@@ -170,6 +170,10 @@ CREATE VIEW gqe_best_parameters AS
       de_compression_data_type,
       de_compression_chunk_size,
       de_zone_map_partition_size,
+      de_compression_ratio_threshold,
+      de_secondary_compression_format,
+      de_secondary_compression_ratio_threshold,
+      de_secondary_compression_multiplier_threshold,
       avg(r_duration_s) AS r_avg_duration_s,
       min(r_duration_s) AS r_min_duration_s,
       max(r_duration_s) AS r_max_duration_s,
@@ -209,7 +213,11 @@ CREATE VIEW gqe_best_parameters AS
       de_compression_format,
       de_compression_data_type,
       de_compression_chunk_size,
-      de_zone_map_partition_size
+      de_zone_map_partition_size,
+      de_compression_ratio_threshold,
+      de_secondary_compression_format,
+      de_secondary_compression_ratio_threshold,
+      de_secondary_compression_multiplier_threshold
   )
   SELECT
     data.*

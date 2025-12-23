@@ -35,21 +35,11 @@ class Catalog:
         self,
         dataset: str,
         storage_kind: str = "pinned_memory",
-        num_row_groups: int = 8,
         load_data_of_query: int = 0,
         load_all_data_from: str = "required",
         identifier_type: gqe.lib.TypeId = gqe.lib.TypeId.int32,
         use_opt_char_type: bool = True,
-        in_memory_table_compression_format="none",
-        in_memory_table_compression_data_type="char",
-        in_memory_table_compression_chunk_size=2**16,
-        zone_map_partition_size=100000,
-        multiprocess_runtime_context: MultiProcessRuntimeContext = None,
-        in_memory_table_compression_ratio_threshold: float = 1.0,
-        in_memory_table_secondary_compression_format: str = "none",
-        in_memory_table_secondary_compression_ratio_threshold: float = 1.0,
-        in_memory_table_secondary_compression_multiplier_threshold: float = 1.0,
-        debug_mem_usage: bool = False,
+        **kwargs,
     ) -> TPCHTableDefinitions:
         """
         Register TPC-H dataset in the catalog.
@@ -58,26 +48,18 @@ class Catalog:
         :arg storage_kind: Storage kind for tables. Can be either `"pinned_memory"`,
             `"system_memory"`, `"numa_memory"`, `"device_memory"`, or `"managed_memory"` or
             `"parquet_file"`, or `"boost_shared_memory"`.
-        :arg num_row_groups: Number of row groups for in-memory storage.
         :arg load_data_of_query: For in-memory storage,
             if `load_data_of_query = 0` loads entire dataset,
             else if `0 < load_data_of_query <= 22` loads table and columns required for the
             specific query
-        :arg load_all_data_from: Whether to load all data from the TPC-Hschema (`"full"`) or only the data required by the 22 TPC-H queries (`"required"`).
+        :arg load_all_data_from: Whether to load all data from the TPC-H schema (`"full"`) or only the data required by the 22 TPC-H queries (`"required"`).
             if `load_all_data_from = "required"` loads data required by the 22 TPC-H queries,
             else if `load_all_data_from = "full"` loads all data from the TPC-H schema
         :arg identifier_type: Can be either `gqe.lib.TypeId.int32` or `gqe.lib.TypeId.int64`
         :arg use_opt_char_type: If true, use optimized char type for single character columns.
-        :arg in_memory_table_compression_format: Compression format for the in-memory table.
-        :arg in_memory_table_compression_data_type: Determines how input data is viewed as for compression.
-        :arg in_memory_table_compression_chunk_size: Size of each chunk for nvcomp compression.
-        :arg zone_map_partition_size: Number of rows per zone map partition.
-        :arg multiprocess_runtime_context: Context reused for multiprocess tasks execution.
-        :arg compression_ratio_threshold: UNUSED Compression ratio threshold.
-        :arg in_memory_table_secondary_compression_format: UNUSED Secondary compression format.
-        :arg in_memory_table_secondary_compression_ratio_threshold: UNUSED Secondary compression ratio threshold.
-        :arg in_memory_table_secondary_compression_multiplier_threshold: UNUSED Secondary compression multiplier threshold.
-        :arg debug_mem_usage: Whether to use debug memory usage.
+        :arg kwargs: Additional keyword arguments are accepted and ignored. This allows callers
+            to pass a CatalogContext via `**asdict(cat_ctx)` which may contain extra fields
+            used elsewhere (e.g., compression settings for OptimizationParameters).
         """
         table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
         if storage_kind == "parquet_file":
@@ -99,15 +81,8 @@ class Catalog:
                 self._context._context,
                 self._catalog,
                 dataset,
-                num_row_groups,
-                in_memory_table_compression_format,
-                in_memory_table_compression_data_type,
-                in_memory_table_compression_chunk_size,
-                zone_map_partition_size,
                 table_definitions.query_table_definitions(load_data_of_query, load_all_data_from),
                 storage_kind,
-                multiprocess_runtime_context,
-                debug_mem_usage,
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")

@@ -209,7 +209,14 @@ def main():
             char_type = best_parameter["d_char_type"]
             use_opt_type_for_single_char_col = char_type == "char"
             compression_format = best_parameter["de_compression_format"]
-            compression_data_type = best_parameter["de_compression_data_type"]
+            compression_ratio_threshold = best_parameter["de_compression_ratio_threshold"]
+            secondary_compression_format = best_parameter["de_secondary_compression_format"]
+            secondary_compression_ratio_threshold = best_parameter[
+                "de_secondary_compression_ratio_threshold"
+            ]
+            secondary_compression_multiplier_threshold = best_parameter[
+                "de_secondary_compression_multiplier_threshold"
+            ]
             compression_chunk_size = best_parameter["de_compression_chunk_size"]
             zone_map_partition_size = best_parameter["de_zone_map_partition_size"]
 
@@ -238,7 +245,10 @@ def main():
                 decimal_type="float",
                 num_row_groups=num_row_groups,
                 compression_format=compression_format,
-                compression_data_type=compression_data_type,
+                compression_ratio_threshold=compression_ratio_threshold,
+                secondary_compression_format=secondary_compression_format,
+                secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
+                secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
                 compression_chunk_size=compression_chunk_size,
                 zone_map_partition_size=zone_map_partition_size,
             )
@@ -290,10 +300,13 @@ def main():
                 "required",  # Load data required by 22 - TPC-H queries
                 identifier_type,
                 use_opt_type_for_single_char_col,
-                compression_format,
-                compression_data_type,
-                compression_chunk_size,
                 zone_map_partition_size,
+                compression_format,
+                compression_chunk_size,
+                compression_ratio_threshold,
+                secondary_compression_format,
+                secondary_compression_ratio_threshold,
+                secondary_compression_multiplier_threshold,
             )
 
             run_tpc(
