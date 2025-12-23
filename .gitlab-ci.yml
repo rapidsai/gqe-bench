@@ -33,8 +33,7 @@ tests:
     - pip install -e .
     - conda install -y pytest
     - pytest tests/ -v
-    # TODO: Fix the below line to run tpch.  We need to mount all those tpch_scratch directories.
-    #- python ./gqe/benchmark/run_tpch_parameter_sweep.py -k pinned_memory -- /tpch_scratch/datasets/sf1_id64/ /tpch_scratch/substrait_plans '/tpch_scratch/reference_results/sf1/%d.parquet'
+    - python ./gqe/benchmark/run_tpch_parameter_sweep.py --json ./gqe/tpch_sweep_config.template.json5
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

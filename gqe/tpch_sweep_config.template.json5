@@ -1,7 +1,8 @@
 {
-  // "dataset": "/path/to/dataset",
-  // "plan": "/path/to/substrait/plans",
-  // "solution": "/path/to/reference/results",
+  "dataset": "/tpch_scratch/datasets/sf0.01/sf0.01_id64",
+  "plan": "/tpch_scratch/substrait_plans/sf0.01",
+  "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
+  "output": "/tmp/gqe_experiment.db3",
 
   "compression_format": ["none"],
   "read_use_overlap_mtx": [true], // Change to false when running with compression enabled
