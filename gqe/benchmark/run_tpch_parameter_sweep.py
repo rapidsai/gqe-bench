@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -48,6 +48,7 @@ from gqe.param_sweep_config import (
     check_cli_overrides,
     config_to_args,
     get_query_execution_params,
+    get_validation_dir,
     load_json_config,
 )
 
@@ -316,10 +317,16 @@ def parse_args():
         action="store_true",
     )
     arg_parser.add_argument(
-        "--verify-results",
-        help="Verify results before writing the timing entries to the database. Defaults to True.",
+        "--validate-results",
+        help="Validate results before writing the timing entries to the database. Defaults to True.",
         type=parse_bool,
-        default=BENCHMARK_CONFIG_DEFAULTS["verify_results"],
+        default=BENCHMARK_CONFIG_DEFAULTS["validate_results"],
+    )
+    arg_parser.add_argument(
+        "--validate-dir",
+        help="Scratch directory to write query results to for validation. Defaults to a temporary directory via tempfile.",
+        type=str,
+        default=BENCHMARK_CONFIG_DEFAULTS["validate_dir"],
     )
 
     # Arguments to enable/disable functionality
@@ -454,6 +461,7 @@ def main():
         print(
             f"Multi-process sandboxing enabled by -sb is not compatible with multi-gpu set by -m at this time. Ignoring sandboxing."
         )
+    validate_dir = get_validation_dir(args.validate_dir)
 
     gqe_host = "localhost"
     scale_factor = parse_scale_factor(args.dataset)
@@ -775,7 +783,8 @@ def main():
                     is_root_rank,
                     args.multiprocess,
                     multiprocess_runtime_context,
-                    args.verify_results,
+                    args.validate_results,
+                    validate_dir,
                     args.quiet,
                 )
 
@@ -809,7 +818,8 @@ def main():
                                 is_root_rank,
                                 args.multiprocess,
                                 multiprocess_runtime_context,
-                                args.verify_results,
+                                args.validate_results,
+                                validate_dir,
                                 args.quiet,
                                 child_pipe,
                             ),

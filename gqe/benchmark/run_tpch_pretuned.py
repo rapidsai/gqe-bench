@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -32,6 +32,10 @@ from gqe.benchmark.run import (
     run_tpc,
     set_eager_module_loading,
     setup_db,
+)
+from gqe.param_sweep_config import (
+    BENCHMARK_CONFIG_DEFAULTS,
+    get_validation_dir,
 )
 
 
@@ -131,10 +135,16 @@ def main():
         "--boost_pool_size", help="Boost pool size in GBs", type=int, default=None
     )
     arg_parser.add_argument(
-        "--verify-results",
-        help="Verify results before writing the timing entries to the database. Defaults to True.",
+        "--validate-results",
+        help="Validate results before writing the timing entries to the database. Defaults to True.",
         type=parse_bool,
         default=True,
+    )
+    arg_parser.add_argument(
+        "--validate-dir",
+        help="Scratch directory to write query results to for validation. Defaults to a temporary directory via tempfile.",
+        type=str,
+        default=BENCHMARK_CONFIG_DEFAULTS["validate_dir"],
     )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
@@ -155,6 +165,8 @@ def main():
         best_parameters = get_best_parameters_folder(args.swept_sqlite_folder)
     else:
         raise ValueError("Either --swept_sqlite_file or --swept_sqlite_folder must be specified")
+
+    validate_dir = get_validation_dir(args.validate_dir)
 
     # TODO: Multiprocess mode needs to check if spawned ranks is equal to that in the best parameters
     # https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/13
@@ -323,7 +335,8 @@ def main():
                 is_root_rank,
                 args.multiprocess,
                 multiprocess_runtime_context,
-                args.verify_results,
+                args.validate_results,
+                validate_dir,
             )
 
         return errors_local, invalid_results_local

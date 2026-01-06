@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -17,7 +17,9 @@ This module provides functionality to load experiment configurations from JSON f
 with support for global parameters and query-specific overrides.
 """
 
+import os
 import sys
+import tempfile
 from argparse import Namespace
 
 import json5
@@ -62,7 +64,8 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "data_timeout": 10800,
     "boost_pool_size": None,
     "sandboxing": False,
-    "verify_results": True,
+    "validate_results": True,
+    "validate_dir": None,
     **QUERY_CONFIG_DEFAULTS,
 }
 
@@ -203,3 +206,26 @@ def get_query_execution_params(args: Namespace, query_str: str) -> dict:
             params[field] = getattr(args, field)
 
     return params
+
+
+def get_validation_dir(out_dir: str) -> str:
+    """
+    Attempts to create output directory if it is provided. Otherwise, attempts to create
+    a tempdir. Returns the actual path that should be used for output. Exits program if
+    validation directory cannot be created.
+
+    Args:
+        out_dir: Directory to attempt to create. None to request a tempdir.
+
+    Returns: out_dir, or the temporary directory created if out_dir is None.
+    """
+    if out_dir:
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except Exception as e:
+            print(f'Exception caught creating validation directory "{out_dir}": {e}')
+            sys.exit(1)
+    else:
+        out_dir = tempfile.mkdtemp()
+
+    return out_dir

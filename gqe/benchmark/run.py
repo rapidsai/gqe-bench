@@ -33,7 +33,7 @@ from gqe.benchmark.gqe_experiment import (
     GqeParameters,
     GqeRunExt,
 )
-from gqe.benchmark.verify import verify_parquet
+from gqe.benchmark.validate import validate_parquet
 from gqe.expression import (
     BinaryOpExpression,
     Cast,
@@ -430,7 +430,8 @@ def run_tpc(
     is_root_rank: bool,
     is_mp: bool,
     multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
-    verify_results: bool,
+    validate_results: bool,
+    validate_dir: str,
     quiet: bool = False,
     pipe: subprocessing.Pipe = None,
 ):
@@ -453,7 +454,8 @@ def run_tpc(
                 is_root_rank,
                 is_mp,
                 multiprocess_runtime_context,
-                verify_results,
+                validate_results,
+                validate_dir,
                 quiet,
                 pipe,
             )
@@ -472,7 +474,8 @@ def run_tpc(
             is_root_rank,
             is_mp,
             multiprocess_runtime_context,
-            verify_results,
+            validate_results,
+            validate_dir,
             quiet,
             pipe,
         )
@@ -511,7 +514,8 @@ def _run_tpc(
     is_root_rank: bool,
     is_mp: bool,
     multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
-    verify_results: bool,
+    validate_results: bool,
+    validate_dir: bool,
     quiet: bool,
     pipe: subprocessing.Pipe,
 ):
@@ -701,7 +705,7 @@ def _run_tpc(
             print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
 
         for count in range(repeat):
-            out_file = f"{query.identifier}_out.parquet"
+            out_file = os.path.join(f"{validate_dir}", f"{query.identifier}_out.parquet")
 
             with nvtx.annotate(f"Run {query.identifier}"):
                 try:
@@ -718,13 +722,13 @@ def _run_tpc(
                     errors.append((f"{query.identifier} query execution", parameter, f"{error}"))
                     pipe_send(pipe, False)
                     break
-            if verify_results:
-                # All ranks verify result, alternatively we need to communicate if there is an error
+            if validate_results:
+                # All ranks validate result, alternatively we need to communicate if there is an error
                 try:
-                    print_mp("Start verification...", is_root_rank and not quiet)
-                    verify_parquet(out_file, query.reference_solution, query.validator)
+                    print_mp("Start validation...", is_root_rank and not quiet)
+                    validate_parquet(out_file, query.reference_solution, query.validator)
                 except Exception as error:
-                    print("Error verifying solution")
+                    print("Error validating solution")
                     print(f"{type(error).__name__}: {error}")
                     invalid_results.append((query.identifier, parameter))
                     pipe_send(pipe, False)
@@ -733,7 +737,7 @@ def _run_tpc(
                     else:
                         break
             else:
-                print_mp("Skipping verification...", is_root_rank and not quiet)
+                print_mp("Skipping validation...", is_root_rank and not quiet)
             # Logging on host process creates a small race condition; sending before doing DB insertion
             # helps order the print messages w/o having to resort to more complicated syncronization.
             pipe_send(pipe, True)

@@ -34,7 +34,7 @@ def normalize_type(df1: pd.DataFrame, df2: pd.DataFrame, col: str):
     df2[col] = df2[col].astype(new_type)
 
 
-def verify_parquet(
+def validate_parquet(
     test_file: str,
     ref_file: str,
     validator: Optional[Callable[[pd.DataFrame, pd.DataFrame, float], None]],
@@ -63,5 +63,5 @@ def verify_parquet(
             elif gqe_col_item_size < ref_col_item_size:
                 normalize_type(df_ref, df_gqe, col)
 
-    # Verify that GQE result is the same as the reference result
+    # Validate that GQE result is the same as the reference result
     validator(df_gqe, df_ref, 1e-06)
