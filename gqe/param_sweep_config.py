@@ -71,6 +71,8 @@ BENCHMARK_CONFIG_DEFAULTS = {
 
 # Required fields that must be present in the JSON config
 REQUIRED_FIELDS = ["dataset", "plan", "solution"]
+QUERY_OVERRIDES = "query_overrides"
+VALID_FIELDS = {QUERY_OVERRIDES, *REQUIRED_FIELDS, *BENCHMARK_CONFIG_DEFAULTS}
 
 
 def load_json_config(path: str) -> dict:
@@ -95,6 +97,10 @@ def load_json_config(path: str) -> dict:
     if missing:
         raise ValueError(f"Missing required fields in config: {missing}")
 
+    excessive = [field for field in config.keys() if field not in VALID_FIELDS]
+    if excessive:
+        raise ValueError(f"Unknown parameter in config: {excessive}")
+
     return config
 
 
@@ -118,11 +124,11 @@ def config_to_args(config: dict) -> Namespace:
 
     # Override with config values (excluding query_overrides which is handled separately)
     for key, value in config.items():
-        if key != "query_overrides":
+        if key != QUERY_OVERRIDES:
             args_dict[key] = value
 
     # Store query overrides for per-query lookups
-    args_dict["query_overrides"] = config.get("query_overrides", [])
+    args_dict[QUERY_OVERRIDES] = config.get(QUERY_OVERRIDES, [])
 
     return Namespace(**args_dict)
 
@@ -183,7 +189,7 @@ def get_query_execution_params(args: Namespace, query_str: str) -> dict:
         join_use_perfect_hash, join_use_mark_join, read_use_filter_pruning,
         filter_use_like_shift_and, aggregation_use_perfect_hash.
     """
-    query_overrides = getattr(args, "query_overrides", [])
+    query_overrides = getattr(args, QUERY_OVERRIDES, [])
 
     # Collect all matching override entries for this query
     matching_overrides = [

@@ -9,7 +9,7 @@
   "join_use_mark_join": [false],
   "filter_use_like_shift_and": [false],
   "aggregation_use_perfect_hash": [false], // Set to true when using clustered dataset
-  "use_partition_pruning": [false],
+  "read_use_filter_pruning": [false],
 
   "query_overrides": [
     {
