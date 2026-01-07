@@ -94,4 +94,6 @@ def from_catalog_context(cat_ctx) -> lib.OptimizationParameters:
     params.in_memory_table_secondary_compression_multiplier_threshold = (
         cat_ctx.in_memory_table_secondary_compression_multiplier_threshold
     )
+    params.in_memory_table_use_cpu_compression = cat_ctx.in_memory_table_use_cpu_compression
+    params.in_memory_table_compression_level = cat_ctx.in_memory_table_compression_level
     return params

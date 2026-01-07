@@ -55,6 +55,8 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "secondary_compression_format": ["none"],
     "secondary_compression_ratio_threshold": [2.5],
     "secondary_compression_multiplier_threshold": [1.5],
+    "use_cpu_compression": [False],
+    "compression_level": [10],
     "load_all_data": None,
     "metrics": None,
     "storage_kind": ["numa_pinned_memory"],

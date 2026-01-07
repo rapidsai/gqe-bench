@@ -874,6 +874,10 @@ PYBIND11_MODULE(lib, py_module)
       &gqe::optimization_parameters::in_memory_table_secondary_compression_multiplier_threshold)
     .def_readwrite("in_memory_table_compression_ratio_threshold",
                    &gqe::optimization_parameters::in_memory_table_compression_ratio_threshold)
+    .def_readwrite("in_memory_table_use_cpu_compression",
+                   &gqe::optimization_parameters::use_cpu_compression)
+    .def_readwrite("in_memory_table_compression_level",
+                   &gqe::optimization_parameters::compression_level)
     .def_readwrite("io_block_size", &gqe::optimization_parameters::io_block_size)
     .def_readwrite("io_engine", &gqe::optimization_parameters::io_engine)
     .def_readwrite("io_pipelining", &gqe::optimization_parameters::io_pipelining)

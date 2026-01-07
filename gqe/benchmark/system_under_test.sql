@@ -57,6 +57,8 @@ CREATE TABLE gqe_data_info_ext(
   de_secondary_compression_format TEXT NOT NULL,
   de_secondary_compression_ratio_threshold REAL NOT NULL,
   de_secondary_compression_multiplier_threshold REAL NOT NULL,
+  de_use_cpu_compression INTEGER NOT NULL,
+  de_compression_level INTEGER NOT NULL,
   UNIQUE (
     de_data_info_id,
     de_num_row_groups,
@@ -66,7 +68,9 @@ CREATE TABLE gqe_data_info_ext(
     de_compression_ratio_threshold,
     de_secondary_compression_format,
     de_secondary_compression_ratio_threshold,
-    de_secondary_compression_multiplier_threshold
+    de_secondary_compression_multiplier_threshold,
+    de_use_cpu_compression,
+    de_compression_level
   ),
   FOREIGN KEY (de_data_info_id) REFERENCES data_info(d_id)
 );
@@ -173,6 +177,8 @@ CREATE VIEW gqe_best_parameters AS
       de_secondary_compression_format,
       de_secondary_compression_ratio_threshold,
       de_secondary_compression_multiplier_threshold,
+      de_use_cpu_compression,
+      de_compression_level,
       avg(r_duration_s) AS r_avg_duration_s,
       min(r_duration_s) AS r_min_duration_s,
       max(r_duration_s) AS r_max_duration_s,
@@ -215,7 +221,9 @@ CREATE VIEW gqe_best_parameters AS
       de_compression_ratio_threshold,
       de_secondary_compression_format,
       de_secondary_compression_ratio_threshold,
-      de_secondary_compression_multiplier_threshold
+      de_secondary_compression_multiplier_threshold,
+      de_use_cpu_compression,
+      de_compression_level
   )
   SELECT
     data.*

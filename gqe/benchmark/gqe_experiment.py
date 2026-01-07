@@ -51,6 +51,8 @@ class GqeDataInfoExt:
     secondary_compression_format: str
     secondary_compression_ratio_threshold: float
     secondary_compression_multiplier_threshold: float
+    use_cpu_compression: bool
+    compression_level: int
     data_info_id: DataInfoId | None = None  # Don't set manually
 
 

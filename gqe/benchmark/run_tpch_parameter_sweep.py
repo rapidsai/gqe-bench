@@ -417,6 +417,18 @@ def parse_args():
         default=BENCHMARK_CONFIG_DEFAULTS["secondary_compression_multiplier_threshold"],
     )
 
+    arg_parser.add_boolean_list_argument(
+        "--use-cpu-compression",
+        help="Use CPU compression for in-memory table compression",
+        default=BENCHMARK_CONFIG_DEFAULTS["use_cpu_compression"],
+    )
+
+    arg_parser.add_int_list_argument(
+        "--compression-level",
+        help="Compression level (1-12). Higher values provide better compression but slower speed. Currently only supported for LZ4.",
+        default=BENCHMARK_CONFIG_DEFAULTS["compression_level"],
+    )
+
     return arg_parser.parse_args()
 
 
@@ -537,6 +549,8 @@ def main():
             secondary_compression_format,
             secondary_compression_ratio_threshold,
             secondary_compression_multiplier_threshold,
+            use_cpu_compression,
+            compression_level,
             compression_chunk_size,
             identifier_type,
             storage_kind,
@@ -549,6 +563,8 @@ def main():
             args.secondary_compression_format,
             args.secondary_compression_ratio_threshold,
             args.secondary_compression_multiplier_threshold,
+            args.use_cpu_compression,
+            args.compression_level,
             [2**16],
             identifier_type,
             args.storage_kind,
@@ -578,6 +594,8 @@ def main():
                 secondary_compression_format=secondary_compression_format,
                 secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
+                use_cpu_compression=use_cpu_compression,
+                compression_level=compression_level,
                 compression_chunk_size=compression_chunk_size,
                 zone_map_partition_size=zone_map_partition_size,
             )
@@ -598,6 +616,8 @@ def main():
                     secondary_compression_format,
                     secondary_compression_ratio_threshold,
                     secondary_compression_multiplier_threshold,
+                    use_cpu_compression,
+                    compression_level,
                 )
             else:
                 # Pass in non-zero value to indicate load_all_data=False
@@ -616,6 +636,8 @@ def main():
                     secondary_compression_format,
                     secondary_compression_ratio_threshold,
                     secondary_compression_multiplier_threshold,
+                    use_cpu_compression,
+                    compression_level,
                 )
 
             # We use a regular list to build so that we can sort it later before

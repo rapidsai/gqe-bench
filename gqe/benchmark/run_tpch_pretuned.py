@@ -229,6 +229,8 @@ def main():
             secondary_compression_multiplier_threshold = best_parameter[
                 "de_secondary_compression_multiplier_threshold"
             ]
+            use_cpu_compression = best_parameter["de_use_cpu_compression"]
+            compression_level = best_parameter["de_compression_level"]
             compression_chunk_size = best_parameter["de_compression_chunk_size"]
             zone_map_partition_size = best_parameter["de_zone_map_partition_size"]
 
@@ -261,6 +263,8 @@ def main():
                 secondary_compression_format=secondary_compression_format,
                 secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
+                use_cpu_compression=use_cpu_compression,
+                compression_level=compression_level,
                 compression_chunk_size=compression_chunk_size,
                 zone_map_partition_size=zone_map_partition_size,
             )
@@ -319,6 +323,8 @@ def main():
                 secondary_compression_format,
                 secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold,
+                use_cpu_compression,
+                compression_level,
             )
 
             run_tpc(

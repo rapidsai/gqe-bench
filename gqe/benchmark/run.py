@@ -127,6 +127,8 @@ class CatalogContext:
     in_memory_table_secondary_compression_format: str
     in_memory_table_secondary_compression_ratio_threshold: float
     in_memory_table_secondary_compression_multiplier_threshold: float
+    in_memory_table_use_cpu_compression: bool
+    in_memory_table_compression_level: int
 
 
 # Extract only the fields that belong to the superclass
