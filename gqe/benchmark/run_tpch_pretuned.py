@@ -146,6 +146,12 @@ def main():
         type=str,
         default=BENCHMARK_CONFIG_DEFAULTS["validate_dir"],
     )
+    arg_parser.add_argument(
+        "--ddl-file-path",
+        help="Path to DDL file",
+        type=str,
+        default=BENCHMARK_CONFIG_DEFAULTS["ddl_file_path"],
+    )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
 
@@ -313,9 +319,9 @@ def main():
                 storage_kind,
                 num_row_groups,
                 0 if args.load_all_data else -1,
-                "required",  # Load data required by 22 - TPC-H queries
                 identifier_type,
                 use_opt_type_for_single_char_col,
+                args.ddl_file_path,
                 zone_map_partition_size,
                 compression_format,
                 compression_chunk_size,

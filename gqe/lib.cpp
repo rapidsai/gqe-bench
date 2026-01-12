@@ -603,7 +603,7 @@ struct multi_process_context : base_context {
   gqe::multi_process_task_manager_context* _task_manager_ctx;
 };
 
-void register_tpch_parquet(
+void register_tables_parquet(
   gqe::catalog* catalog,
   std::string dataset_location,
   std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions)
@@ -682,7 +682,7 @@ void register_table_in_memory(lib::base_context* ctx,
   ctx->execute(catalog, write_table, std::nullopt);
 }
 
-void register_tpch_in_memory(
+void register_tables_in_memory(
   lib::base_context* ctx,
   gqe::catalog* catalog,
   std::string dataset_location,
@@ -905,8 +905,8 @@ PYBIND11_MODULE(lib, py_module)
     .def_readwrite("name", &gqe::column_traits::name)
     .def_readwrite("data_type", &gqe::column_traits::data_type)
     .def_readwrite("is_unique", &gqe::column_traits::is_unique);
-  py_module.def("register_tpch_parquet", &lib::register_tpch_parquet);
-  py_module.def("register_tpch_in_memory", &lib::register_tpch_in_memory);
+  py_module.def("register_tables_parquet", &lib::register_tables_parquet);
+  py_module.def("register_tables_in_memory", &lib::register_tables_in_memory);
 
   // Relations
   py::class_<gqe::physical::relation, std::shared_ptr<gqe::physical::relation>> relation_cls(

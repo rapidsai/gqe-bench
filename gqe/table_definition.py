@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -10,6 +10,10 @@
 
 from __future__ import annotations  # Enable forward references for type annotations
 
+from abc import ABC, abstractmethod
+
+import sqlglot
+
 import gqe.lib
 
 
@@ -17,6 +21,12 @@ def check_identifier_type(type_id: gqe.lib.TypeId) -> bool:
     if type_id in [gqe.lib.TypeId.int32, gqe.lib.TypeId.int64]:
         return True
     raise ValueError(f"Invalid identifier type: {type_id}. Must be int32 or int64.")
+
+
+class TableDefinitions(ABC):
+    @abstractmethod
+    def query_table_definitions(self, query_idx: int) -> dict[str, list["gqe.lib.ColumnTraits"]]:
+        pass
 
 
 class TPCHTableDefinitions:
@@ -126,22 +136,11 @@ class TPCHTableDefinitions:
             ]
         return definitions
 
-    def query_table_definitions(
-        self, query_idx: int, load_all_data_from: str = "required"
-    ) -> dict[str, list["gqe.lib.ColumnTraits"]]:
+    def query_table_definitions(self, query_idx: int) -> dict[str, list["gqe.lib.ColumnTraits"]]:
         """Return the tables and and columns (encoded as C++ ColumnTraits) requrired by a query."""
 
-        # All data from the TPC-H schema
-        if query_idx == 0 and load_all_data_from == "full":
-            return {
-                table: [
-                    gqe.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()
-                ]
-                for table, cols in self.definitions.items()
-            }
-        else:
-            schema = self.get_schema(query_idx)
-            return self.get_column_types(schema)
+        schema = self.get_schema(query_idx)
+        return self.get_column_types(schema)
 
     def get_schema(self, query_idx: int) -> dict[str, list[str]]:
         """Return column and table names required by a query."""
@@ -452,3 +451,89 @@ class TPCHTableDefinitions:
             }
 
         return tables
+
+
+# TODO: Numeric needs to be handled?
+mapping_parse_type_to_gqe_type = {
+    "INT": gqe.lib.DataType(gqe.lib.TypeId.int32),
+    "BIGINT": gqe.lib.DataType(gqe.lib.TypeId.int64),
+    "CHAR": gqe.lib.DataType(gqe.lib.TypeId.string),
+    "VARCHAR": gqe.lib.DataType(gqe.lib.TypeId.string),
+    "DECIMAL": gqe.lib.DataType(gqe.lib.TypeId.float64),
+    "DATE": gqe.lib.DataType(gqe.lib.TypeId.timestamp_days),
+}
+
+
+class CustomTableDefinitions(TableDefinitions):
+    def __init__(self, ddl_file_path: str):
+        self.definitions = self.parse_table_definitions(ddl_file_path)
+
+    def query_table_definitions(self, query_idx: int) -> dict[str, list["gqe.lib.ColumnTraits"]]:
+        return {
+            table: [gqe.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()]
+            for table, cols in self.definitions.items()
+        }
+
+    def get_single_column_identifiers(
+        self, expression: sqlglot.exp.Expression, column_names: list[str]
+    ):
+        column_identifiers = expression.find_all(sqlglot.exp.Identifier)
+        column_names_cur = [col.name.lower() for col in column_identifiers]
+        # Composite column uniqueness (ex. UNIQUE (a,b) ) is not supported by GQE yet.
+        # So, we only add the column name if it is a single column.
+        if len(column_names_cur) == 1:
+            column_names.append(column_names_cur[0])
+
+    def parse_table_definitions(self, ddl_file_path: str) -> dict[str, dict[str, str]]:
+        # Parse the DDL file contents into statements (safe: use file contents, not path)
+        with open(ddl_file_path, "r", encoding="utf-8") as f:
+            ddl_text = f.read()
+        statements = sqlglot.parse(ddl_text)
+        table_definitions = {}
+        for statement in statements:
+            # Assume there should be only one table per statement
+            table_name = statement.find(sqlglot.exp.Table).name.lower()
+
+            column_names = []
+            column_types = []
+            unique_column_names = []
+
+            # This parses all column level options
+            # [column name] [data type] {NULL | NOT NULL} {column options}
+            for column in statement.find_all(sqlglot.exp.ColumnDef):
+                column_names.append(column.name.lower())
+                column_types.append(
+                    mapping_parse_type_to_gqe_type[column.args.get("kind").this.name.upper()]
+                )
+
+                for constraint in column.constraints:
+                    if str(constraint).upper() == "UNIQUE":
+                        unique_column_names.append(column.name.lower())
+                    if str(constraint).upper() == "PRIMARY KEY":
+                        unique_column_names.append(column.name.lower())
+
+            # This parses the primary key constraint
+            #  PRIMARY KEY (column name [, column name ...])
+            #  CONSTRAINT [constraint name] PRIMARY KEY (column name [, column name ...])
+            for primary_key_expression in statement.find_all(sqlglot.exp.PrimaryKey):
+                self.get_single_column_identifiers(primary_key_expression, unique_column_names)
+
+            # This parses the unique column constraint
+            #  CONSTRAINT [constraint name] UNIQUE (column name [, column name ...])
+            for unique_key_expression in statement.find_all(sqlglot.exp.UniqueColumnConstraint):
+                self.get_single_column_identifiers(unique_key_expression, unique_column_names)
+
+            # If the column is in the unique column names, we attach the unique column property to table definition
+            table_definitions[table_name] = {}
+            for column in column_names:
+                if column in unique_column_names:
+                    table_definitions[table_name][column] = [
+                        column_types[column_names.index(column)],
+                        [gqe.lib.ColumnProperty.unique],
+                    ]
+                else:
+                    table_definitions[table_name][column] = [
+                        column_types[column_names.index(column)]
+                    ]
+
+        return table_definitions

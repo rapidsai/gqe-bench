@@ -24,6 +24,7 @@ dependencies = [
     "pandas",
     "pyarrow",
     "nvtx",
+    "sqlglot>=23.0.0"
 ]
 
 [tool.scikit-build]

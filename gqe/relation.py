@@ -253,7 +253,7 @@ def read(
     column_defs = None
     if table_defs:
         # query all tables
-        tables = table_defs.query_table_definitions(query_idx=0, load_all_data_from="full")
+        tables = table_defs.query_table_definitions(query_idx=0)
         if table in tables:
             column_defs = tables[table]
     return ReadRelation(table, columns, partial_filter, column_defs)

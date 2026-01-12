@@ -428,6 +428,12 @@ def parse_args():
         help="Compression level (1-12). Higher values provide better compression but slower speed. Currently only supported for LZ4.",
         default=BENCHMARK_CONFIG_DEFAULTS["compression_level"],
     )
+    arg_parser.add_argument(
+        "--ddl-file-path",
+        help="Path to DDL file",
+        type=str,
+        default=BENCHMARK_CONFIG_DEFAULTS["ddl_file_path"],
+    )
 
     return arg_parser.parse_args()
 
@@ -606,9 +612,9 @@ def main():
                     storage_kind,
                     num_row_groups,
                     0,
-                    "required",  # Load data required by 22 - TPC-H queries
                     identifier_type,
                     use_opt_type_for_single_char_col,
+                    args.ddl_file_path,
                     zone_map_partition_size,
                     compression_format,
                     compression_chunk_size,
@@ -626,9 +632,9 @@ def main():
                     storage_kind,
                     num_row_groups,
                     -1,
-                    "required",  # Load data required by 22 - TPC-H queries
                     identifier_type,
                     use_opt_type_for_single_char_col,
+                    args.ddl_file_path,
                     zone_map_partition_size,
                     compression_format,
                     compression_chunk_size,

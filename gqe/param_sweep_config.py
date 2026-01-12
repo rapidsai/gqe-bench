@@ -68,6 +68,7 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "sandboxing": False,
     "validate_results": True,
     "validate_dir": None,
+    "ddl_file_path": None,
     **QUERY_CONFIG_DEFAULTS,
 }
 

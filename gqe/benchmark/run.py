@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -117,9 +117,9 @@ class CatalogContext:
     storage_kind: str
     num_row_groups: int
     load_data_of_query: int
-    load_all_data_from: str
     identifier_type: gqe.lib.TypeId
     use_opt_char_type: bool
+    ddl_file_path: str
     zone_map_partition_size: int
     in_memory_table_compression_format: str
     in_memory_table_compression_chunk_size: int
@@ -198,6 +198,7 @@ def parse_identifier_type(path: str) -> gqe.lib.TypeId:
     return identifier_type
 
 
+# FIXME: handle this for other datasets
 def is_valid_identifier_type(
     identifier_type: gqe.lib.TypeId, experiment_suite: str, scale_factor: int
 ) -> Optional[bool]:
@@ -555,7 +556,7 @@ def _run_tpc(
         )
         try:
             catalog = Catalog(context)
-            table_definitions = catalog.register_tpch(
+            table_definitions = catalog.register_tables(
                 **asdict(cat_ctx),
             )
         except Exception as error:
@@ -625,7 +626,7 @@ def _run_tpc(
                 catalog = Catalog(context)
                 # Set up context with new query ID
                 cat_ctx.load_data_of_query = query_info_ctx.query_idx
-                table_definitions = catalog.register_tpch(
+                table_definitions = catalog.register_tables(
                     **asdict(cat_ctx),
                 )
             except Exception as error:
