@@ -428,6 +428,16 @@ def parse_args():
         help="Compression level (1-12). Higher values provide better compression but slower speed. Currently only supported for LZ4.",
         default=BENCHMARK_CONFIG_DEFAULTS["compression_level"],
     )
+    arg_parser.add_int_list_argument(
+        "--compression-chunk-size",
+        help="Compression chunk size in bytes. Default: 128KB (2**17).",
+        default=BENCHMARK_CONFIG_DEFAULTS["compression_chunk_size"],
+    )
+    arg_parser.add_int_list_argument(
+        "--zone-map-partition-size",
+        help="Zone map partition size. Default: 200000.",
+        default=BENCHMARK_CONFIG_DEFAULTS["zone_map_partition_size"],
+    )
     arg_parser.add_argument(
         "--ddl-file-path",
         help="Path to DDL file",
@@ -571,10 +581,10 @@ def main():
             args.secondary_compression_multiplier_threshold,
             args.use_cpu_compression,
             args.compression_level,
-            [2**16],
+            args.compression_chunk_size,
             identifier_type,
             args.storage_kind,
-            [100000],
+            args.zone_map_partition_size,
         ):
             match is_valid_identifier_type(identifier_type, "tpch", scale_factor):
                 case True:

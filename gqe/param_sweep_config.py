@@ -57,6 +57,8 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "secondary_compression_multiplier_threshold": [1.5],
     "use_cpu_compression": [False],
     "compression_level": [10],
+    "compression_chunk_size": [2**17],
+    "zone_map_partition_size": [200000],
     "load_all_data": None,
     "metrics": None,
     "storage_kind": ["numa_pinned_memory"],
