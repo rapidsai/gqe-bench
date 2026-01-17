@@ -30,7 +30,6 @@
         "16",
         "16_opt",
         "17",
-        "18_opt",
         "19",
         "20_fused_filter",
         "21_fused_filter",
@@ -76,6 +75,13 @@
         "20"
       ],
       "aggregation_use_perfect_hash": [true]
+    },
+    {
+      "queries": [
+        "18_opt"
+      ],
+      "join_use_perfect_hash": [true],
+      "join_use_hash_map_cache": [false]
     }
   ]
 }

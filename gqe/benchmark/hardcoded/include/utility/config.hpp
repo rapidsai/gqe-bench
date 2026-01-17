@@ -94,6 +94,24 @@ template <typename Key, typename T>
 using multimap_ref_type =
   typename multimap_type<Key, T>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;
 
+// Q18-specific type aliases with bucket_size = 1
+namespace q18 {
+constexpr int32_t bucket_size = 1;
+
+template <typename Key, typename T, typename Hash = cuco::default_hash_function<Key>>
+using map_type = cuco::static_map<Key,
+                                  T,
+                                  cuco::extent<std::size_t>,
+                                  cuda::thread_scope_device,
+                                  thrust::equal_to<Key>,
+                                  cuco::linear_probing<cg_size, Hash>,
+                                  map_allocator_type<Key, T>,
+                                  cuco::storage<bucket_size>>;  // Uses q18::bucket_size = 1
+template <typename Key, typename T, typename Hash = cuco::default_hash_function<Key>>
+using map_ref_type =
+  typename map_type<Key, T, Hash>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;
+}  // namespace q18
+
 template <typename T, typename Hash = cuco::xxhash_64<T>>
 using bloom_filter_policy_type = cuco::default_filter_policy<Hash, std::uint32_t, 2>;
 template <typename T, typename Hash = cuco::xxhash_64<T>>

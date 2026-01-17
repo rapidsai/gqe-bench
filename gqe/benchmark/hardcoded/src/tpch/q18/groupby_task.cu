@@ -62,8 +62,9 @@ constexpr double q18_quantity_threshold = 300.0;
 // Use the shared task_hash_map utility
 using task_hash_map = gqe_python::utility::task_hash_map;
 
+// Q18-specific hash map type with bucket_size = 1
 template <typename Identifier>
-using groupby_map_type = gqe_python::utility::map_type<Identifier, double>;
+using groupby_map_type = gqe_python::utility::q18::map_type<Identifier, double>;
 
 /**
  * @brief A task for the group by aggregation.
@@ -314,6 +315,8 @@ void groupby_retrieve_task::execute()
   emit_result(std::move(result_table));
 
   remove_dependencies();
+  // Reset the hash map to free memory immediately after the task is completed
+  _hash_map.reset();
 }
 
 /**
@@ -380,7 +383,7 @@ std::shared_ptr<gqe::physical::relation> groupby(std::shared_ptr<gqe::physical::
 
 template <typename Identifier>
 __global__ void gqe_python::benchmark::q18::groupby_retrieve_kernel(
-  gqe_python::utility::map_ref_type<Identifier, double> hash_map_ref,
+  gqe_python::utility::q18::map_ref_type<Identifier, double> hash_map_ref,
   cudf::size_type* d_global_offset,
   cudf::mutable_column_device_view out_l_orderkey,
   cudf::mutable_column_device_view out_sum_quantity)
@@ -393,10 +396,11 @@ __global__ void gqe_python::benchmark::q18::groupby_retrieve_kernel(
   utility::write_buffer_op<Identifier, double> wb(
     &wbs, global_offset_ref, out_l_orderkey.data<Identifier>(), out_sum_quantity.data<double>());
 
-  auto storage_ref           = hash_map_ref.storage_ref();
-  const auto loop_stride     = blockDim.x * gridDim.x;
-  const size_t map_capacity  = hash_map_ref.capacity();
-  constexpr auto bucket_size = gqe_python::utility::bucket_size;
+  auto storage_ref          = hash_map_ref.storage_ref();
+  const auto loop_stride    = blockDim.x * gridDim.x;
+  const size_t map_capacity = hash_map_ref.capacity();
+  constexpr auto bucket_size =
+    gqe_python::utility::q18::bucket_size;  // Q18-specific bucket_size = 1
   const auto loop_bound =
     ((map_capacity + bucket_size - 1) / bucket_size + blockDim.x - 1) / blockDim.x * blockDim.x;
 
@@ -429,13 +433,13 @@ __global__ void gqe_python::benchmark::q18::groupby_retrieve_kernel(
 
 // Explicit template instantiations
 template __global__ void gqe_python::benchmark::q18::groupby_retrieve_kernel<int32_t>(
-  gqe_python::utility::map_ref_type<int32_t, double> hash_map_ref,
+  gqe_python::utility::q18::map_ref_type<int32_t, double> hash_map_ref,
   cudf::size_type* d_global_offset,
   cudf::mutable_column_device_view out_l_orderkey,
   cudf::mutable_column_device_view out_sum_quantity);
 
 template __global__ void gqe_python::benchmark::q18::groupby_retrieve_kernel<int64_t>(
-  gqe_python::utility::map_ref_type<int64_t, double> hash_map_ref,
+  gqe_python::utility::q18::map_ref_type<int64_t, double> hash_map_ref,
   cudf::size_type* d_global_offset,
   cudf::mutable_column_device_view out_l_orderkey,
   cudf::mutable_column_device_view out_sum_quantity);

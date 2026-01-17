@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -114,7 +114,12 @@ class tpch_q18_opt(Query):
         # aggregated_lineitem: [l_orderkey, sum_l_quantity]
         # orders: [o_orderkey, o_custkey, o_orderdate, o_totalprice]
         # Result: [l_orderkey, sum_l_quantity, o_custkey, o_orderdate, o_totalprice]
-        orders = read("orders", ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"])
+        orders = read(
+            "orders",
+            ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"],
+            None,
+            table_defs,
+        )
         orders_with_quantities = aggregated_lineitem.broadcast_join(
             orders,
             CR(0) == CR(2),  # l_orderkey == o_orderkey
@@ -125,12 +130,13 @@ class tpch_q18_opt(Query):
                 4,
                 5,
             ],  # [l_orderkey, sum_l_quantity, o_custkey, o_orderdate, o_totalprice]
-            unique_keys_policy=UniqueKeysPolicy.right,
+            broadcast_left=True,  # change to broadcast left since it's smaller and the key is also unique
+            unique_keys_policy=UniqueKeysPolicy.left,
             perfect_hashing=True,
         )
 
         # Step 3: Join with customer table
-        customer = read("customer", ["c_custkey", "c_name"])
+        customer = read("customer", ["c_custkey", "c_name"], None, table_defs)
 
         # Join orders with customer
         # orders_with_quantities: [l_orderkey, sum_l_quantity, o_custkey, o_orderdate, o_totalprice]
