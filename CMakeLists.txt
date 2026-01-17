@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION &
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION &
 # AFFILIATES. All rights reserved. SPDX-License-Identifier:
 # LicenseRef-NvidiaProprietary
 #
@@ -67,7 +67,7 @@ else()
         "https://gitlab-master.nvidia.com/Devtech-Compute/gqe.git")
   endif()
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "d9f7c0b085f8f49cc62f33c1bd1ca1b0a493467c")
+    set(GQE_GIT_TAG "e587162d6d277137e67a2d714929e72cc58d28bd")
   endif()
 
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")

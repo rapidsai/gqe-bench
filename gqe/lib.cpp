@@ -306,6 +306,10 @@ struct multi_process_runtime_context {
     if (storage_kind != "boost_shared_memory") { return; }
 
     use_in_memory_table_multigpu = true;
+
+    // Eagerly initialize the boost shared memory resource to avoid
+    // https://nvbugspro.nvidia.com/bug/5634155
+    std::ignore = _task_manager_ctx->get_table_memory_resource(gqe::memory_kind::boost_shared{});
   }
 
   gqe::multi_process_task_manager_context* get_task_manager_ctx()
@@ -631,11 +635,13 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
   if (normalized_description == "system_memory") {
     return gqe::storage_kind::system_memory{};
   } else if (normalized_description == "numa_memory") {
-    return gqe::storage_kind::numa_memory{gqe::cpu_set(0)};
+    return gqe::storage_kind::numa_memory();  // Do not set NUMA node affinity to enable
+                                              // auto-configuration.
   } else if (normalized_description == "pinned_memory") {
     return gqe::storage_kind::pinned_memory{};
   } else if (normalized_description == "numa_pinned_memory") {
-    return gqe::storage_kind::numa_pinned_memory{gqe::cpu_set(0)};
+    return gqe::storage_kind::numa_pinned_memory();  // Do not set NUMA node affinity to enable
+                                                     // auto-configuration.
   } else if (normalized_description == "device_memory") {
     return gqe::storage_kind::device_memory{rmm::cuda_device_id(0)};
   } else if (normalized_description == "managed_memory") {
