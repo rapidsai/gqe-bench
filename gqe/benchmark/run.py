@@ -529,23 +529,7 @@ def _run_tpc(
         data_info_ext_id = edb.insert_gqe_data_info_ext(upcast_to_super(data, GqeDataInfoExt))
     debug_mem_usage = bool(os.getenv("GQE_PYTHON_DEBUG_MEM_USAGE", False))
 
-    # Create the task manager context
     task_manager_params = optimization_parameters.from_catalog_context(cat_ctx)
-    if is_mp:
-        # FIXME: Scheduler type needs to be reworked to use query context
-        # instead of task manager context. It's currently set to ALL_TO_ALL for
-        # data loading, but we use ROUND_ROBIN for query execution.
-        context = MultiProcessContext(
-            multiprocess_runtime_context,
-            task_manager_params,
-            gqe.lib.scheduler_type.ALL_TO_ALL,
-        )
-    else:
-        context = Context(
-            task_manager_params,
-            debug_mem_usage=debug_mem_usage,
-            cupti_metrics=cupti_metrics,
-        )
 
     load_all_data = cat_ctx.load_data_of_query == 0
     catalog = None
@@ -555,6 +539,22 @@ def _run_tpc(
             is_root_rank and not quiet,
         )
         try:
+            # Create the task manager context
+            if is_mp:
+                # FIXME: Scheduler type needs to be reworked to use query context
+                # instead of task manager context. It's currently set to ALL_TO_ALL for
+                # data loading, but we use ROUND_ROBIN for query execution.
+                context = MultiProcessContext(
+                    multiprocess_runtime_context,
+                    task_manager_params,
+                    gqe.lib.scheduler_type.ALL_TO_ALL,
+                )
+            else:
+                context = Context(
+                    task_manager_params,
+                    debug_mem_usage=debug_mem_usage,
+                    cupti_metrics=cupti_metrics,
+                )
             catalog = Catalog(context)
             table_definitions = catalog.register_tables(
                 **asdict(cat_ctx),
@@ -562,7 +562,7 @@ def _run_tpc(
         except Exception as error:
             print(f"Error registering table: {error}", is_root_rank)
             print(
-                f"load_all_data failed to load, discarding remaining {len(parameters)} experiments",
+                f"load_all_data failed to load due to context creation or table registration, discarding remaining {len(parameters)} experiments",
             )
             pipe_send(pipe, False)
             errors.append(("load_all_data", f"{error}"))
@@ -631,7 +631,7 @@ def _run_tpc(
                 )
             except Exception as error:
                 print(
-                    f"Error registering in memory table for query {query_info_ctx.query_idx} {type(error).__name__}: {error}",
+                    f"Error creating context or registering in memory table for query {query_info_ctx.query_idx} {type(error).__name__}: {error}",
                 )
                 pipe_send(pipe, False)
                 # Query is not built yet without table definitions so just build the Q identifier here.
