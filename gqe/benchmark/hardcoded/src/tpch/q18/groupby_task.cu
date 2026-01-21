@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -86,7 +86,7 @@ class groupby_task : public gqe::task {
                int32_t stage_id,
                std::shared_ptr<gqe::task>&& input_task,
                std::shared_ptr<task_hash_map> hash_map,
-               int32_t scale_factor);
+               double scale_factor);
   /**
    * @copydoc gqe::task::execute()
    */
@@ -94,7 +94,7 @@ class groupby_task : public gqe::task {
 
  private:
   std::shared_ptr<task_hash_map> _hash_map;
-  int32_t _scale_factor;
+  double _scale_factor;
 };
 
 /**
@@ -117,7 +117,7 @@ class groupby_retrieve_task : public gqe::task {
                         int32_t stage_id,
                         std::shared_ptr<gqe::task> groupby_task,
                         std::shared_ptr<task_hash_map> hash_map,
-                        int32_t scale_factor);
+                        double scale_factor);
   /**
    * @copydoc gqe::task::execute()
    */
@@ -125,7 +125,7 @@ class groupby_retrieve_task : public gqe::task {
 
  private:
   std::shared_ptr<task_hash_map> _hash_map;
-  int32_t _scale_factor;
+  double _scale_factor;
 };
 
 groupby_task::groupby_task(gqe::context_reference ctx_ref,
@@ -133,7 +133,7 @@ groupby_task::groupby_task(gqe::context_reference ctx_ref,
                            int32_t stage_id,
                            std::shared_ptr<gqe::task>&& input_task,
                            std::shared_ptr<task_hash_map> hash_map,
-                           int32_t scale_factor)
+                           double scale_factor)
   : gqe::task(ctx_ref, task_id, stage_id, {std::move(input_task)}, {}),
     _hash_map(std::move(hash_map)),
     _scale_factor(scale_factor)
@@ -260,7 +260,7 @@ groupby_retrieve_task::groupby_retrieve_task(gqe::context_reference ctx_ref,
                                              int32_t stage_id,
                                              std::shared_ptr<gqe::task> groupby_task,
                                              std::shared_ptr<task_hash_map> hash_map,
-                                             int32_t scale_factor)
+                                             double scale_factor)
   : gqe::task(ctx_ref, task_id, stage_id, {std::move(groupby_task)}, {}),
     _hash_map(std::move(hash_map)),
     _scale_factor(scale_factor)
@@ -323,7 +323,7 @@ void groupby_retrieve_task::execute()
  * @brief Functor for generating the group by tasks.
  */
 struct groupby_generate_tasks {
-  int32_t scale_factor;
+  double scale_factor;
 
   std::vector<std::shared_ptr<gqe::task>> operator()(
     std::vector<std::vector<std::shared_ptr<gqe::task>>> input_tasks,
@@ -367,14 +367,18 @@ struct groupby_generate_tasks {
 }  // namespace
 
 std::shared_ptr<gqe::physical::relation> groupby(std::shared_ptr<gqe::physical::relation> lineitem,
-                                                 int32_t scale_factor)
+                                                 double scale_factor)
 {
   std::vector<std::shared_ptr<gqe::physical::relation>> input_wrapper = {std::move(lineitem)};
 
   groupby_generate_tasks groupby_task_generator{scale_factor};
 
+  // the output of q18's lineitem aggregation is [l_orderkey, sum_l_quantity] which has
+  // data types of int64 and float64
+  std::vector<cudf::data_type> output_data_types = {cudf::data_type(cudf::type_id::INT64),
+                                                    cudf::data_type(cudf::type_id::FLOAT64)};
   return std::make_shared<gqe::physical::user_defined_relation>(
-    input_wrapper, groupby_task_generator, false);
+    input_wrapper, groupby_task_generator, false, output_data_types);
 }
 
 }  // namespace q18

@@ -79,8 +79,7 @@ def get_queries(query_source: str, queries: list[str] = None):
         "16_opt",
         "17",
         "18",
-        # Disabled because CI fails for SF0.01 [clutz, 2025-12-23]
-        # "18_opt",
+        "18_opt",
         "19",
         "20",
         "20_fused_filter",

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights
+ * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
  * property and proprietary rights in and to this material, related
@@ -32,7 +32,7 @@ namespace q18 {
  * @return A group by relation with [l_orderkey, sum_l_quantity] where sum_l_quantity > 300
  */
 std::shared_ptr<gqe::physical::relation> groupby(std::shared_ptr<gqe::physical::relation> lineitem,
-                                                 int32_t scale_factor);
+                                                 double scale_factor);
 
 }  // namespace q18
 }  // namespace benchmark

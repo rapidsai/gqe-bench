@@ -23,12 +23,12 @@ class Q18GroupByRelation(Relation):
     table with atomic initialization of buckets.
     """
 
-    def __init__(self, lineitem: Relation, scale_factor: int):
+    def __init__(self, lineitem: Relation, scale_factor: float):
         self.input = lineitem  # Required by fix_partial_filter_column_references
         self.scale_factor = scale_factor
 
     def _to_cpp(self):
-        return gqe.lib.q18_groupby(self.input._cpp, int(self.scale_factor))
+        return gqe.lib.q18_groupby(self.input._cpp, self.scale_factor)
 
 
 """
@@ -90,10 +90,10 @@ Group By Approach:
 
 
 class tpch_q18_opt(Query):
-    def __init__(self, scale_factor: int):
+    def __init__(self, scale_factor: float):
         """
         Parameters:
-           scale_factor (int): The TPC-H scale factor.
+           scale_factor (float): The TPC-H scale factor.
         """
         self.scale_factor = scale_factor
 
