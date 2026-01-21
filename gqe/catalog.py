@@ -22,7 +22,7 @@ from typing import Union
 
 import gqe.lib
 
-from .execute import Context, MultiProcessContext, MultiProcessRuntimeContext
+from .execute import Context, MultiProcessContext
 from .table_definition import CustomTableDefinitions, TableDefinitions, TPCHTableDefinitions
 
 
@@ -98,8 +98,11 @@ class Catalog:
         self,
         substrait_file: str,
         optimized: bool = True,
-        multiprocess_runtime_context: MultiProcessRuntimeContext = None,
+        multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext = None,
     ) -> gqe.lib.Relation:
         return gqe.lib.load_substrait(
-            self._catalog, substrait_file, optimized, multiprocess_runtime_context
+            self._catalog,
+            substrait_file,
+            optimized,
+            multiprocess_runtime_context,
         )

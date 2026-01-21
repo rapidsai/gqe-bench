@@ -615,7 +615,7 @@ def _run_tpc(
                     context = MultiProcessContext(
                         multiprocess_runtime_context,
                         opt_params,
-                        gqe.lib.scheduler_type.ROUND_ROBIN,
+                        gqe.lib.scheduler_type.ALL_TO_ALL,
                     )
                 else:
                     context = Context(

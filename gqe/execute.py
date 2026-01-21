@@ -75,21 +75,10 @@ class Context:
         self._context.refresh_query_context(optimization_parameters)
 
 
-class MultiProcessRuntimeContext:
-    def __init__(self, scheduler_type: gqe.lib.scheduler_type, storage_kind: str):
-        self._context = gqe.lib.MultiProcessRuntimeContext(scheduler_type, storage_kind)
-
-    def get(self):
-        return self._context.get()
-
-    def finalize(self):
-        self._context.finalize()
-
-
 class MultiProcessContext:
     def __init__(
         self,
-        runtime_context: MultiProcessRuntimeContext,
+        runtime_context: gqe.lib.MultiProcessRuntimeContext,
         optimization_parameters: gqe.lib.OptimizationParameters,
         scheduler_type: gqe.lib.scheduler_type = gqe.lib.scheduler_type.ROUND_ROBIN,
     ):
@@ -101,7 +90,7 @@ class MultiProcessContext:
         :param scheduler_type: The scheduler type for multi-process execution.
         """
         self._context = gqe.lib.MultiProcessContext(
-            runtime_context._context,
+            runtime_context,
             optimization_parameters,
             scheduler_type,
         )

@@ -469,10 +469,10 @@ struct context : base_context {
       using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
 
       auto upstream = std::make_unique<upstream_mr>();
-      auto mr       = std::make_unique<wrapper_mr>(std::move(upstream),
-                                             parameters.initial_query_memory,
-                                             std::make_optional(parameters.max_query_memory));
-
+      auto mr       = std::make_unique<wrapper_mr>(
+        std::move(upstream),
+        parameters.initial_query_memory,
+        parameters.max_query_memory.value_or(gqe::detail::default_device_memory_pool_size()));
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(parameters, std::move(mr));
     }
 
