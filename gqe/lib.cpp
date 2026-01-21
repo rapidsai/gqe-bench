@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights
  * reserved. SPDX-License-Identifier: LicenseRef-NvidiaProprietary
  *
  * NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -285,14 +285,14 @@ void mpi_barrier() { GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD)); }
 
 /*
   Multi process runtime context stores the multiprocess task manager context which is used
-  manages the nvshmem initialization, scheduler, communicator and device memory resource.
+  to manage the nvshmem initialization, scheduler, communicator and device memory resource.
   It also stores the whether to use shared in-memory table, and initializes the shared memory if
   needed.
 
   We currently only initialize the multi_process_runtime_context once throughout the
-  benchmarking for the following reasons:
-  1. There is bug which prevents us from initializing nvshmem after pinning boost_shared_memory
-  Issue: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/190
+  benchmarking process:
+  1. Nvshmem initialization needs to happen before any CUDA calls, as they create a cuda context.
+  And, pinning the shared memory calls cudaHostRegister.
   2. Allocation and pinning of shared memory take considerable time on systems like A100 (approx for
   SF1k - 5 mins) hence, we only want to do allocating and pinning the memory once.
 */
