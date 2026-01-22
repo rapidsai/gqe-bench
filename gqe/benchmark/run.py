@@ -27,11 +27,13 @@ from database_benchmarking_tools.experiment import ExperimentDB
 import gqe.lib
 from gqe import Catalog, Context, MultiProcessContext, optimization_parameters
 from gqe.benchmark.gqe_experiment import (
+    GqeColumnStats,
     GqeDataInfoExt,
     GqeExperimentConnection,
     GqeMetricInfo,
     GqeParameters,
     GqeRunExt,
+    GqeTableStats,
 )
 from gqe.benchmark.validate import validate_parquet
 from gqe.expression import (
@@ -705,6 +707,31 @@ def _run_tpc(
                     query_source=query_info_ctx.query_source,
                 )
             )
+
+            table_stats = gqe.lib.get_table_stats(catalog._catalog)
+            for table_name, stats in table_stats.items():
+                # We also register parquet tables, but that doesn't undergo `in_memory_write_task` and would not have compression stats logged. Ignore here.
+                if stats.num_row_groups == 0:
+                    continue
+                gqe_table_stats_id = edb.insert_gqe_table_stats(
+                    GqeTableStats(
+                        data_info_ext_id=data_info_ext_id,
+                        experiment_id=experiment_id,
+                        table_name=table_name,
+                        stats=stats,
+                    )
+                )
+                column_names = catalog._catalog.column_names(table_name)
+                for col_idx in range(stats.num_columns):
+                    edb.insert_gqe_column_stats(
+                        GqeColumnStats(
+                            gqe_table_stats_id=gqe_table_stats_id,
+                            column_name=column_names[col_idx],
+                            col_idx=col_idx,
+                            stats=stats,
+                        )
+                    )
+
             print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
 
         for count in range(repeat):

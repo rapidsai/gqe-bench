@@ -92,6 +92,7 @@ class Catalog:
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")
+
         return table_definitions
 
     def load_substrait(

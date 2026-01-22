@@ -75,6 +75,51 @@ CREATE TABLE gqe_data_info_ext(
   FOREIGN KEY (de_data_info_id) REFERENCES data_info(d_id)
 );
 
+-- GQE Table statistics information.
+--
+-- A fact table that contains metadata about tables used during query execution. It depends on the gqe data parameters,
+-- but not on the query run parameters. It references the gqe_data_info_ext table to associate the statistics with a specific data configuration.
+--
+-- Note that table statistics are query-specific (ts_query_name) because different queries access different subsets of the same table if load_all_data is not enabled.
+-- A query may only read certain columns or certain row groups (row group pruning based on filters). This query-specific association allows us to understand the actual
+-- data footprint and I/O costs for each query.
+CREATE TABLE gqe_table_stats(
+  ts_id INTEGER PRIMARY KEY,
+  ts_data_info_ext_id INTEGER NOT NULL,
+  ts_experiment_id INTEGER NOT NULL,
+  ts_table_name TEXT NOT NULL,
+  ts_columns INTEGER NOT NULL,
+  ts_rows INTEGER NOT NULL,
+  ts_row_groups INTEGER NOT NULL,
+  UNIQUE (
+    ts_data_info_ext_id,
+    ts_experiment_id,
+    ts_table_name
+  ),
+  FOREIGN KEY (ts_data_info_ext_id) REFERENCES gqe_data_info_ext(de_id)
+  FOREIGN KEY (ts_experiment_id) REFERENCES experiment(e_id)
+);
+
+-- GQE Column statistics information.
+
+-- A fact table that contains metadata about each columns used during query execution.
+-- It references the gqe_table_stats table to associate the statistics with a specific table within a specific data configuration.
+CREATE TABLE gqe_column_stats(
+  cs_id INTEGER PRIMARY KEY,
+  cs_gqe_table_stats_id INTEGER NOT NULL,
+  cs_column_name TEXT NOT NULL,
+  cs_compressed_size INTEGER NOT NULL,
+  cs_uncompressed_size INTEGER NOT NULL,
+  cs_compression_ratio REAL GENERATED ALWAYS AS (CAST(cs_uncompressed_size AS REAL) / cs_compressed_size) VIRTUAL,
+  cs_slices INTEGER NOT NULL,
+  cs_compressed_slices INTEGER NOT NULL,
+  UNIQUE (
+    cs_gqe_table_stats_id,
+    cs_column_name
+  ),
+  FOREIGN KEY (cs_gqe_table_stats_id) REFERENCES gqe_table_stats(ts_id)
+);
+
 -- Add reference to gqe_data_info_ext in experiment table.
 ALTER TABLE experiment ADD COLUMN e_data_info_ext_id INTEGER NOT NULL REFERENCES gqe_data_info_ext(de_id);
 
@@ -257,5 +302,90 @@ CREATE VIEW failed_experiments AS
             (SELECT run.r_experiment_id
                FROM run)
             ;
+
+-- GQE Compression statistics view.
+--
+-- A denormalized view that joins table-level and column-level statistics to provide
+-- a complete picture of compression effectiveness for each column in each table used
+-- by a query. This view combines metadata from gqe_table_stats (table context like
+-- row count and table name) with detailed compression metrics from gqe_column_stats
+-- (compressed/uncompressed sizes, compression ratios...).
+--
+-- This column-level granularity is useful for analyzing which specific columns benefit
+-- most from compression and understanding the storage characteristics of the data
+-- processed by each query.
+CREATE VIEW gqe_compression_stats AS
+  SELECT
+    ts.ts_data_info_ext_id AS cs_data_info_ext_id,
+    ts.ts_table_name AS cs_table_name,
+    ts.ts_columns AS cs_columns,
+    ts.ts_rows AS cs_rows,
+    cs.cs_column_name AS cs_column_name,
+    cs.cs_compressed_size AS cs_compressed_size,
+    cs.cs_uncompressed_size AS cs_uncompressed_size,
+    cs.cs_compression_ratio AS cs_compression_ratio,
+    cs.cs_slices AS cs_slices,
+    cs.cs_compressed_slices AS cs_compressed_slices,
+    e.e_id AS cs_experiement_id,
+    e.e_name AS cs_query_name,
+    e.e_suite AS cs_suite,
+    e.e_scale_factor AS cs_scale_factor
+    FROM gqe_table_stats ts
+    JOIN gqe_column_stats cs ON ts.ts_id = cs.cs_gqe_table_stats_id
+    JOIN experiment e ON ts.ts_experiment_id = e.e_id;
+
+-- GQE Compression statistics per table.
+--
+-- An aggregated view that rolls up column-level compression statistics to the table
+-- level for each query. This view aggregates the stats across
+-- all columns in each table to provide table-wide compression metrics.
+--
+-- Helpful for understanding the overall compression efficiency of each table used in a
+-- query, identifying the compression effectiveness across different tables.
+CREATE VIEW gqe_compression_stats_per_table AS
+  SELECT
+    cs_data_info_ext_id,
+    cs_table_name,
+    cs_query_name,
+    cs_suite,
+    cs_scale_factor,
+    SUM(cs_compressed_size) AS total_compressed_size,
+    SUM(cs_uncompressed_size) AS total_uncompressed_size,
+    CAST(SUM(cs_uncompressed_size) AS REAL) / SUM(cs_compressed_size) AS avg_compression_ratio,
+    SUM(cs_slices) AS total_slices,
+    SUM(cs_compressed_slices) AS total_compressed_slices
+    FROM gqe_compression_stats
+    GROUP BY cs_data_info_ext_id,
+             cs_table_name,
+             cs_experiement_id
+                ;
+
+-- GQE Compression statistics per data configuration.
+--
+-- A highly aggregated view that rolls up table-level compression statistics to the
+-- data configuration level for each query. This view aggregates compression stats across
+-- all tables used by a query to provide overall compression effectiveness for the
+-- entire query's data footprint.
+--
+-- Helpful for comparing different data configurations (compression formats, chunk sizes,
+-- etc.) and understanding the total compression efficiency of a
+-- complete query execution across all its tables based on different data configurations.
+CREATE VIEW gqe_compression_stats_per_data_info AS
+  SELECT DISTINCT
+    cs_data_info_ext_id,
+    cs_query_name,
+    cs_suite,
+    cs_scale_factor,
+    SUM(cs_compressed_size) AS total_compressed_size,
+    SUM(cs_uncompressed_size) AS total_uncompressed_size,
+    CAST(SUM(cs_uncompressed_size) AS REAL) / SUM(cs_compressed_size) AS avg_compression_ratio,
+    SUM(cs_slices) AS total_slices,
+    SUM(cs_compressed_slices) AS total_compressed_slices
+    FROM gqe_compression_stats
+    GROUP BY cs_data_info_ext_id,
+             cs_query_name,
+             cs_suite,
+             cs_scale_factor
+                ;
 
 COMMIT TRANSACTION;

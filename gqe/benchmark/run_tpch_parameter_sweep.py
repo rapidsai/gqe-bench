@@ -377,7 +377,6 @@ def parse_args():
         help="Enable perfect hashing for aggregations",
         default=QUERY_CONFIG_DEFAULTS["aggregation_use_perfect_hash"],
     )
-
     arg_parser.add_float_list_argument(
         "--compression-ratio-threshold",
         help="Compression ratio threshold",

@@ -704,6 +704,20 @@ void register_tables_in_memory(
   }
 }
 
+// Get the compression statistics for all tables registered in the catalog. This includes the names
+// of the compressed and uncompressed columns for each table.
+std::unordered_map<std::string, gqe::table_statistics> get_table_stats(gqe::catalog* catalog)
+{
+  auto table_names = catalog->table_names();
+  std::unordered_map<std::string, gqe::table_statistics> stats;
+  for (const auto& table_name : table_names) {
+    auto table_statistics_manager = catalog->statistics(table_name);
+    auto table_statistics         = table_statistics_manager->statistics();
+    stats[table_name]             = table_statistics;
+  }
+  return stats;
+}
+
 // Construct a date object from an integer representing days since the unix epoch
 gqe::literal_expression<cudf::timestamp_D> date_from_days(cudf::timestamp_D::rep days)
 {
@@ -902,7 +916,13 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::catalog>(py_module, "Catalog")
     .def(py::init([](lib::base_context* ctx) -> gqe::catalog {
       return gqe::catalog(ctx->get_task_manager_ctx());
-    }));
+    }))
+    .def("column_names", &gqe::catalog::column_names)
+    .def("table_names", &gqe::catalog::table_names)
+    .def("statistics", &gqe::catalog::statistics);
+  // Table statistics manager
+  py::class_<gqe::table_statistics_manager>(py_module, "TableStatisticsManager")
+    .def("statistics", &gqe::table_statistics_manager::statistics);
   py::class_<gqe::column_traits>(py_module, "ColumnTraits")
     .def(py::init<std::string const&,
                   cudf::data_type const&,
@@ -913,6 +933,17 @@ PYBIND11_MODULE(lib, py_module)
     .def_readwrite("is_unique", &gqe::column_traits::is_unique);
   py_module.def("register_tables_parquet", &lib::register_tables_parquet);
   py_module.def("register_tables_in_memory", &lib::register_tables_in_memory);
+  py_module.def("get_table_stats", &lib::get_table_stats);
+
+  // Table statistics
+  py::class_<gqe::table_statistics>(py_module, "TableStatistics")
+    .def_readonly("num_rows", &gqe::table_statistics::num_rows)
+    .def_readonly("num_columns", &gqe::table_statistics::num_columns)
+    .def_readonly("num_row_groups", &gqe::table_statistics::num_row_groups)
+    .def_readonly("compressed_num_row_groups", &gqe::table_statistics::compressed_num_row_groups)
+    .def_readonly("compressed_size_per_column", &gqe::table_statistics::compressed_size_per_column)
+    .def_readonly("uncompressed_size_per_column",
+                  &gqe::table_statistics::uncompressed_size_per_column);
 
   // Relations
   py::class_<gqe::physical::relation, std::shared_ptr<gqe::physical::relation>> relation_cls(

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -18,6 +18,8 @@ from database_benchmarking_tools.experiment import (
     RunId,
     SutInfoId,
 )
+
+import gqe.lib
 
 
 @dataclass
@@ -58,6 +60,9 @@ class GqeDataInfoExt:
 
 type MetricInfoId = int
 type GqeRunExtId = int
+type GqeTableStatsId = int
+type GqeColumnStatsId = int
+type ExperimentId = int
 
 
 @dataclass
@@ -77,6 +82,62 @@ class GqeRunExt:
     metric_info_id: MetricInfoId | None = None  # Don't set manually
 
 
+@dataclass
+class GqeTableStats:
+    _table_name = "gqe_table_stats"
+    _table_prefix = "ts_"
+    table_name: str
+    columns: int
+    rows: int
+    row_groups: int
+
+    data_info_ext_id: DataInfoId
+    experiment_id: ExperimentId
+
+    def __init__(
+        self,
+        data_info_ext_id: DataInfoId,
+        experiment_id: ExperimentId,
+        table_name: str,
+        stats: gqe.lib.TableStatistics,
+    ):
+        self.table_name = table_name
+        self.columns = stats.num_columns
+        self.rows = stats.num_rows
+        self.row_groups = stats.num_row_groups
+
+        self.data_info_ext_id = data_info_ext_id
+        self.experiment_id = experiment_id
+
+
+@dataclass
+class GqeColumnStats:
+    _table_name = "gqe_column_stats"
+    _table_prefix = "cs_"
+    column_name: str
+    compressed_size: int
+    uncompressed_size: int
+    slices: int
+    compressed_slices: int
+
+    gqe_table_stats_id: GqeTableStatsId
+
+    def __init__(
+        self,
+        gqe_table_stats_id: GqeTableStatsId,
+        column_name: str,
+        col_idx: int,
+        stats: gqe.lib.TableStatistics,
+    ):
+        self.column_name = column_name
+        self.compressed_size = stats.compressed_size_per_column[col_idx]
+        self.uncompressed_size = stats.uncompressed_size_per_column[col_idx]
+        self.slices = stats.num_row_groups
+        self.compressed_slices = stats.compressed_num_row_groups[col_idx]
+
+        self.gqe_table_stats_id = gqe_table_stats_id
+
+
 class GqeExperimentConnection(ExperimentConnection):
     def __init__(self, db_path, hostname):
         super().__init__(db_path, hostname)
@@ -94,5 +155,13 @@ class GqeExperimentConnection(ExperimentConnection):
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_gqe_run_ext(self, entry: GqeRunExt) -> GqeRunExtId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gqe_table_stats(self, entry: GqeTableStats) -> GqeTableStatsId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gqe_column_stats(self, entry: GqeColumnStats) -> GqeColumnStatsId:
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)

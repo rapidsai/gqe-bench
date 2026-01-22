@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -86,3 +86,56 @@ class TestSqlViews:
                 f"Expected no failed experiments, but found {len(failed_experiments)} "
                 f"failed experiments:\n{details}"
             )
+
+    def test_gqe_compression_stats(self, db_cursor):
+        """Test that `gqe_compression_stats` view has expected row count compared to `gqe_column_stats` because each column should have a compression stat."""
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_compression_stats")
+        actual = db_cursor.fetchone()[0]
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_column_stats")
+        expected = db_cursor.fetchone()[0]
+        assert (
+            expected == actual
+        ), f"View 'gqe_compression_stats' has {actual} rows, expected {expected}"
+
+    def test_gqe_compression_stats_per_table(self, db_cursor):
+        """Test that `gqe_compression_stats_per_table` view has expected row count compared to `gqe_table_stats` because each table should have a compression stat."""
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_compression_stats_per_table")
+        actual = db_cursor.fetchone()[0]
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_table_stats")
+        expected = db_cursor.fetchone()[0]
+        assert (
+            expected == actual
+        ), f"View 'gqe_compression_stats_per_table' has {actual} rows, expected {expected}"
+
+    def test_gqe_compression_stats_per_data_info(self, db_cursor):
+        """Test that `gqe_compression_stats_per_data_info` view has expected row count.
+
+        For parameter sweep: each query runs on all data_info configs, so count = num_queries * num_data_info.
+        For pretuned: each query runs on one data_info config, so count = num_queries.
+        """
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_compression_stats_per_data_info")
+        actual = db_cursor.fetchone()[0]
+
+        # Check if queries run on multiple data_info configs, pretuned mode would only run on one best data info config.
+        db_cursor.execute("""
+            SELECT COUNT(DISTINCT e_data_info_ext_id)
+            FROM experiment
+            WHERE e_name = (SELECT e_name FROM experiment LIMIT 1)
+        """)
+        data_info_per_query = db_cursor.fetchone()[0]
+
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_best_parameters")
+        num_queries = db_cursor.fetchone()[0]
+
+        if data_info_per_query > 1:
+            # Parameter sweep mode: each query runs on all data_info configs
+            db_cursor.execute("SELECT COUNT(*) FROM gqe_data_info")
+            num_gqe_data_info = db_cursor.fetchone()[0]
+            expected = num_gqe_data_info * num_queries
+        else:
+            # Pretuned mode: each query runs on one data_info config
+            expected = num_queries
+
+        assert (
+            expected == actual
+        ), f"View 'gqe_compression_stats_per_data_info' has {actual} rows, expected {expected}"
