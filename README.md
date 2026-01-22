@@ -94,8 +94,9 @@ pip install -e . -C cmake.define.GQE_ENABLE_SUBSTRAIT_PRODUCER=ON
 
 Then you can run the script:
 ```
-python gqe/substrait_producer.py [dataset] [sql_queries] [output]
+python gqe/substrait_producer.py [dataset] [sql_queries] [output] --ddl [ddl_file_path]
 ```
+If DDL is not specified, TPCH is assumed.
 
 
 # Analysis scripts

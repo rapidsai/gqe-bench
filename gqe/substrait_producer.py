@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -16,6 +16,8 @@ import subprocess
 import sys
 import tempfile
 from typing import Dict, List
+
+import sqlglot
 
 TPCH_TABLES: List[str] = [
     "part",
@@ -33,16 +35,31 @@ def create_tmp_dir():
     return tempfile.mkdtemp(prefix="yaml_files_", dir="/tmp")
 
 
+def parse_tables(sql_file_path: str) -> List[str]:
+    with open(sql_file_path, "r", encoding="utf-8") as f:
+        sql_text = f.read()
+    statements = sqlglot.parse(sql_text)
+    tables = []
+    for statement in statements:
+        for table in statement.find_all(sqlglot.exp.Table):
+            tables.append(table.name.lower())
+    return tables
+
+
 def read_sql_file(sql_file_path: str) -> str:
     with open(sql_file_path, "r", encoding="utf-8") as f:
         return f.read().rstrip("\n")
 
 
-def build_tables_map(data_root: str, tables: List[str]) -> Dict[str, Dict[str, str]]:
+def build_tables_map(
+    data_root: str, query_table_names: List[str], schema_table_names: List[str]
+) -> Dict[str, Dict[str, str]]:
     table_to_config: Dict[str, Dict[str, str]] = {}
-    for table_name in tables:
-        table_dir = os.path.join(data_root, table_name)
-        table_to_config[table_name] = {"directory": table_dir}
+    # Add only the tables that are present in the query
+    for table_name in schema_table_names:
+        if table_name in query_table_names:
+            table_dir = os.path.join(data_root, table_name)
+            table_to_config[table_name] = {"directory": table_dir}
     return table_to_config
 
 
@@ -73,7 +90,7 @@ def render_yaml(sql_text: str, output_binary: str, tables_map: Dict[str, Dict[st
         lines.append(f"  {line}")
     lines.append(f"output: {output_binary}")
     lines.append("tables:")
-    for table_name in TPCH_TABLES:
+    for table_name in tables_map.keys():
         table_cfg = tables_map.get(table_name, {})
         directory = table_cfg.get("directory", "")
         lines.append(f"  {table_name}:")
@@ -111,9 +128,13 @@ def create_substrait_plan(
     sql_file_path: str,
     output_dir: str,
     tmp_dir: str,
-    tables_map: Dict[str, Dict[str, str]],
+    data_dir: str,
+    schema_table_names: List[str],
 ) -> None:
+    query_table_names = parse_tables(sql_file_path)
+    tables_map = build_tables_map(data_dir, query_table_names, schema_table_names)
     sql_text = read_sql_file(sql_file_path)
+
     output_binary_path = derive_output_path(sql_file_path, output_dir, "bin")
     yaml_text = render_yaml(
         sql_text=sql_text, output_binary=output_binary_path, tables_map=tables_map
@@ -122,7 +143,7 @@ def create_substrait_plan(
     out_yaml_path = derive_output_path(sql_file_path, tmp_dir, "yaml")
     write_text_file(out_yaml_path, yaml_text)
 
-    subprocess.run(["producer", out_yaml_path])
+    subprocess.run(["producer", out_yaml_path], timeout=None)
     print(f"Generated substrait plan binary: {output_binary_path}")
 
 
@@ -132,34 +153,48 @@ def main():
     )
     parser.add_argument(
         "dataset",
-        help="Dataset directory containing TPC-H parquet files",
+        help="Dataset directory containing parquet files",
     )
     parser.add_argument(
-        "queries_sql",
+        "sql_queries",
         help="Path to input SQL files directory or single SQL file",
     )
     parser.add_argument(
         "output",
         help="Output directory for the generated binaries",
     )
+    parser.add_argument(
+        "--ddl",
+        help="Path to the DDL file, if not specified, TPC-H schema is used",
+        type=str,
+        default=None,
+    )
 
     args = parser.parse_args()
 
-    queries_sql_path = os.path.abspath(args.queries_sql)
+    sql_queries_path = os.path.abspath(args.sql_queries)
     data_root = os.path.abspath(args.dataset)
     output_dir = os.path.abspath(args.output)
+    ddl_file_path = os.path.abspath(args.ddl)
 
+    if ddl_file_path:
+        schema_table_names = parse_tables(ddl_file_path)
+    else:
+        schema_table_names = TPCH_TABLES
     tmp_dir = create_tmp_dir()
 
-    tables_map = build_tables_map(data_root, TPCH_TABLES)
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
 
-    sql_file_paths = collect_query_file_paths(queries_sql_path)
+    sql_file_paths = collect_query_file_paths(sql_queries_path)
+
     for sql_file_path in sql_file_paths:
         create_substrait_plan(
             sql_file_path=sql_file_path,
             output_dir=output_dir,
             tmp_dir=tmp_dir,
-            tables_map=tables_map,
+            data_dir=data_root,
+            schema_table_names=schema_table_names,
         )
 
 
