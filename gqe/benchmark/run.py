@@ -734,6 +734,12 @@ def _run_tpc(
 
             print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
 
+        """
+        This conditional is added to modify the scheduler type to ROUND_ROBIN for query execution in multi-process mode.
+        """
+        if is_mp:
+            multiprocess_runtime_context.update_scheduler(gqe.lib.scheduler_type.ROUND_ROBIN)
+
         for count in range(repeat):
             out_file = os.path.join(f"{validate_dir}", f"{query.identifier}_out.parquet")
 

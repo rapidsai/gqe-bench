@@ -319,6 +319,11 @@ struct multi_process_runtime_context {
 
   void finalize() { _task_manager_ctx->finalize(); }
 
+  void update_scheduler(gqe::SCHEDULER_TYPE scheduler_type)
+  {
+    _task_manager_ctx->update_scheduler(scheduler_type);
+  }
+
   std::unique_ptr<gqe::multi_process_task_manager_context> _task_manager_ctx;
   bool use_in_memory_table_multigpu = false;
 };
@@ -1113,7 +1118,8 @@ PYBIND11_MODULE(lib, py_module)
                                                                   "MultiProcessRuntimeContext")
     .def(py::init<gqe::SCHEDULER_TYPE, std::string>())
     .def("get_task_manager_ctx", &lib::multi_process_runtime_context::get_task_manager_ctx)
-    .def("finalize", &lib::multi_process_runtime_context::finalize);
+    .def("finalize", &lib::multi_process_runtime_context::finalize)
+    .def("update_scheduler", &lib::multi_process_runtime_context::update_scheduler);
 
   py::class_<lib::multi_process_context,
              lib::base_context,
