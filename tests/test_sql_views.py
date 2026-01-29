@@ -15,7 +15,7 @@ Test SQL views in the experiment database.
 
 These tests validate that the SQL views defined in gqe/benchmark/system_under_test.sql
 work correctly by querying them against a SQLite database produced by
-run_tpch_parameter_sweep.py.
+run_tpch_sweep.py.
 
 Usage:
     pytest tests/test_sql_views.py --database /path/to/database.db

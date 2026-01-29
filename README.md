@@ -36,7 +36,7 @@ pip install -e . -C cmake.define.GQE_NVCOMP_SOURCE_DIR=<path_to_nvcomp_folder>
 
 ## Benchmarking
 
-Used for benchmarking TPC-H queries using GQE.
+Primarily used for benchmarking TPC-H queries using GQE, but can run custom queries on custom dataset as well.
 
 Instruction for running the benchmark can be found [here](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=Run+TPC+Benchmarks), in the section "Run TPC-H Queries with Python interface".
 
@@ -45,7 +45,7 @@ Instruction for running the benchmark can be found [here](https://confluence.nvi
 Instead of passing all parameters via command line, you can use a JSON config file:
 
 ```bash
-python -m gqe.benchmark.run_tpch_parameter_sweep --json config.json
+python -m gqe.benchmark.run_parameter_sweep --json config.json
 ```
 
 Example `config.json`:

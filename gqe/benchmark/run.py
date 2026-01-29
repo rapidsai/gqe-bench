@@ -161,6 +161,18 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
     return EdbInfo(sut_info_id, hw_info_id, build_info_id)
 
 
+def parse_suite_name(path: str) -> str:
+    """Finds the suite name in a path to database files."""
+    if "tpch" in path:
+        return "TPC-H"
+    if "tpcds" in path:
+        return "TPC-DS"
+    else:
+        # TODO: we could have a specification in the dataset path to specify the suite name
+        # Or we could take in an argument to specify the suite name
+        return "Unknown"
+
+
 def parse_bool(value: str) -> bool:
     """Parse a string into a Boolean value."""
     if value.lower() == "true":
@@ -205,7 +217,7 @@ def is_valid_identifier_type(
     identifier_type: gqe.lib.TypeId, experiment_suite: str, scale_factor: int
 ) -> Optional[bool]:
     match experiment_suite:
-        case "tpch":
+        case "TPC-H":
             # int64 is required for scale factors larger than SF 357.
             #
             # Orders has the most primary keys. The number of primary keys is specified as:
@@ -372,7 +384,7 @@ def log_physical_plan(query_str: str, relation: gqe.lib.Relation, folder_path: s
     gqe.lib.log_physical_plan(relation, file_path)
 
 
-def _get_tpc_query_info(
+def _get_query_info(
     query_info_ctx: QueryInfoContext,
     load_all_data: bool,
     storage_kind: str,
@@ -380,7 +392,7 @@ def _get_tpc_query_info(
     catalog: gqe.Catalog,
     multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
 ):
-    if query_info_ctx.query_source == "handcoded":
+    if query_info_ctx.query_source == "tpch_handcoded":
         query_identifier = "tpch_q" + query_info_ctx.query_str
         module = importlib.import_module(f"gqe.benchmark.{query_identifier}")
         query_object = getattr(module, query_identifier)(scale_factor=query_info_ctx.scale_factor)
@@ -398,7 +410,10 @@ def _get_tpc_query_info(
             root_relation.log_physical_plan(
                 f"Q{query_info_ctx.query_str}", query_info_ctx.physical_plan_folder
             )
-    elif query_info_ctx.query_source == "substrait":
+    elif (
+        query_info_ctx.query_source == "tpch_substrait"
+        or query_info_ctx.query_source == "custom_substrait"
+    ):
         root_relation = catalog.load_substrait(
             query_info_ctx.substrait_file, True, multiprocess_runtime_context
         )
@@ -421,7 +436,7 @@ def print_mp(message, verbose):
         print(message)
 
 
-def run_tpc(
+def run_suite(
     cat_ctx: CatalogContext,
     data: DataInfo,
     scale_factor: int,
@@ -445,7 +460,7 @@ def run_tpc(
         gqe_host = "localhost"
         edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         with edb_config as edb:
-            _run_tpc(
+            _run_suite(
                 cat_ctx,
                 data,
                 scale_factor,
@@ -465,7 +480,7 @@ def run_tpc(
                 pipe,
             )
     else:
-        _run_tpc(
+        _run_suite(
             cat_ctx,
             data,
             scale_factor,
@@ -505,7 +520,7 @@ def is_unrecoverable_error(e):
     return False
 
 
-def _run_tpc(
+def _run_suite(
     cat_ctx: CatalogContext,
     data: DataInfo,
     scale_factor: int,
@@ -537,7 +552,7 @@ def _run_tpc(
     catalog = None
     if load_all_data:
         print_mp(
-            "Attempting to load full TPCH dataset into memory",
+            f"Attempting to load full {parse_suite_name(cat_ctx.dataset)} dataset into memory",
             is_root_rank and not quiet,
         )
         try:
@@ -589,6 +604,7 @@ def _run_tpc(
             print_mp(f"Running query {query_info_ctx.query_str}", is_root_rank)
             previous_query_str = query_info_ctx.query_str
 
+        # Custom queries wont enter this block, as load_all_data is always True, but they have query_idx = -1
         # Reload dataset if new query and not load_all
         if not load_all_data and cat_ctx.load_data_of_query != query_info_ctx.query_idx:
             # Python uses refcounting for object destruction. Objects are
@@ -661,7 +677,7 @@ def _run_tpc(
         try:
             opt_params = optimization_parameters.from_query_context(parameter, data)
             # Build QueryInfo in try to catch file not found or permissions exception with substrait file
-            query = _get_tpc_query_info(
+            query = _get_query_info(
                 query_info_ctx,
                 load_all_data,
                 cat_ctx.storage_kind,
@@ -692,7 +708,6 @@ def _run_tpc(
         if is_root_rank:
             parameter.sut_info_id = edb_info.sut_info_id
             parameters_id = edb.insert_gqe_parameters(upcast_to_super(parameter, GqeParameters))
-
             experiment_id = edb.insert_experiment(
                 Experiment(
                     sut_info_id=edb_info.sut_info_id,
@@ -702,7 +717,7 @@ def _run_tpc(
                     data_info_id=data_info_id,
                     data_info_ext_id=data_info_ext_id,
                     name=query.identifier,
-                    suite="TPC-H",
+                    suite=parse_suite_name(cat_ctx.dataset),
                     scale_factor=scale_factor,
                     query_source=query_info_ctx.query_source,
                 )

@@ -13,9 +13,8 @@ In GQE, a **catalog** contains the metadata of a database. This includes the tab
 storage locations. Therefore, before we load a table using :func:`read <gqe.relation.read>`, we
 have to register it in the Catalog.
 
-At the moment, we can only register TPC-H tables through
-:meth:`register_tables <gqe.catalog.Catalog.register_tables>`. Registering custom tables will be added
-in the future.
+We can register both TPC-H tables and custom tables through
+:meth:`register_tables <gqe.catalog.Catalog.register_tables>`.
 """
 
 from typing import Union

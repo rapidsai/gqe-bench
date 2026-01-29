@@ -29,7 +29,8 @@ from gqe.benchmark.run import (
     boost_shared_memory_pool_size,
     parse_bool,
     parse_scale_factor,
-    run_tpc,
+    parse_suite_name,
+    run_suite,
     set_eager_module_loading,
     setup_db,
 )
@@ -85,7 +86,10 @@ def get_best_parameters_folder(df_folder: str):
 
 def main():
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("dataset", help="TPC-H dataset location")
+    arg_parser.add_argument(
+        "dataset",
+        help="Dataset location. Can be a TPC-H dataset or a custom dataset. For custom dataset a DDL file is required.",
+    )
     arg_parser.add_argument("plan", help="Substrait query plan location")
     arg_parser.add_argument("solution", help="Reference results location with pattern")
     arg_parser.add_argument(
@@ -203,7 +207,11 @@ def main():
     edb_file = None
     edb_config = None
     if is_root_rank:
-        edb_file = args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
+        edb_file = (
+            args.output
+            if args.output
+            else generate_db_path(f"gqe", parse_suite_name(args.dataset), gqe_host)
+        )
         edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         edb_config.create_experiment_db()
         print(f"Writing SQLite file to {edb_file}")
@@ -216,7 +224,10 @@ def main():
         invalid_results_local = []
         for best_parameter in best_parameters:
             query_str = best_parameter["e_name"].lstrip("Q")
-            query_idx = int(query_str.split("_")[0])
+            if best_parameter["e_query_source"] == "custom_substrait":
+                query_idx = -1
+            else:
+                query_idx = int(query_str.split("_")[0])
             if args.queries and query_str not in args.queries:
                 print(
                     f"Skipping {best_parameter['e_name']} because it is not in the list of queries to run"
@@ -276,10 +287,13 @@ def main():
             )
 
             reference_file = args.solution.replace("%d", f"q{query_idx}")
-            if query_source == "handcoded":
+            if query_source == "tpch_handcoded":
                 substrait_file = None
-            elif query_source == "substrait":
+            elif query_source == "tpch_substrait":
                 substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
+            elif query_source == "custom_substrait":
+                substrait_file = os.path.join(args.plan, f"{query_str}.bin")
+                reference_file = args.solution.replace("%d", f"{query_str}")
             else:
                 raise ValueError(f"Invalid query source: {query_source}")
 
@@ -314,6 +328,12 @@ def main():
                 )
                 continue
 
+            if query_source == "custom_substrait" and not args.load_all_data:
+                print(
+                    f"Skipping {best_parameter['e_name']} because custom substrait queries must be run with load_all_data=1"
+                )
+                continue
+
             cat_ctx = CatalogContext(
                 args.dataset,
                 storage_kind,
@@ -333,7 +353,7 @@ def main():
                 compression_level,
             )
 
-            run_tpc(
+            run_suite(
                 cat_ctx,
                 data_info,
                 scale_factor,

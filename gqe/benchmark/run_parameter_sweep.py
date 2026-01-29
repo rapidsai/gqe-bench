@@ -10,6 +10,7 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+
 import argparse
 import functools
 import itertools
@@ -37,8 +38,9 @@ from gqe.benchmark.run import (
     parse_bool,
     parse_identifier_type,
     parse_scale_factor,
+    parse_suite_name,
     print_mp,
-    run_tpc,
+    run_suite,
     set_eager_module_loading,
     setup_db,
 )
@@ -53,8 +55,8 @@ from gqe.param_sweep_config import (
 )
 
 
-def get_queries(query_source: str, queries: list[str] = None):
-    handcoded_queries = [
+def get_queries(query_source: str, queries: list[str] = None, plan: str = None):
+    tpch_handcoded_queries = [
         "1",
         "2",
         "2_fused_filter",
@@ -94,7 +96,7 @@ def get_queries(query_source: str, queries: list[str] = None):
     # 1, 15, 18, 21 removed as per previous run-script
     # Q11 FIXME: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/141
     # Q4 removed as the substrait plan fails for SF1k
-    substrait_queries = [
+    tpch_substrait_queries = [
         "2",
         "3",
         "5",
@@ -113,24 +115,44 @@ def get_queries(query_source: str, queries: list[str] = None):
         "22",
     ]
 
-    if queries:
-        handcoded_queries = sorted(set(handcoded_queries) & set(queries))
-        substrait_queries = sorted(set(substrait_queries) & set(queries))
+    if query_source == "custom_substrait":
+        custom_substrait_queries = [
+            f.split(".bin")[0] for f in os.listdir(plan) if os.path.isfile(os.path.join(plan, f))
+        ]
+    else:
+        custom_substrait_queries = []
 
-    if query_source == "handcoded":
-        if len(handcoded_queries) == 0:
-            raise ValueError(f"No handcoded queries found for the given queries")
-        substrait_queries = []
-    elif query_source == "substrait":
-        if len(substrait_queries) == 0:
-            raise ValueError(f"No substrait queries found for the given queries")
-        handcoded_queries = []
-    elif query_source == "both":
+    if queries:
+        tpch_handcoded_queries = sorted(set(tpch_handcoded_queries) & set(queries))
+        tpch_substrait_queries = sorted(set(tpch_substrait_queries) & set(queries))
+        custom_substrait_queries = sorted(set(custom_substrait_queries) & set(queries))
+
+    if query_source == "tpch_handcoded":
+        if len(tpch_handcoded_queries) == 0:
+            raise ValueError(f"No TPC-H handcoded queries found for the given queries")
+        tpch_substrait_queries = []
+        custom_substrait_queries = []
+    elif query_source == "tpch_substrait":
+        if len(tpch_substrait_queries) == 0:
+            raise ValueError(f"No TPC-H substrait queries found for the given queries")
+        tpch_handcoded_queries = []
+        custom_substrait_queries = []
+    elif query_source == "tpch_both":
         pass
+    elif query_source == "custom_substrait":
+        if len(custom_substrait_queries) == 0:
+            raise ValueError(f"No custom substrait queries found for the given queries")
+        tpch_handcoded_queries = []
+        tpch_substrait_queries = []
+
     else:
         raise ValueError(f"Invalid query source: {query_source}")
 
-    return handcoded_queries, substrait_queries
+    return tpch_handcoded_queries, tpch_substrait_queries, custom_substrait_queries
+
+
+def get_custom_substrait_queries(plan):
+    return [f.split(".bin")[0] for f in os.listdir(plan) if os.path.isfile(os.path.join(plan, f))]
 
 
 # Helper method used to specify arguments that can take multiple boolean values
@@ -181,7 +203,11 @@ def parse_args():
     )
 
     # Positional arguments are optional when using --json
-    arg_parser.add_argument("dataset", nargs="?", help="TPC-H dataset location")
+    arg_parser.add_argument(
+        "dataset",
+        nargs="?",
+        help="Dataset location. Can be a TPC-H dataset or a custom dataset. For custom dataset a DDL file is required.",
+    )
     arg_parser.add_argument("plan", nargs="?", help="Substrait query plan location")
     arg_parser.add_argument("solution", nargs="?", help="Reference results location with pattern")
     arg_parser.add_argument("--output", "-o", help="Output file path")
@@ -224,7 +250,7 @@ def parse_args():
     arg_parser.add_argument(
         "--query-source",
         help="Query source",
-        choices=["handcoded", "substrait", "both"],
+        choices=["tpch_handcoded", "tpch_substrait", "tpch_both", "custom_substrait"],
         default=BENCHMARK_CONFIG_DEFAULTS["query_source"],
     )
     arg_parser.add_argument(
@@ -449,6 +475,9 @@ def parse_args():
 def main():
     args = parse_args()
 
+    if args.query_source == "custom_substrait" and not args.load_all_data:
+        raise ValueError("Custom substrait queries must be run with load_all_data=1")
+
     # Handle JSON configuration file
     if args.json:
         # Warn if other CLI args were provided
@@ -515,12 +544,17 @@ def main():
             lib.scheduler_type.ROUND_ROBIN, args.storage_kind[0]
         )
 
-    if not args.identifier_type:
-        identifier_type = [parse_identifier_type(args.dataset)]
+    # If DDL file path is provided, identifier type is unused, we just default to int64
+    # As DDL will specify the datatype for each column
+    if args.ddl_file_path:
+        identifier_type = [lib.TypeId.int64]
     else:
-        # You can set it to int32 or int64, for SF1k int64 is required.
-        str_to_type = {"int32": lib.TypeId.int32, "int64": lib.TypeId.int64}
-        identifier_type = [str_to_type[t] for t in args.identifier_type]
+        if not args.identifier_type:
+            identifier_type = [parse_identifier_type(args.dataset)]
+        else:
+            # You can set it to int32 or int64, for SF1k int64 is required.
+            str_to_type = {"int32": lib.TypeId.int32, "int64": lib.TypeId.int64}
+            identifier_type = [str_to_type[t] for t in args.identifier_type]
 
     set_eager_module_loading()
 
@@ -529,7 +563,11 @@ def main():
     edb_info = None
     is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
     if is_root_rank:
-        edb_file = args.output if args.output else generate_db_path(f"gqe", "tpch", gqe_host)
+        edb_file = (
+            args.output
+            if args.output
+            else generate_db_path(f"gqe", parse_suite_name(args.dataset), gqe_host)
+        )
 
         edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         edb_config.create_experiment_db()
@@ -538,7 +576,9 @@ def main():
             edb_info = setup_db(edb)
         print(f"Writing SQLite file to {edb_file}")
 
-    handcoded_queries, substrait_queries = get_queries(args.query_source, args.queries)
+    tpch_handcoded_queries, tpch_substrait_queries, custom_substrait_queries = get_queries(
+        args.query_source, args.queries, args.plan
+    )
 
     def run_sweep(edb_file, edb_info, args):
         nonlocal identifier_type
@@ -584,15 +624,20 @@ def main():
             args.storage_kind,
             args.zone_map_partition_size,
         ):
-            match is_valid_identifier_type(identifier_type, "tpch", scale_factor):
-                case True:
-                    pass
-                case False:
-                    continue
-                case None:
-                    raise ValueError(
-                        f"Unknown if identifier type { identifier_type } is valid for the given dataset"
-                    )
+            # If a DDL file is not provided, we need to validate the identifier type
+            # Else DDL file will provide the identifier type
+            if not args.ddl_file_path:
+                match is_valid_identifier_type(
+                    identifier_type, parse_suite_name(args.dataset), scale_factor
+                ):
+                    case True:
+                        pass
+                    case False:
+                        continue
+                    case None:
+                        raise ValueError(
+                            f"Unknown if identifier type { identifier_type } is valid for the given dataset"
+                        )
 
             data_info = DataInfo(
                 storage_device_kind=storage_kind,
@@ -658,17 +703,25 @@ def main():
             # moving the data into the list proxy.
             parameters = []
             for query_source, queries in [
-                ("handcoded", handcoded_queries),
-                ("substrait", substrait_queries),
+                ("tpch_handcoded", tpch_handcoded_queries),
+                ("tpch_substrait", tpch_substrait_queries),
+                ("custom_substrait", custom_substrait_queries),
             ]:
                 for query_str in queries:
-                    query_idx = int(query_str.split("_")[0])
-                    reference_file = args.solution.replace("%d", f"q{query_idx}")
-                    physical_plan_folder = None
-                    if query_source == "handcoded":
+                    # TODO: clean if else
+                    # The custom queries might not have numbers in the name, so we use -1 as the query index
+                    if query_source == "custom_substrait":
+                        query_idx = -1
+                        reference_file = args.solution.replace("%d", f"{query_str}")
+                        substrait_file = os.path.join(args.plan, f"{query_str}.bin")
+                    else:
+                        query_idx = int(query_str.split("_")[0])
+                        reference_file = args.solution.replace("%d", f"q{query_idx}")
                         substrait_file = None
-                    elif query_source == "substrait":
-                        substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
+                        if query_source == "tpch_substrait":
+                            substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
+                    physical_plan_folder = None
+
                     query_info_ctx = QueryInfoContext(
                         query_idx,
                         query_str,
@@ -757,8 +810,10 @@ def main():
                             continue
 
                         # Perfect hash join is disabled for substrait plans, see: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/161
-                        if query_source == "substrait" and (
-                            join_use_perfect_hash or aggregation_use_perfect_hash
+                        if (
+                            query_source == "tpch_substrait"
+                            or query_source == "custom_substrait"
+                            and (join_use_perfect_hash or aggregation_use_perfect_hash)
                         ):
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans",
@@ -774,6 +829,7 @@ def main():
                             and num_partitions < 4
                             and query_idx != 20
                             and query_idx != 11
+                            and query_source != "custom_substrait"
                         ):
                             print_mp(
                                 f"Skipping num_partitions: {num_partitions}, num_row_groups: {num_row_groups}, scale_factor: {scale_factor} because configuration is likely to encounter cuDF concatenate error",
@@ -798,6 +854,7 @@ def main():
                             )
                         )
             # group same-query sets together to minimize data reloads
+            # For custom queries, we could sort by query_str, but anyways we require the entire dataset to be loaded so the sort order doesn't impact loading time
             parameters.sort(key=lambda p: p.query_info_ctx.query_idx)
             # We use the non-sandboxing path if sandboxing is not set, or if multiprocessing/multigpu is set.
             if not args.sandboxing or args.multiprocess:
@@ -805,7 +862,7 @@ def main():
                     "Running experiments without subprocess sandbox",
                     is_root_rank and not args.quiet,
                 )
-                run_tpc(
+                run_suite(
                     cat_ctx,
                     data_info,
                     scale_factor,
@@ -839,7 +896,7 @@ def main():
                     while parameter_queue:
                         parent_pipe, child_pipe = subproc_ctx.Pipe()
                         subproc = subproc_ctx.Process(
-                            target=run_tpc,
+                            target=run_suite,
                             args=(
                                 cat_ctx,
                                 data_info,

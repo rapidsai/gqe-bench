@@ -11,7 +11,7 @@
 # its affiliates is strictly prohibited.
 
 """
-JSON configuration file support for TPC-H parameter sweep.
+JSON configuration file support for parameter sweep.
 
 This module provides functionality to load experiment configurations from JSON files,
 with support for global parameters and query-specific overrides.
@@ -49,7 +49,7 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "queries": None,
     "identifier_type": None,
     "row_groups": None,
-    "query_source": "both",
+    "query_source": "tpch_both",
     "compression_format": ["none"],
     "compression_ratio_threshold": [1.0],
     "secondary_compression_format": ["none"],
