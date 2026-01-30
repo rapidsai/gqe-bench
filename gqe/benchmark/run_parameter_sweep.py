@@ -811,10 +811,8 @@ def main():
 
                         # Perfect hash join is disabled for substrait plans, see: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/161
                         if (
-                            query_source == "tpch_substrait"
-                            or query_source == "custom_substrait"
-                            and (join_use_perfect_hash or aggregation_use_perfect_hash)
-                        ):
+                            query_source == "tpch_substrait" or query_source == "custom_substrait"
+                        ) and (join_use_perfect_hash or aggregation_use_perfect_hash):
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans",
                                 is_root_rank and not args.quiet,
