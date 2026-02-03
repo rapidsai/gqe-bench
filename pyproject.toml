@@ -33,8 +33,8 @@ cmake.verbose = true
 install.strip=false
 
 [project.scripts]
-gqe-tpch-parameter-sweep = "gqe.benchmark.run_tpch_parameter_sweep:main"
-gqe-tpch-pretuned = "gqe.benchmark.run_tpch_pretuned:main"
+gqe-run-parameter-sweep = "gqe.benchmark.run_parameter_sweep:main"
+gqe-run-pretuned = "gqe.benchmark.run_pretuned:main"
 
 [tool.ruff]
 line-length = 100

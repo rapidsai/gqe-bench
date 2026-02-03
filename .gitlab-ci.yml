@@ -33,11 +33,11 @@ tests:
     - pip install -e .
     - conda install -y pytest
     # Run TPC-H parameter sweep.
-    - ./gqe/benchmark/run_parameter_sweep.py --json ./gqe/tpch_sweep_config.template.json5
+    - gqe-run-parameter-sweep --json ./gqe/tpch_sweep_config.template.json5
     # Run all Python tests on TPC-H parameter sweep results.
     - pytest tests/ -v --database /tmp/gqe_experiment.db3
     # Run TPC-H pretuned with best parameters from sweep.
-    - ./gqe/benchmark/run_pretuned.py /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment.db3 -o /tmp/gqe_pretuned.db3
+    - gqe-run-pretuned /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment.db3 -o /tmp/gqe_pretuned.db3
     # Run only Python SQLite tests on TPC-H pretuned results.
     - pytest tests/test_sql_views.py -v --database /tmp/gqe_pretuned.db3
   rules:
