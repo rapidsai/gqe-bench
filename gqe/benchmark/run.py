@@ -163,7 +163,6 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
 
 def parse_suite_name(path: str) -> str:
     """Finds the suite name in a path to database files."""
-    return "TPC-H"
     if "tpch" in path:
         return "TPC-H"
     if "tpcds" in path:
