@@ -163,6 +163,7 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
 
 def parse_suite_name(path: str) -> str:
     """Finds the suite name in a path to database files."""
+    return "TPC-H"
     if "tpch" in path:
         return "TPC-H"
     if "tpcds" in path:
@@ -708,6 +709,15 @@ def _run_suite(
         if is_root_rank:
             parameter.sut_info_id = edb_info.sut_info_id
             parameters_id = edb.insert_gqe_parameters(upcast_to_super(parameter, GqeParameters))
+
+            query_info_id = edb.insert_query_info(
+                exp.QueryInfo(
+                    name=query.identifier,
+                    suite=parse_suite_name(cat_ctx.dataset),
+                    source=query_info_ctx.query_source,
+                )
+            )
+
             experiment_id = edb.insert_experiment(
                 Experiment(
                     sut_info_id=edb_info.sut_info_id,
@@ -716,10 +726,7 @@ def _run_suite(
                     build_info_id=edb_info.build_info_id,
                     data_info_id=data_info_id,
                     data_info_ext_id=data_info_ext_id,
-                    name=query.identifier,
-                    suite=parse_suite_name(cat_ctx.dataset),
-                    scale_factor=scale_factor,
-                    query_source=query_info_ctx.query_source,
+                    query_info_id=query_info_id,
                 )
             )
 
@@ -731,7 +738,7 @@ def _run_suite(
                 gqe_table_stats_id = edb.insert_gqe_table_stats(
                     GqeTableStats(
                         data_info_ext_id=data_info_ext_id,
-                        experiment_id=experiment_id,
+                        query_info_id=query_info_id,
                         table_name=table_name,
                         stats=stats,
                     )

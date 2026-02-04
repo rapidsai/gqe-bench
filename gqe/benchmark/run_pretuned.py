@@ -61,14 +61,14 @@ def get_best_parameters_folder(df_folder: str):
             cursor = conn.execute("SELECT * FROM gqe_best_parameters")
             rows = cursor.fetchall()
             for row in rows:
-                e_name = row["e_name"]
+                q_name = row["q_name"]
                 r_avg_duration_s = row["r_avg_duration_s"]
-                # If this e_name is not seen yet, or this row is better, keep it
+                # If this q_name is not seen yet, or this row is better, keep it
                 if (
-                    e_name not in best_param_dict
-                    or r_avg_duration_s < best_param_dict[e_name]["r_avg_duration_s"]
+                    q_name not in best_param_dict
+                    or r_avg_duration_s < best_param_dict[q_name]["r_avg_duration_s"]
                 ):
-                    best_param_dict[e_name] = dict(row)
+                    best_param_dict[q_name] = dict(row)
         except Exception as e:
             print(f"Skipping {db_path} because of error getting best parameters: {e}")
             pass
@@ -76,12 +76,12 @@ def get_best_parameters_folder(df_folder: str):
             conn.close()
 
     # Extract query number from names like "Q1", "Q16_opt", etc.
-    def extract_query_num(e_name):
+    def extract_query_num(q_name):
         # Remove "Q" prefix and extract digits only
-        match = re.search(r"Q(\d+)", e_name)
+        match = re.search(r"Q(\d+)", q_name)
         return int(match.group(1)) if match else 0
 
-    return sorted(best_param_dict.values(), key=lambda x: extract_query_num(x["e_name"]))
+    return sorted(best_param_dict.values(), key=lambda x: extract_query_num(x["q_name"]))
 
 
 def main():
@@ -223,14 +223,15 @@ def main():
         errors_local = []
         invalid_results_local = []
         for best_parameter in best_parameters:
-            query_str = best_parameter["e_name"].lstrip("Q")
-            if best_parameter["e_query_source"] == "custom_substrait":
+            query_str = best_parameter["q_name"].lstrip("Q")
+            if best_parameter["q_source"] == "custom_substrait":
                 query_idx = -1
             else:
                 query_idx = int(query_str.split("_")[0])
+
             if args.queries and query_str not in args.queries:
                 print(
-                    f"Skipping {best_parameter['e_name']} because it is not in the list of queries to run"
+                    f"Skipping {best_parameter['q_name']} because it is not in the list of queries to run"
                 )
                 continue
 
@@ -258,11 +259,11 @@ def main():
             identifier_type = str_to_type[best_parameter["d_identifier_type"]]
 
             storage_kind = best_parameter["d_storage_device_kind"]
-            query_source = best_parameter["e_query_source"]
+            query_source = best_parameter["q_source"]
 
-            if best_parameter["e_scale_factor"] != scale_factor:
+            if best_parameter["d_scale_factor"] != scale_factor:
                 print(
-                    f"Skipping {best_parameter['e_name']} because scale factor {best_parameter['e_scale_factor']} does not match input scale factor {scale_factor}"
+                    f"Skipping {best_parameter['q_name']} because scale factor {best_parameter['d_scale_factor']} does not match input scale factor {scale_factor}"
                 )
                 continue
 
@@ -274,6 +275,7 @@ def main():
                 identifier_type=str(identifier_type),
                 char_type=char_type,
                 decimal_type="float",
+                scale_factor=scale_factor,
                 num_row_groups=num_row_groups,
                 compression_format=compression_format,
                 compression_ratio_threshold=compression_ratio_threshold,
@@ -322,9 +324,9 @@ def main():
                 query_info_ctx=query_info_ctx,
             )
 
-            if best_parameter["e_scale_factor"] != scale_factor:
+            if best_parameter["d_scale_factor"] != scale_factor:
                 print(
-                    f"Skipping {best_parameter['e_name']} because scale factor {best_parameter['e_scale_factor']} does not match input scale factor {scale_factor}"
+                    f"Skipping {best_parameter['q_name']} because scale factor {best_parameter['d_scale_factor']} does not match input scale factor {scale_factor}"
                 )
                 continue
 

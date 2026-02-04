@@ -65,7 +65,9 @@ class TestSqlViews:
         # `gqe_best_parameters` has one row per unique query name, and aggregates
         # the results of the runs. Thus, the row count equals the number of unique
         # query names.
-        db_cursor.execute("SELECT COUNT(DISTINCT e_name) FROM experiment")
+        db_cursor.execute(
+            "SELECT COUNT(DISTINCT q_name) FROM experiment JOIN query_info ON experiment.e_query_info_id = query_info.q_id"
+        )
         expected = db_cursor.fetchone()[0]
         assert expected > 0, "Expected non-zero row count"
         db_cursor.execute("SELECT COUNT(*) FROM gqe_best_parameters")
@@ -77,7 +79,7 @@ class TestSqlViews:
     def test_failed_experiments_empty(self, db_cursor):
         """Test that `failed_experiments` view returns an empty result."""
         db_cursor.execute(
-            "SELECT e_name, COUNT(*) as count FROM failed_experiments GROUP BY e_name"
+            "SELECT q_name, COUNT(*) as count FROM failed_experiments GROUP BY q_name"
         )
         failed_experiments = db_cursor.fetchall()
         if failed_experiments:
@@ -120,7 +122,7 @@ class TestSqlViews:
         db_cursor.execute("""
             SELECT COUNT(DISTINCT e_data_info_ext_id)
             FROM experiment
-            WHERE e_name = (SELECT e_name FROM experiment LIMIT 1)
+            WHERE e_query_info_id = (SELECT e_query_info_id FROM experiment LIMIT 1)
         """)
         data_info_per_query = db_cursor.fetchone()[0]
 

@@ -647,6 +647,7 @@ def main():
                 identifier_type=str(identifier_type),
                 char_type="char" if use_opt_type_for_single_char_col else "text",
                 decimal_type="float",
+                scale_factor=scale_factor,
                 num_row_groups=num_row_groups,
                 compression_format=compression_format,
                 compression_ratio_threshold=compression_ratio_threshold,

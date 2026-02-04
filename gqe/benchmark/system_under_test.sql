@@ -86,18 +86,18 @@ CREATE TABLE gqe_data_info_ext(
 CREATE TABLE gqe_table_stats(
   ts_id INTEGER PRIMARY KEY,
   ts_data_info_ext_id INTEGER NOT NULL,
-  ts_experiment_id INTEGER NOT NULL,
+  ts_query_info_id INTEGER NOT NULL,
   ts_table_name TEXT NOT NULL,
   ts_columns INTEGER NOT NULL,
   ts_rows INTEGER NOT NULL,
   ts_row_groups INTEGER NOT NULL,
   UNIQUE (
     ts_data_info_ext_id,
-    ts_experiment_id,
+    ts_query_info_id,
     ts_table_name
   ),
-  FOREIGN KEY (ts_data_info_ext_id) REFERENCES gqe_data_info_ext(de_id)
-  FOREIGN KEY (ts_experiment_id) REFERENCES experiment(e_id)
+  FOREIGN KEY (ts_data_info_ext_id) REFERENCES gqe_data_info_ext(de_id),
+  FOREIGN KEY (ts_query_info_id) REFERENCES query_info(q_id)
 );
 
 -- GQE Column statistics information.
@@ -158,12 +158,14 @@ CREATE TABLE gqe_run_ext(
 -- A virtual view that joins runs with their experiment description and
 -- parameters.
 CREATE VIEW gqe_run_parameters AS
-  SELECT e_suite, e_name, e_scale_factor, run.*, gqe_parameters.*, gqe_data_info_ext.*
+  SELECT q_suite, q_name, d_scale_factor, run.*, gqe_parameters.*, gqe_data_info_ext.*
     FROM run
          JOIN experiment ON r_experiment_id = e_id
          JOIN gqe_parameters ON gqe_parameters.p_id = e_parameters_id
              AND gqe_parameters.p_sut_info_id = e_sut_info_id
          JOIN gqe_data_info_ext ON e_data_info_ext_id = gqe_data_info_ext.de_id
+         JOIN data_info ON d_id = gqe_data_info_ext.de_data_info_id
+         JOIN query_info ON e_query_info_id = q_id
                 ;
 
 -- All information about a GQE run.
@@ -178,6 +180,7 @@ CREATE VIEW gqe_run_all_info AS
          JOIN data_info ON d_id = e_data_info_id
          JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
          JOIN build_info ON b_id = e_build_info_id
+         JOIN query_info ON q_id = e_query_info_id
                 ;
 
 -- Best GQE optimization parameters per query.
@@ -191,10 +194,9 @@ CREATE VIEW gqe_best_parameters AS
   data AS (
     SELECT
       e_id,
-      e_name,
-      e_suite,
-      e_scale_factor,
-      e_query_source,
+      q_name,
+      q_suite,
+      q_source,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -213,6 +215,7 @@ CREATE VIEW gqe_best_parameters AS
       d_identifier_type,
       d_char_type,
       d_decimal_type,
+      d_scale_factor,
       de_data_info_id,
       de_num_row_groups,
       de_compression_format,
@@ -234,12 +237,12 @@ CREATE VIEW gqe_best_parameters AS
         JOIN gqe_parameters ON e_parameters_id = p_id
         JOIN data_info ON d_id = e_data_info_id
         JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
+        JOIN query_info ON e_query_info_id = q_id
      WHERE r_number > 0
      GROUP BY
       e_id,
-      e_name,
-      e_suite,
-      e_scale_factor,
+      q_name,
+      q_suite,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -251,6 +254,7 @@ CREATE VIEW gqe_best_parameters AS
       p_use_partition_pruning,
       p_filter_use_like_shift_and,
       p_aggregation_use_perfect_hash,
+      d_scale_factor,
       d_storage_device_kind,
       d_format,
       d_location,
@@ -276,18 +280,18 @@ CREATE VIEW gqe_best_parameters AS
       data
       JOIN (
         SELECT
-          e_name,
+          q_name,
           min(r_avg_duration_s) AS min_duration
           FROM
             data
          GROUP BY
-      e_name
-      ) AS min_data ON data.e_name = min_data.e_name
+      q_name
+      ) AS min_data ON data.q_name = min_data.q_name
           AND r_avg_duration_s = min_duration
-   ORDER BY data.e_suite,
-            CAST(rtrim(substr(data.e_name, 2, 2), '_') AS INTEGER),
-            ltrim(substr(data.e_name, 4), '_'),
-            data.e_scale_factor,
+   ORDER BY data.q_suite,
+            CAST(rtrim(substr(data.q_name, 2, 2), '_') AS INTEGER),
+            ltrim(substr(data.q_name, 4), '_'),
+            data.d_scale_factor,
             data.e_id
             ;
 
@@ -298,6 +302,7 @@ CREATE VIEW failed_experiments AS
          JOIN gqe_parameters ON experiment.e_parameters_id = gqe_parameters.p_id
          JOIN data_info ON d_id = e_data_info_id
          JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
+         JOIN query_info ON e_query_info_id = q_id
       WHERE experiment.e_id NOT IN
             (SELECT run.r_experiment_id
                FROM run)
@@ -316,23 +321,25 @@ CREATE VIEW failed_experiments AS
 -- processed by each query.
 CREATE VIEW gqe_compression_stats AS
   SELECT
-    ts.ts_data_info_ext_id AS cs_data_info_ext_id,
-    ts.ts_table_name AS cs_table_name,
-    ts.ts_columns AS cs_columns,
-    ts.ts_rows AS cs_rows,
-    cs.cs_column_name AS cs_column_name,
-    cs.cs_compressed_size AS cs_compressed_size,
-    cs.cs_uncompressed_size AS cs_uncompressed_size,
-    cs.cs_compression_ratio AS cs_compression_ratio,
-    cs.cs_slices AS cs_slices,
-    cs.cs_compressed_slices AS cs_compressed_slices,
-    e.e_id AS cs_experiement_id,
-    e.e_name AS cs_query_name,
-    e.e_suite AS cs_suite,
-    e.e_scale_factor AS cs_scale_factor
+    ts_data_info_ext_id,
+    ts_table_name,
+    ts_rows,
+    cs_column_name,
+    cs_compressed_size,
+    cs_uncompressed_size,
+    cs_compression_ratio,
+    cs_slices,
+    cs_compressed_slices,
+    q_name,
+    q_suite,
+    q_source,
+    d_scale_factor
     FROM gqe_table_stats ts
     JOIN gqe_column_stats cs ON ts.ts_id = cs.cs_gqe_table_stats_id
-    JOIN experiment e ON ts.ts_experiment_id = e.e_id;
+    JOIN query_info q ON ts.ts_query_info_id = q.q_id
+    JOIN gqe_data_info_ext de ON ts.ts_data_info_ext_id = de.de_id
+    JOIN data_info d ON de.de_data_info_id = d.d_id
+                ;
 
 -- GQE Compression statistics per table.
 --
@@ -344,20 +351,24 @@ CREATE VIEW gqe_compression_stats AS
 -- query, identifying the compression effectiveness across different tables.
 CREATE VIEW gqe_compression_stats_per_table AS
   SELECT
-    cs_data_info_ext_id,
-    cs_table_name,
-    cs_query_name,
-    cs_suite,
-    cs_scale_factor,
+    ts_data_info_ext_id,
+    ts_table_name,
+    q_name,
+    q_suite,
+    q_source,
+    d_scale_factor,
     SUM(cs_compressed_size) AS total_compressed_size,
     SUM(cs_uncompressed_size) AS total_uncompressed_size,
     CAST(SUM(cs_uncompressed_size) AS REAL) / SUM(cs_compressed_size) AS avg_compression_ratio,
     SUM(cs_slices) AS total_slices,
     SUM(cs_compressed_slices) AS total_compressed_slices
     FROM gqe_compression_stats
-    GROUP BY cs_data_info_ext_id,
-             cs_table_name,
-             cs_experiement_id
+    GROUP BY ts_data_info_ext_id,
+             ts_table_name,
+             q_name,
+             q_suite,
+             q_source,
+             d_scale_factor
                 ;
 
 -- GQE Compression statistics per data configuration.
@@ -372,20 +383,21 @@ CREATE VIEW gqe_compression_stats_per_table AS
 -- complete query execution across all its tables based on different data configurations.
 CREATE VIEW gqe_compression_stats_per_data_info AS
   SELECT DISTINCT
-    cs_data_info_ext_id,
-    cs_query_name,
-    cs_suite,
-    cs_scale_factor,
+    ts_data_info_ext_id,
+    q_name,
+    q_suite,
+    d_scale_factor,
     SUM(cs_compressed_size) AS total_compressed_size,
     SUM(cs_uncompressed_size) AS total_uncompressed_size,
     CAST(SUM(cs_uncompressed_size) AS REAL) / SUM(cs_compressed_size) AS avg_compression_ratio,
     SUM(cs_slices) AS total_slices,
     SUM(cs_compressed_slices) AS total_compressed_slices
     FROM gqe_compression_stats
-    GROUP BY cs_data_info_ext_id,
-             cs_query_name,
-             cs_suite,
-             cs_scale_factor
+    GROUP BY ts_data_info_ext_id,
+             q_name,
+             q_suite,
+             q_source,
+             d_scale_factor
                 ;
 
 COMMIT TRANSACTION;

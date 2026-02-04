@@ -63,6 +63,7 @@ type GqeRunExtId = int
 type GqeTableStatsId = int
 type GqeColumnStatsId = int
 type ExperimentId = int
+type QueryInfoId = int
 
 
 @dataclass
@@ -92,12 +93,12 @@ class GqeTableStats:
     row_groups: int
 
     data_info_ext_id: DataInfoId
-    experiment_id: ExperimentId
+    query_info_id: QueryInfoId
 
     def __init__(
         self,
         data_info_ext_id: DataInfoId,
-        experiment_id: ExperimentId,
+        query_info_id: QueryInfoId,
         table_name: str,
         stats: gqe.lib.TableStatistics,
     ):
@@ -107,7 +108,7 @@ class GqeTableStats:
         self.row_groups = stats.num_row_groups
 
         self.data_info_ext_id = data_info_ext_id
-        self.experiment_id = experiment_id
+        self.query_info_id = query_info_id
 
 
 @dataclass

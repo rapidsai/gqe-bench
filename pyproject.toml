@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -19,7 +19,7 @@ description = "GPU Query Executor (GQE)"
 requires-python = ">=3.12"
 dependencies = [
     "json5",
-    "database-benchmarking-tools @ git+https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking.git@750c137d",
+    "database-benchmarking-tools @ git+https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking.git@6d46f8b4",
     "nvidia-ml-py",
     "pandas",
     "pyarrow",
