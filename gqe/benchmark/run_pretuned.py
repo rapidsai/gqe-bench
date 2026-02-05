@@ -27,12 +27,14 @@ from gqe.benchmark.run import (
     QueryExecutionContext,
     QueryInfoContext,
     boost_shared_memory_pool_size,
+    identifier_type_to_sql,
     parse_bool,
     parse_scale_factor,
     parse_suite_name,
     run_suite,
     set_eager_module_loading,
     setup_db,
+    sql_to_identifier_type,
 )
 from gqe.param_sweep_config import (
     BENCHMARK_CONFIG_DEFAULTS,
@@ -252,11 +254,7 @@ def main():
             compression_chunk_size = best_parameter["de_compression_chunk_size"]
             zone_map_partition_size = best_parameter["de_zone_map_partition_size"]
 
-            str_to_type = {
-                "TypeId.int32": lib.TypeId.int32,
-                "TypeId.int64": lib.TypeId.int64,
-            }
-            identifier_type = str_to_type[best_parameter["d_identifier_type"]]
+            identifier_type = sql_to_identifier_type(best_parameter["d_identifier_type"])
 
             storage_kind = best_parameter["d_storage_device_kind"]
             query_source = best_parameter["q_source"]
@@ -272,7 +270,7 @@ def main():
                 format="internal",
                 location=None,  # FIXME: set location as NUMA node, iff set in GQE
                 not_null=False,
-                identifier_type=str(identifier_type),
+                identifier_type=identifier_type_to_sql(identifier_type),
                 char_type=char_type,
                 decimal_type="float",
                 scale_factor=scale_factor,

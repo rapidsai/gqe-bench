@@ -212,6 +212,24 @@ def parse_identifier_type(path: str) -> gqe.lib.TypeId:
     return identifier_type
 
 
+def identifier_type_to_sql(identifier_type: gqe.lib.TypeId) -> str:
+    """Convert a TypeId to SQL-style type string."""
+    type_to_sql = {
+        gqe.lib.TypeId.int32: "int",
+        gqe.lib.TypeId.int64: "bigint",
+    }
+    return type_to_sql[identifier_type]
+
+
+def sql_to_identifier_type(sql_type: str) -> gqe.lib.TypeId:
+    """Convert a SQL-style type string to TypeId."""
+    sql_to_type = {
+        "int": gqe.lib.TypeId.int32,
+        "bigint": gqe.lib.TypeId.int64,
+    }
+    return sql_to_type[sql_type]
+
+
 # FIXME: handle this for other datasets
 def is_valid_identifier_type(
     identifier_type: gqe.lib.TypeId, experiment_suite: str, scale_factor: int

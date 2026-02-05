@@ -34,6 +34,7 @@ from gqe.benchmark.run import (
     QueryExecutionContext,
     QueryInfoContext,
     boost_shared_memory_pool_size,
+    identifier_type_to_sql,
     is_valid_identifier_type,
     parse_bool,
     parse_identifier_type,
@@ -644,7 +645,7 @@ def main():
                 format="internal",
                 location=None,  # FIXME: set location as NUMA node, iff set in GQE
                 not_null=False,
-                identifier_type=str(identifier_type),
+                identifier_type=identifier_type_to_sql(identifier_type),
                 char_type="char" if use_opt_type_for_single_char_col else "text",
                 decimal_type="float",
                 scale_factor=scale_factor,
