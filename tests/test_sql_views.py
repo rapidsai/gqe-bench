@@ -179,3 +179,63 @@ class TestSqlViews:
         assert (
             expected == actual
         ), f"View 'gqe_compression_stats_per_data_info' has {actual} rows, expected {expected}"
+
+    def test_stage_metrics_in_gqe_metric_info(self, db_cursor):
+        """Test that stage timing metrics exist in gqe_metric_info table."""
+        # Query for expected stage metric names
+        db_cursor.execute("""
+            SELECT m_name FROM gqe_metric_info
+            WHERE m_name IN ('task_graph_generation', 'task_graph_execution', 'output_generation')
+        """)
+        stage_metrics = {row[0] for row in db_cursor.fetchall()}
+
+        # Task graph generation and execution are always present
+        assert (
+            "task_graph_generation" in stage_metrics
+        ), "Expected 'task_graph_generation' metric in gqe_metric_info"
+        assert (
+            "task_graph_execution" in stage_metrics
+        ), "Expected 'task_graph_execution' metric in gqe_metric_info"
+        # Don't test the presence of stage 'output_generation' because it is not generated when no output is written
+
+    def test_runs_have_stage_metrics(self, db_cursor):
+        """Test that each run has associated stage timing metrics and durations sum correctly."""
+        # Get stage metrics and total runtime duration for all runs in the database.
+        # TODO: The MAX assumes that there is a single stage for each run for each metric.
+        # AFAIK, this is not enforced because the GqeRunExt dataclass does not generate a primary key.
+        db_cursor.execute("""
+            SELECT
+                r.r_id,
+                r.r_duration_s,
+                MAX(CASE WHEN m.m_name = 'task_graph_generation'
+                         THEN re.re_metric_value END) as gen_value,
+                MAX(CASE WHEN m.m_name = 'task_graph_execution'
+                         THEN re.re_metric_value END) as exec_value,
+                MAX(CASE WHEN m.m_name = 'output_generation'
+                         THEN re.re_metric_value END) as output_value
+            FROM run r
+            LEFT OUTER JOIN gqe_run_ext re ON r.r_id = re.re_run_id
+            LEFT OUTER JOIN gqe_metric_info m ON re.re_metric_info_id = m.m_id
+                AND m.m_name IN ('task_graph_generation', 'task_graph_execution', 'output_generation')
+            GROUP BY r.r_id, r.r_duration_s
+        """)
+        runs = db_cursor.fetchall()
+
+        assert len(runs) > 0, "Expected at least one run in database"
+
+        for run_id, total_duration, gen_value, exec_value, output_value in runs:
+            # Check that stage durations exist and are > 0
+            assert (
+                gen_value is not None and gen_value > 0
+            ), f"Run {run_id}: 'task_graph_generation' = {gen_value} (must be > 0)"
+            assert (
+                exec_value is not None and exec_value > 0
+            ), f"Run {run_id}: 'task_graph_execution' = {exec_value} (must be > 0)"
+
+            # Check that sum of stage durations matches total duration
+            stage_sum = gen_value + exec_value
+            tolerance = max(0.01 * total_duration, 0.001)  # At least 1ms tolerance
+            diff = abs(stage_sum - total_duration)
+            assert (
+                diff <= tolerance
+            ), f"Run {run_id}: total_duration={total_duration:.6f}s, stage_sum={stage_sum:.6f}s (diff={diff:.6f}s)"

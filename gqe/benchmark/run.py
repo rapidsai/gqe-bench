@@ -789,7 +789,7 @@ def _run_suite(
                         f"Starting query {query.identifier} repetition {count}...",
                         is_root_rank and not quiet,
                     )
-                    duration_s, metric_values = context.execute(
+                    duration_s, stage_durations, metric_values = context.execute(
                         catalog, query.root_relation, out_file
                     )
                 except Exception as error:
@@ -826,6 +826,12 @@ def _run_suite(
                         duration_s=duration_s,
                     )
                 )
+
+                for stage, duration_s in stage_durations:
+                    metric_id = edb.insert_metric_info(GqeMetricInfo(name=stage))
+                    edb.insert_gqe_run_ext(
+                        GqeRunExt(run_id=run_id, metric_info_id=metric_id, metric_value=duration_s)
+                    )
 
                 if cupti_metrics:
                     for metric in cupti_metrics:

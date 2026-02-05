@@ -498,15 +498,37 @@ struct context : base_context {
     _query_ctx = std::make_unique<gqe::query_context>(parameters);
   }
 
+  // Execute a query execution stage and record its duration
+  double execute_and_collect_runtime(py::list& stage_durations,
+                                     std::string_view stage,
+                                     std::function<void()> fun)
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    fun();
+    auto end_time                                = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_time_s = end_time - start_time;
+    stage_durations.append(py::make_tuple(stage, elapsed_time_s.count()));
+    return elapsed_time_s.count();
+  }
+
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
   // Return execution time in s.
   py::tuple execute(gqe::catalog* catalog,
                     std::shared_ptr<gqe::physical::relation> relation,
                     std::optional<std::string> output_path = std::nullopt)
   {
-    gqe::task_graph_builder graph_builder(
-      gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
-    auto task_graph = graph_builder.build(relation.get());
+    // Prepare collecting stage durations and total query execution duration
+    py::list stage_durations;
+    double total_duration_s = 0;
+
+    // Time generation of task graph
+    std::unique_ptr<gqe::task_graph> task_graph;
+    total_duration_s += execute_and_collect_runtime(
+      stage_durations, "task_graph_generation", [this, catalog, &relation, &task_graph]() {
+        gqe::task_graph_builder graph_builder(
+          gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
+        task_graph = graph_builder.build(relation.get());
+      });
 
     // Initialize profile result outside of measurement range.
     py::dict profile;
@@ -514,12 +536,12 @@ struct context : base_context {
     // Start profiling.
     if (_profiler) { _profiler->start(); }
 
-    // Start timing.
-    auto start_time = std::chrono::high_resolution_clock::now();
-    execute_task_graph_single_gpu(gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()},
-                                  task_graph.get());
-    // Stop timing.
-    auto end_time = std::chrono::high_resolution_clock::now();
+    // Time task graph execution
+    total_duration_s +=
+      execute_and_collect_runtime(stage_durations, "task_graph_execution", [this, &task_graph]() {
+        execute_task_graph_single_gpu(
+          gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, task_graph.get());
+      });
 
     // Stop profiling.
     if (_profiler) {
@@ -531,17 +553,18 @@ struct context : base_context {
       }
     }
 
-    // Output the result to disk
+    // Time writing the result to disk but don't add to total query runtime
     if (output_path) {
-      auto destination = cudf::io::sink_info(output_path.value());
-      auto options     = cudf::io::parquet_writer_options::builder(
-        destination, task_graph->root_tasks[0]->result().value());
-      cudf::io::write_parquet(options);
+      execute_and_collect_runtime(
+        stage_durations, "output_generation", [&output_path, &task_graph]() {
+          auto destination = cudf::io::sink_info(output_path.value());
+          auto options     = cudf::io::parquet_writer_options::builder(
+            destination, task_graph->root_tasks[0]->result().value());
+          cudf::io::write_parquet(options);
+        });
     }
 
-    std::chrono::duration<double> elapsed_time_s = end_time - start_time;
-    py::tuple performance                        = py::make_tuple(elapsed_time_s.count(), profile);
-
+    py::tuple performance = py::make_tuple(total_duration_s, stage_durations, profile);
     return performance;
   }
 
