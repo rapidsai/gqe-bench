@@ -76,6 +76,44 @@ class TestSqlViews:
             actual == expected
         ), f"View 'gqe_best_parameters' has {actual} rows, expected {expected}"
 
+    def test_gqe_best_parameters_validated_row_count(self, db_cursor):
+        """Test that `gqe_best_parameters_validated` view has expected row count."""
+        # `gqe_best_parameters` has one row per unique query name, and aggregates
+        # the results of the runs. Thus, the row count equals the number of unique
+        # query names.
+        db_cursor.execute(
+            "SELECT COUNT(DISTINCT q_name) FROM experiment JOIN query_info ON experiment.e_query_info_id = query_info.q_id"
+        )
+        expected = db_cursor.fetchone()[0]
+        assert expected > 0, "Expected non-zero row count"
+        db_cursor.execute("SELECT COUNT(*) FROM gqe_best_parameters_validated")
+        actual = db_cursor.fetchone()[0]
+        assert (
+            actual == expected
+        ), f"View 'gqe_best_parameters_validated' has {actual} rows, expected {expected}"
+
+    def test_gqe_best_parameters_validated_sample_size(self, db_cursor):
+        """Test that `gqe_best_parameters_validated` view has expected sample_size property."""
+        # `gqe_best_parameters_validated` expects that successful_trials + 1 matches e_sample_size
+        # for all rows
+        db_cursor.execute(
+            "SELECT e_sample_size, successful_trials FROM gqe_best_parameters_validated"
+        )
+        for row in db_cursor:
+            assert (
+                row[0] == (row[1] + 1)
+            ), f"View 'gqe_best_parameters_validated' has {row[1]} successful_trials, expected {row[0]-1}"
+
+    def test_gqe_flakey_experiments_sample_size(self, db_cursor):
+        """Test that `gqe_flakey_experiments` view has expected sample_size property."""
+        # `gqe_flakey_experiments` expects all rows to have e_sample_size > successful_trials+1
+        db_cursor.execute("SELECT e_sample_size, successful_trials FROM gqe_flakey_experiments")
+        for i, row in enumerate(db_cursor):
+            print(f"row: {row}")
+            assert (
+                row[0] > row[1] + 1
+            ), f"View 'gqe_flakey_experiments' row {i} has {row[1]} successful_trials, expected {row[0]}"
+
     def test_failed_experiments_empty(self, db_cursor):
         """Test that `failed_experiments` view returns an empty result."""
         db_cursor.execute(

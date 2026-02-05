@@ -744,6 +744,7 @@ def _run_suite(
                     data_info_id=data_info_id,
                     data_info_ext_id=data_info_ext_id,
                     query_info_id=query_info_id,
+                    sample_size=repeat,
                 )
             )
 

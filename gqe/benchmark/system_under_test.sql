@@ -183,20 +183,16 @@ CREATE VIEW gqe_run_all_info AS
          JOIN query_info ON q_id = e_query_info_id
                 ;
 
--- Best GQE optimization parameters per query.
---
--- The parameters that result in the lowest average query duration. These
--- parameters are gathered along with statistics over their query duration.
---
+-- Base summary view of experiment containing averaging statistics
+-- Used to generate several other views
 -- The first run of each experiment is filtered out as a warm-up run.
-CREATE VIEW gqe_best_parameters AS
-  WITH
-  data AS (
+CREATE VIEW _gqe_data_base_view AS
     SELECT
       e_id,
       q_name,
       q_suite,
       q_source,
+      e_sample_size,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -230,7 +226,7 @@ CREATE VIEW gqe_best_parameters AS
       avg(r_duration_s) AS r_avg_duration_s,
       min(r_duration_s) AS r_min_duration_s,
       max(r_duration_s) AS r_max_duration_s,
-      count(r_duration_s) AS sample_size
+      count(r_duration_s) AS successful_trials
       FROM
         experiment
         JOIN run ON e_id = r_experiment_id
@@ -243,6 +239,7 @@ CREATE VIEW gqe_best_parameters AS
       e_id,
       q_name,
       q_suite,
+      e_sample_size,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -272,27 +269,72 @@ CREATE VIEW gqe_best_parameters AS
       de_secondary_compression_ratio_threshold,
       de_secondary_compression_multiplier_threshold,
       de_use_cpu_compression,
-      de_compression_level
-  )
+      de_compression_level;
+
+-- Best GQE optimization parameters per query.
+--
+-- The parameters that result in the lowest average query duration. These
+-- parameters are gathered along with statistics over their query duration.
+CREATE VIEW gqe_best_parameters AS
   SELECT
-    data.*
+    _gqe_data_base_view.*
     FROM
-      data
+      _gqe_data_base_view
       JOIN (
         SELECT
           q_name,
           min(r_avg_duration_s) AS min_duration
           FROM
-            data
+            _gqe_data_base_view
          GROUP BY
       q_name
-      ) AS min_data ON data.q_name = min_data.q_name
+      ) AS min_data ON _gqe_data_base_view.q_name = min_data.q_name
           AND r_avg_duration_s = min_duration
-   ORDER BY data.q_suite,
-            CAST(rtrim(substr(data.q_name, 2, 2), '_') AS INTEGER),
-            ltrim(substr(data.q_name, 4), '_'),
-            data.d_scale_factor,
-            data.e_id
+   ORDER BY _gqe_data_base_view.q_suite,
+            CAST(rtrim(substr(_gqe_data_base_view.q_name, 2, 2), '_') AS INTEGER),
+            ltrim(substr(_gqe_data_base_view.q_name, 4), '_'),
+            _gqe_data_base_view.d_scale_factor,
+            _gqe_data_base_view.e_id
+            ;
+
+-- Best GQE optimization parameters per query with successful runs.
+--
+-- The same as best_parameters but excludes experiments where all runs did not validate
+CREATE VIEW gqe_best_parameters_validated AS
+  SELECT
+    _gqe_data_base_view.*
+    FROM
+      _gqe_data_base_view
+      JOIN (
+        SELECT
+          q_name,
+          min(r_avg_duration_s) AS min_duration
+          FROM
+            _gqe_data_base_view
+          WHERE (successful_trials+1) = e_sample_size
+         GROUP BY
+      q_name
+      ) AS min_data ON _gqe_data_base_view.q_name = min_data.q_name
+          AND r_avg_duration_s = min_duration
+   ORDER BY _gqe_data_base_view.q_suite,
+            CAST(rtrim(substr(_gqe_data_base_view.q_name, 2, 2), '_') AS INTEGER),
+            ltrim(substr(_gqe_data_base_view.q_name, 4), '_'),
+            _gqe_data_base_view.d_scale_factor,
+            _gqe_data_base_view.e_id
+            ;
+
+-- Experiments that succeed sometimes but some runs fail
+CREATE VIEW gqe_flakey_experiments AS
+  SELECT
+   _gqe_data_base_view.*
+   FROM
+   _gqe_data_base_view
+   WHERE (successful_trials+1) < e_sample_size
+   ORDER BY _gqe_data_base_view.q_suite,
+            CAST(rtrim(substr(_gqe_data_base_view.q_name, 2, 2), '_') AS INTEGER),
+            ltrim(substr(_gqe_data_base_view.q_name, 4), '_'),
+            _gqe_data_base_view.d_scale_factor,
+            _gqe_data_base_view.e_id
             ;
 
 -- Failed experiments along with their GQE parameters.
