@@ -77,8 +77,6 @@ class write_buffer_op {
       output_columns(cuda::std::make_tuple(output_columns...)),
       output_table_offset(output_table_offset)
   {
-    assert(gqe::utility::warp_size == warpSize);
-
     if (thread_rank() == warp_leader) {
       storage->buffer_offset[warp_id()].store(0, cuda::memory_order_relaxed);
     }
