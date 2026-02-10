@@ -35,7 +35,6 @@ from gqe.benchmark.run import (
     identifier_type_to_sql,
     parse_bool,
     parse_scale_factor,
-    parse_suite_name,
     run_suite,
     set_eager_module_loading,
     setup_db,
@@ -163,6 +162,12 @@ def main():
         type=str,
         default=BENCHMARK_CONFIG_DEFAULTS["ddl_file_path"],
     )
+    arg_parser.add_argument(
+        "--suite-name",
+        help="Suite name (e.g., TPC-H, TPC-DS). Defaults to TPC-H.",
+        type=str,
+        default=BENCHMARK_CONFIG_DEFAULTS["suite_name"],
+    )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
 
@@ -215,9 +220,7 @@ def main():
     edb_config = None
     if is_root_rank:
         edb_file = (
-            args.output
-            if args.output
-            else generate_db_path(f"gqe", parse_suite_name(args.dataset), gqe_host)
+            args.output if args.output else generate_db_path(f"gqe", args.suite_name, gqe_host)
         )
         edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
         edb_config.create_experiment_db()
@@ -292,9 +295,9 @@ def main():
             )
 
             reference_file = args.solution.replace("%d", f"q{query_idx}")
-            if query_source == "tpch_handcoded":
+            if query_source == "handcoded":
                 substrait_file = None
-            elif query_source == "tpch_substrait":
+            elif query_source == "substrait":
                 substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
             elif query_source == "custom_substrait":
                 substrait_file = os.path.join(args.plan, f"{query_str}.bin")
@@ -374,6 +377,7 @@ def main():
                 multiprocess_runtime_context,
                 args.validate_results,
                 validate_dir,
+                args.suite_name,
             )
 
         return errors_local, invalid_results_local

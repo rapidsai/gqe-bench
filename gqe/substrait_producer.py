@@ -180,7 +180,8 @@ def main():
     sql_queries_path = os.path.abspath(args.sql_queries)
     data_root = os.path.abspath(args.dataset)
     output_dir = os.path.abspath(args.output)
-    ddl_file_path = os.path.abspath(args.ddl)
+    # use TPC-H schema when ddl is not specified
+    ddl_file_path = os.path.abspath(args.ddl) if args.ddl else None
 
     if ddl_file_path:
         schema_table_names = parse_tables(ddl_file_path)

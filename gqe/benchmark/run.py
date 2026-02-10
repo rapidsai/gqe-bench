@@ -166,18 +166,6 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
     return EdbInfo(sut_info_id, hw_info_id, build_info_id)
 
 
-def parse_suite_name(path: str) -> str:
-    """Finds the suite name in a path to database files."""
-    if "tpch" in path:
-        return "TPC-H"
-    if "tpcds" in path:
-        return "TPC-DS"
-    else:
-        # TODO: we could have a specification in the dataset path to specify the suite name
-        # Or we could take in an argument to specify the suite name
-        return "Unknown"
-
-
 def parse_bool(value: str) -> bool:
     """Parse a string into a Boolean value."""
     if value.lower() == "true":
@@ -415,7 +403,7 @@ def _get_query_info(
     catalog: gqe.Catalog,
     multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
 ):
-    if query_info_ctx.query_source == "tpch_handcoded":
+    if query_info_ctx.query_source == "handcoded":
         query_identifier = "tpch_q" + query_info_ctx.query_str
         module = importlib.import_module(f"gqe.benchmark.{query_identifier}")
         query_object = getattr(module, query_identifier)(scale_factor=query_info_ctx.scale_factor)
@@ -434,7 +422,7 @@ def _get_query_info(
                 f"Q{query_info_ctx.query_str}", query_info_ctx.physical_plan_folder
             )
     elif (
-        query_info_ctx.query_source == "tpch_substrait"
+        query_info_ctx.query_source == "substrait"
         or query_info_ctx.query_source == "custom_substrait"
     ):
         root_relation = catalog.load_substrait(
@@ -475,6 +463,7 @@ def run_suite(
     multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
     validate_results: bool,
     validate_dir: str,
+    suite_name: str,
     quiet: bool = False,
     pipe: subprocessing.Pipe = None,
 ):
@@ -499,6 +488,7 @@ def run_suite(
                 multiprocess_runtime_context,
                 validate_results,
                 validate_dir,
+                suite_name,
                 quiet,
                 pipe,
             )
@@ -519,6 +509,7 @@ def run_suite(
             multiprocess_runtime_context,
             validate_results,
             validate_dir,
+            suite_name,
             quiet,
             pipe,
         )
@@ -559,6 +550,7 @@ def _run_suite(
     multiprocess_runtime_context: gqe.lib.MultiProcessRuntimeContext,
     validate_results: bool,
     validate_dir: bool,
+    suite_name: str,
     quiet: bool,
     pipe: subprocessing.Pipe,
 ):
@@ -575,7 +567,7 @@ def _run_suite(
     catalog = None
     if load_all_data:
         print_mp(
-            f"Attempting to load full {parse_suite_name(cat_ctx.dataset)} dataset into memory",
+            f"Attempting to load full {suite_name} dataset into memory",
             is_root_rank and not quiet,
         )
         try:
@@ -620,7 +612,7 @@ def _run_suite(
             print_mp(
                 f"Running query from {query_info_ctx.query_source} with parameters "
                 f"debug_mem_usage={debug_mem_usage}, "
-                f"{ parameter }, {data}",
+                f"{parameter}, {data}",
                 is_root_rank,
             )
         elif previous_query_str != query_info_ctx.query_str:
@@ -732,11 +724,18 @@ def _run_suite(
             parameter.sut_info_id = edb_info.sut_info_id
             parameters_id = edb.insert_gqe_parameters(upcast_to_super(parameter, GqeParameters))
 
+            # Normalize query_source: both "substrait" and "custom_substrait" are stored as "substrait"
+            normalized_source = (
+                "substrait"
+                if "substrait" in query_info_ctx.query_source
+                else query_info_ctx.query_source
+            )
+
             query_info_id = edb.insert_query_info(
                 exp.QueryInfo(
                     name=query.identifier,
-                    suite=parse_suite_name(cat_ctx.dataset),
-                    source=query_info_ctx.query_source,
+                    suite=suite_name,
+                    source=normalized_source,
                 )
             )
 
@@ -835,7 +834,11 @@ def _run_suite(
                 for stage, duration_s in stage_durations:
                     metric_id = edb.insert_metric_info(GqeMetricInfo(name=stage))
                     edb.insert_gqe_run_ext(
-                        GqeRunExt(run_id=run_id, metric_info_id=metric_id, metric_value=duration_s)
+                        GqeRunExt(
+                            run_id=run_id,
+                            metric_info_id=metric_id,
+                            metric_value=duration_s,
+                        )
                     )
 
                 if cupti_metrics:

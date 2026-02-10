@@ -44,7 +44,6 @@ from gqe.benchmark.run import (
     parse_bool,
     parse_identifier_type,
     parse_scale_factor,
-    parse_suite_name,
     print_mp,
     run_suite,
     set_eager_module_loading,
@@ -62,6 +61,7 @@ from gqe.param_sweep_config import (
 
 
 def get_queries(query_source: str, queries: list[str] = None, plan: str = None):
+    # this is only for TPC-H queries
     tpch_handcoded_queries = [
         "1",
         "2",
@@ -99,6 +99,7 @@ def get_queries(query_source: str, queries: list[str] = None, plan: str = None):
         "22_opt",
     ]
 
+    # this is only for TPC-H queries
     # 1, 15, 18, 21 removed as per previous run-script
     # Q11 FIXME: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/141
     # Q4 removed as the substrait plan fails for SF1k
@@ -133,17 +134,17 @@ def get_queries(query_source: str, queries: list[str] = None, plan: str = None):
         tpch_substrait_queries = sorted(set(tpch_substrait_queries) & set(queries))
         custom_substrait_queries = sorted(set(custom_substrait_queries) & set(queries))
 
-    if query_source == "tpch_handcoded":
+    if query_source == "handcoded":
         if len(tpch_handcoded_queries) == 0:
             raise ValueError(f"No TPC-H handcoded queries found for the given queries")
         tpch_substrait_queries = []
         custom_substrait_queries = []
-    elif query_source == "tpch_substrait":
+    elif query_source == "substrait":
         if len(tpch_substrait_queries) == 0:
             raise ValueError(f"No TPC-H substrait queries found for the given queries")
         tpch_handcoded_queries = []
         custom_substrait_queries = []
-    elif query_source == "tpch_both":
+    elif query_source == "both":
         pass
     elif query_source == "custom_substrait":
         if len(custom_substrait_queries) == 0:
@@ -256,8 +257,14 @@ def parse_args():
     arg_parser.add_argument(
         "--query-source",
         help="Query source",
-        choices=["tpch_handcoded", "tpch_substrait", "tpch_both", "custom_substrait"],
+        choices=["handcoded", "substrait", "both", "custom_substrait"],
         default=BENCHMARK_CONFIG_DEFAULTS["query_source"],
+    )
+    arg_parser.add_argument(
+        "--suite-name",
+        help="Suite name (e.g., TPC-H, TPC-DS). Defaults to TPC-H.",
+        type=str,
+        default=BENCHMARK_CONFIG_DEFAULTS["suite_name"],
     )
     arg_parser.add_argument(
         "--compression-format",
@@ -570,9 +577,7 @@ def main():
     is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
     if is_root_rank:
         edb_file = (
-            args.output
-            if args.output
-            else generate_db_path(f"gqe", parse_suite_name(args.dataset), gqe_host)
+            args.output if args.output else generate_db_path(f"gqe", args.suite_name, gqe_host)
         )
 
         edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
@@ -582,7 +587,7 @@ def main():
             edb_info = setup_db(edb)
         print(f"Writing SQLite file to {edb_file}")
 
-    tpch_handcoded_queries, tpch_substrait_queries, custom_substrait_queries = get_queries(
+    handcoded_queries, substrait_queries, custom_substrait_queries = get_queries(
         args.query_source, args.queries, args.plan
     )
 
@@ -633,16 +638,14 @@ def main():
             # If a DDL file is not provided, we need to validate the identifier type
             # Else DDL file will provide the identifier type
             if not args.ddl_file_path:
-                match is_valid_identifier_type(
-                    identifier_type, parse_suite_name(args.dataset), scale_factor
-                ):
+                match is_valid_identifier_type(identifier_type, args.suite_name, scale_factor):
                     case True:
                         pass
                     case False:
                         continue
                     case None:
                         raise ValueError(
-                            f"Unknown if identifier type { identifier_type } is valid for the given dataset"
+                            f"Unknown if identifier type {identifier_type} is valid for the given dataset"
                         )
 
             data_info = DataInfo(
@@ -710,8 +713,8 @@ def main():
             # moving the data into the list proxy.
             parameters = []
             for query_source, queries in [
-                ("tpch_handcoded", tpch_handcoded_queries),
-                ("tpch_substrait", tpch_substrait_queries),
+                ("handcoded", handcoded_queries),
+                ("substrait", substrait_queries),
                 ("custom_substrait", custom_substrait_queries),
             ]:
                 for query_str in queries:
@@ -725,7 +728,7 @@ def main():
                         query_idx = int(query_str.split("_")[0])
                         reference_file = args.solution.replace("%d", f"q{query_idx}")
                         substrait_file = None
-                        if query_source == "tpch_substrait":
+                        if query_source == "substrait":
                             substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
                     physical_plan_folder = None
 
@@ -817,9 +820,9 @@ def main():
                             continue
 
                         # Perfect hash join is disabled for substrait plans, see: https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/issues/161
-                        if (
-                            query_source == "tpch_substrait" or query_source == "custom_substrait"
-                        ) and (join_use_perfect_hash or aggregation_use_perfect_hash):
+                        if (query_source == "substrait" or query_source == "custom_substrait") and (
+                            join_use_perfect_hash or aggregation_use_perfect_hash
+                        ):
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans",
                                 is_root_rank and not args.quiet,
@@ -883,6 +886,7 @@ def main():
                     multiprocess_runtime_context,
                     args.validate_results,
                     validate_dir,
+                    args.suite_name,
                     args.quiet,
                 )
 
@@ -918,6 +922,7 @@ def main():
                                 multiprocess_runtime_context,
                                 args.validate_results,
                                 validate_dir,
+                                args.suite_name,
                                 args.quiet,
                                 child_pipe,
                             ),
