@@ -134,6 +134,7 @@ python scripts/nsys_analysis.py io --analysis_type read_time_effective /path/to/
 
 # IO: total decompression engine decompress time
 python scripts/nsys_analysis.py io --analysis_type hw_decompress_time_sum /path/to/trace.sqlite "*Run Q2*"
+```
 
 ## Pre-commit Hooks
 
