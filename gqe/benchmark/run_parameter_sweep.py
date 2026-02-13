@@ -316,6 +316,7 @@ def parse_args():
             "managed_memory",
             "numa_pinned_memory",
             "boost_shared_memory",
+            "numa_pool_memory",
             "parquet_file",
         ],
         nargs="+",

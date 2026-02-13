@@ -683,6 +683,9 @@ gqe::storage_kind::type parse_storage_kind(const std::string& storage_kind_descr
     return gqe::storage_kind::parquet_file{file_paths};
   } else if (normalized_description == "boost_shared_memory") {
     return gqe::storage_kind::boost_shared_memory{};
+  } else if (normalized_description == "numa_pool_memory") {
+    return gqe::storage_kind::numa_pool_memory();  // Do not set NUMA node affinity to enable
+                                                   // auto-configuration.
   }
   throw std::logic_error("Unrecognized storage kind: " + storage_kind_description);
 }

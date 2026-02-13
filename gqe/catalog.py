@@ -50,8 +50,9 @@ class Catalog:
 
         :arg dataset: Location of the dataset.
         :arg storage_kind: Storage kind for tables. Can be either `"pinned_memory"`,
-            `"system_memory"`, `"numa_memory"`, `"device_memory"`, or `"managed_memory"` or
-            `"parquet_file"`, or `"boost_shared_memory"`.
+            `"system_memory"`, `"numa_memory"`, `"device_memory"`, `"managed_memory"`,
+            `"numa_pinned_memory"`, `"boost_shared_memory"`, `"numa_pool_memory"`,
+            or `"parquet_file"`.
         :arg load_data_of_query: For in-memory storage,
             if `load_data_of_query = 0` loads entire dataset,
             else if `0 < load_data_of_query <= 22` loads table and columns required for the
@@ -86,6 +87,7 @@ class Catalog:
             "managed_memory",
             "numa_pinned_memory",
             "boost_shared_memory",
+            "numa_pool_memory",
         ]:
             gqe.lib.register_tables_in_memory(
                 self._context._context,
