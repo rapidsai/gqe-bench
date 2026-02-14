@@ -146,20 +146,33 @@ CREATE TABLE gqe_metric_info (
 -- from CUPTI.
 CREATE TABLE gqe_run_ext(
   re_id INTEGER PRIMARY KEY,
-  re_run_id INTEGER NOT NULL,
+  re_experiment_id INTEGER NOT NULL,
+  re_run_number INTEGER NOT NULL,
   re_metric_info_id INTEGER NOT NULL,
   re_metric_value REAL NOT NULL,
-  FOREIGN KEY (re_run_id) REFERENCES run(r_id),
+  FOREIGN KEY (re_experiment_id, re_run_number) REFERENCES run(r_experiment_id, r_number),
   FOREIGN KEY (re_metric_info_id) REFERENCES gqe_metric_info(m_id)
 );
+
+-- GQE unioned run + failed_run view
+--
+-- This view is an intermediary used to generate other views, where all run info is desired.
+CREATE VIEW _gqe_all_runs as
+  SELECT * from
+  (SELECT r_experiment_id, r_number from run
+  UNION ALL
+  SELECT fr_experiment_id AS r_experiment_id, fr_number AS r_number from failed_run)
+  as run_keys
+  LEFT JOIN run USING (r_experiment_id, r_number)
+  LEFT JOIN failed_run on r_experiment_id = fr_experiment_id and r_number = fr_number;
 
 -- A short description of a GQE run.
 --
 -- A virtual view that joins runs with their experiment description and
 -- parameters.
 CREATE VIEW gqe_run_parameters AS
-  SELECT q_suite, q_name, d_scale_factor, run.*, gqe_parameters.*, gqe_data_info_ext.*
-    FROM run
+  SELECT q_suite, q_name, d_scale_factor, _gqe_all_runs.*, gqe_parameters.*, gqe_data_info_ext.*
+    FROM _gqe_all_runs
          JOIN experiment ON r_experiment_id = e_id
          JOIN gqe_parameters ON gqe_parameters.p_id = e_parameters_id
              AND gqe_parameters.p_sut_info_id = e_sut_info_id
@@ -170,9 +183,9 @@ CREATE VIEW gqe_run_parameters AS
 
 -- All information about a GQE run.
 CREATE VIEW gqe_run_all_info AS
-  SELECT *
-    FROM run
-         JOIN experiment ON r_experiment_id = e_id
+  SELECT * FROM
+    _gqe_all_runs
+         JOIN experiment ON _gqe_all_runs.r_experiment_id = experiment.e_id
          JOIN sut_info ON s_id = e_sut_info_id
          JOIN gqe_parameters ON gqe_parameters.p_id = e_parameters_id
              AND gqe_parameters.p_sut_info_id = e_sut_info_id
@@ -181,7 +194,7 @@ CREATE VIEW gqe_run_all_info AS
          JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
          JOIN build_info ON b_id = e_build_info_id
          JOIN query_info ON q_id = e_query_info_id
-                ;
+                 ;
 
 -- Base summary view of experiment containing averaging statistics
 -- Used to generate several other views

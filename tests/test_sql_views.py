@@ -210,7 +210,8 @@ class TestSqlViews:
         # AFAIK, this is not enforced because the GqeRunExt dataclass does not generate a primary key.
         db_cursor.execute("""
             SELECT
-                r.r_id,
+                r.r_experiment_id,
+                r.r_number,
                 r.r_duration_s,
                 MAX(CASE WHEN m.m_name = 'task_graph_generation'
                          THEN re.re_metric_value END) as gen_value,
@@ -219,23 +220,23 @@ class TestSqlViews:
                 MAX(CASE WHEN m.m_name = 'output_generation'
                          THEN re.re_metric_value END) as output_value
             FROM run r
-            LEFT OUTER JOIN gqe_run_ext re ON r.r_id = re.re_run_id
+            LEFT OUTER JOIN gqe_run_ext re ON r.r_experiment_id = re.re_experiment_id and r.r_number = re.re_run_number
             LEFT OUTER JOIN gqe_metric_info m ON re.re_metric_info_id = m.m_id
                 AND m.m_name IN ('task_graph_generation', 'task_graph_execution', 'output_generation')
-            GROUP BY r.r_id, r.r_duration_s
+            GROUP BY r.r_experiment_id, r.r_number, r.r_duration_s
         """)
         runs = db_cursor.fetchall()
 
         assert len(runs) > 0, "Expected at least one run in database"
 
-        for run_id, total_duration, gen_value, exec_value, output_value in runs:
+        for exp_id, run_number, total_duration, gen_value, exec_value, output_value in runs:
             # Check that stage durations exist and are > 0
             assert (
                 gen_value is not None and gen_value > 0
-            ), f"Run {run_id}: 'task_graph_generation' = {gen_value} (must be > 0)"
+            ), f"Run ({exp_id},{run_number}): 'task_graph_generation' = {gen_value} (must be > 0)"
             assert (
                 exec_value is not None and exec_value > 0
-            ), f"Run {run_id}: 'task_graph_execution' = {exec_value} (must be > 0)"
+            ), f"Run ({exp_id},{run_number}): 'task_graph_execution' = {exec_value} (must be > 0)"
 
             # Check that sum of stage durations matches total duration
             stage_sum = gen_value + exec_value
@@ -243,4 +244,4 @@ class TestSqlViews:
             diff = abs(stage_sum - total_duration)
             assert (
                 diff <= tolerance
-            ), f"Run {run_id}: total_duration={total_duration:.6f}s, stage_sum={stage_sum:.6f}s (diff={diff:.6f}s)"
+            ), f"Run ({exp_id},{run_number}): total_duration={total_duration:.6f}s, stage_sum={stage_sum:.6f}s (diff={diff:.6f}s)"

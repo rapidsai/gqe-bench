@@ -797,10 +797,12 @@ def _run_suite(
                         catalog, query.root_relation, out_file
                     )
                 except Exception as error:
+                    err_str = f"{type(error).__name__}: {error}"
                     print("Error during query execution")
-                    print(f"{type(error).__name__}: {error}")
+                    print(err_str)
                     errors.append((f"{query.identifier} query execution", parameter, f"{error}"))
                     pipe_send(pipe, False)
+                    insert_gqe_run_error(edb, experiment_id, count, is_root_rank, err_str)
                     break
             if validate_results:
                 # All ranks validate result, alternatively we need to communicate if there is an error
@@ -808,10 +810,12 @@ def _run_suite(
                     print_mp("Start validation...", is_root_rank and not quiet)
                     validate_parquet(out_file, query.reference_solution, query.validator)
                 except Exception as error:
+                    err_str = f"{type(error).__name__}: {error}"
                     print("Error validating solution")
-                    print(f"{type(error).__name__}: {error}")
+                    print(err_str)
                     invalid_results.append((query.identifier, parameter))
                     pipe_send(pipe, False)
+                    insert_gqe_run_error(edb, experiment_id, count, is_root_rank, err_str)
                     if is_unrecoverable_error(error):
                         return
                     else:
@@ -822,7 +826,7 @@ def _run_suite(
             # helps order the print messages w/o having to resort to more complicated syncronization.
             pipe_send(pipe, True)
             if is_root_rank:
-                run_id = edb.insert_run(
+                edb.insert_run(
                     exp.Run(
                         experiment_id=experiment_id,
                         number=count,
@@ -835,7 +839,8 @@ def _run_suite(
                     metric_id = edb.insert_metric_info(GqeMetricInfo(name=stage))
                     edb.insert_gqe_run_ext(
                         GqeRunExt(
-                            run_id=run_id,
+                            experiment_id=experiment_id,
+                            run_number=count,
                             metric_info_id=metric_id,
                             metric_value=duration_s,
                         )
@@ -847,7 +852,8 @@ def _run_suite(
 
                         edb.insert_gqe_run_ext(
                             GqeRunExt(
-                                run_id=run_id,
+                                experiment_id=experiment_id,
+                                run_number=count,
                                 metric_info_id=metric_id,
                                 metric_value=metric_values[metric],
                             )
@@ -857,3 +863,10 @@ def _run_suite(
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
     catalog = None
     context = None
+
+
+def insert_gqe_run_error(edb, experiment_id, count, is_root_rank, error):
+    if is_root_rank:
+        edb.insert_failed_run(
+            exp.FailedRun(experiment_id=experiment_id, number=count, error_msg=error)
+        )

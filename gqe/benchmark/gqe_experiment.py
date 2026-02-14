@@ -20,7 +20,6 @@ from database_benchmarking_tools.experiment import (
     DataInfoId,
     ExperimentConnection,
     ParametersId,
-    RunId,
     SutInfoId,
 )
 
@@ -84,7 +83,8 @@ class GqeRunExt:
     _table_prefix = "re_"
     metric_value: float
 
-    run_id: RunId | None = None  # Don't set manually
+    experiment_id: ExperimentId | None = None  # Don't set manually
+    run_number: int | None = None  # Don't set manually
     metric_info_id: MetricInfoId | None = None  # Don't set manually
 
 
