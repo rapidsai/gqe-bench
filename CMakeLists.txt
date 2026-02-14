@@ -13,6 +13,10 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+# build options (TODO: Update default to ON when GQE is ready for public
+# release)
+option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" OFF)
+
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 find_program(CCACHE_FOUND ccache)
@@ -64,7 +68,8 @@ if(DEFINED GQE_SOURCE_DIR)
     "CMAKE_POSITION_INDEPENDENT_CODE ON"
     "GQE_ENABLE_SUBSTRAIT_PRODUCER ${GQE_ENABLE_SUBSTRAIT_PRODUCER}"
     "GQE_NVCOMP_TAG ${GQE_NVCOMP_TAG}"
-    "GQE_NVCOMP_SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}")
+    "GQE_NVCOMP_SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}"
+    "GQE_ENABLE_PUBLIC_BUILD ${GQE_ENABLE_PUBLIC_BUILD}")
 else()
   if(NOT DEFINED GQE_GIT_REPOSITORY)
     set(GQE_GIT_REPOSITORY
@@ -88,7 +93,8 @@ else()
     "CMAKE_POSITION_INDEPENDENT_CODE ON"
     "GQE_ENABLE_SUBSTRAIT_PRODUCER ${GQE_ENABLE_SUBSTRAIT_PRODUCER}"
     "GQE_NVCOMP_TAG ${GQE_NVCOMP_TAG}"
-    "GQE_NVCOMP_SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}")
+    "GQE_NVCOMP_SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}"
+    "GQE_ENABLE_PUBLIC_BUILD ${GQE_ENABLE_PUBLIC_BUILD}")
 endif()
 
 rapids_find_package(pybind11 REQUIRED)

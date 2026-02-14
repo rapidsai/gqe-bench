@@ -457,7 +457,7 @@ def parse_args():
 
     arg_parser.add_boolean_list_argument(
         "--use-cpu-compression",
-        help="Use CPU compression for in-memory table compression",
+        help="(Experimental; no effect in public build.) Use CPU compression for in-memory table compression",
         default=BENCHMARK_CONFIG_DEFAULTS["use_cpu_compression"],
     )
 
