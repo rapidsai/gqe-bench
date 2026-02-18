@@ -338,7 +338,7 @@ def main():
 
             if query_source == "custom_substrait" and not args.load_all_data:
                 print(
-                    f"Skipping {best_parameter['e_name']} because custom substrait queries must be run with load_all_data=1"
+                    f"Skipping {best_parameter['q_name']} because custom substrait queries must be run with load_all_data=1"
                 )
                 continue
 
