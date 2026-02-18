@@ -39,6 +39,13 @@ project(gqe-python LANGUAGES CXX CUDA)
 
 include(cmake/CPM.cmake)
 
+set(GQE_NVCOMP_LIB_DIR
+    ""
+    CACHE
+      PATH
+      "Optional path to prebuilt nvCOMP install (must contain cmake config files)."
+)
+
 # CMake variable for gqe-nvcomp tag
 set(GQE_NVCOMP_TAG
     "a7ff787194cb0eb948b4d0443d5f16ba4da714a9"
@@ -69,6 +76,7 @@ if(DEFINED GQE_SOURCE_DIR)
     "GQE_ENABLE_SUBSTRAIT_PRODUCER ${GQE_ENABLE_SUBSTRAIT_PRODUCER}"
     "GQE_NVCOMP_TAG ${GQE_NVCOMP_TAG}"
     "GQE_NVCOMP_SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}"
+    "GQE_NVCOMP_LIB_DIR ${GQE_NVCOMP_LIB_DIR}"
     "GQE_ENABLE_PUBLIC_BUILD ${GQE_ENABLE_PUBLIC_BUILD}")
 else()
   if(NOT DEFINED GQE_GIT_REPOSITORY)
@@ -76,7 +84,7 @@ else()
         "https://gitlab-master.nvidia.com/Devtech-Compute/gqe.git")
   endif()
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "f2ed211a49ff83a3f7dcdd5213c6e5a2dbee0d2a")
+    set(GQE_GIT_TAG "487ef25688c0633f8de8e88f220d6044840ee6a5")
   endif()
 
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")
@@ -94,6 +102,7 @@ else()
     "GQE_ENABLE_SUBSTRAIT_PRODUCER ${GQE_ENABLE_SUBSTRAIT_PRODUCER}"
     "GQE_NVCOMP_TAG ${GQE_NVCOMP_TAG}"
     "GQE_NVCOMP_SOURCE_DIR ${GQE_NVCOMP_SOURCE_DIR}"
+    "GQE_NVCOMP_LIB_DIR ${GQE_NVCOMP_LIB_DIR}"
     "GQE_ENABLE_PUBLIC_BUILD ${GQE_ENABLE_PUBLIC_BUILD}")
 endif()
 
@@ -104,6 +113,12 @@ rapids_find_package(pybind11 REQUIRED)
 # /conda/envs/gqe/site-packages/lib/libnvcomp.so
 list(PREPEND CMAKE_BUILD_RPATH "$ORIGIN/../lib")
 list(PREPEND CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
+
+# Add path to libnvcomp.so to the build and install RPATHs
+if(GQE_NVCOMP_LIB_DIR)
+  list(PREPEND CMAKE_BUILD_RPATH "${GQE_NVCOMP_LIB_DIR}/lib")
+  list(PREPEND CMAKE_INSTALL_RPATH "${GQE_NVCOMP_LIB_DIR}/lib")
+endif()
 
 pybind11_add_module(
   lib
