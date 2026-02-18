@@ -767,14 +767,36 @@ def _run_suite(
                 )
                 column_names = catalog._catalog.column_names(table_name)
                 for col_idx in range(stats.num_columns):
-                    edb.insert_gqe_column_stats(
-                        GqeColumnStats(
-                            gqe_table_stats_id=gqe_table_stats_id,
-                            column_name=column_names[col_idx],
-                            col_idx=col_idx,
-                            stats=stats,
+                    if stats.column_stats[col_idx].is_string_column():
+                        # Insert two entries for char and offset since they are stored in separate buffers but logically one column.
+                        edb.insert_gqe_column_stats(
+                            GqeColumnStats(
+                                gqe_table_stats_id=gqe_table_stats_id,
+                                column_name=column_names[col_idx],
+                                col_idx=col_idx,
+                                stats=stats,
+                                column_part="char",
+                            )
                         )
-                    )
+                        edb.insert_gqe_column_stats(
+                            GqeColumnStats(
+                                gqe_table_stats_id=gqe_table_stats_id,
+                                column_name=column_names[col_idx],
+                                col_idx=col_idx,
+                                stats=stats,
+                                column_part="offset",
+                            )
+                        )
+                    else:
+                        edb.insert_gqe_column_stats(
+                            GqeColumnStats(
+                                gqe_table_stats_id=gqe_table_stats_id,
+                                column_name=column_names[col_idx],
+                                col_idx=col_idx,
+                                stats=stats,
+                                column_part="value",
+                            )
+                        )
 
             print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
 

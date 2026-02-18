@@ -104,18 +104,28 @@ CREATE TABLE gqe_table_stats(
 
 -- A fact table that contains metadata about each columns used during query execution.
 -- It references the gqe_table_stats table to associate the statistics with a specific table within a specific data configuration.
+--
+-- String columns have separate entries for their char and offset parts, distinguished by the cs_column_part field.
+-- For string columns, cs_column_name will be the same for both entries, but cs_column_part will be 'char' for the character data and 'offset' for the offsets.
+-- For non-string columns, the cs_column_part is set to 'value'.
 CREATE TABLE gqe_column_stats(
   cs_id INTEGER PRIMARY KEY,
   cs_gqe_table_stats_id INTEGER NOT NULL,
   cs_column_name TEXT NOT NULL,
-  cs_compressed_size INTEGER NOT NULL,
-  cs_uncompressed_size INTEGER NOT NULL,
-  cs_compression_ratio REAL GENERATED ALWAYS AS (CAST(cs_uncompressed_size AS REAL) / cs_compressed_size) VIRTUAL,
+  cs_column_part TEXT NOT NULL,
+  cs_compressed_bytes INTEGER NOT NULL,
+  cs_uncompressed_bytes INTEGER NOT NULL,
+  cs_compression_ratio REAL GENERATED ALWAYS AS (CAST(cs_uncompressed_bytes AS REAL) / cs_compressed_bytes) VIRTUAL,
   cs_slices INTEGER NOT NULL,
   cs_compressed_slices INTEGER NOT NULL,
+  cs_primary_compressed_bytes INTEGER NOT NULL,
+  cs_secondary_compressed_bytes INTEGER NOT NULL,
+  cs_num_primary_compressed_slices INTEGER NOT NULL,
+  cs_num_secondary_compressed_slices INTEGER NOT NULL,
   UNIQUE (
     cs_gqe_table_stats_id,
-    cs_column_name
+    cs_column_name,
+    cs_column_part
   ),
   FOREIGN KEY (cs_gqe_table_stats_id) REFERENCES gqe_table_stats(ts_id)
 );
@@ -380,11 +390,16 @@ CREATE VIEW gqe_compression_stats AS
     ts_table_name,
     ts_rows,
     cs_column_name,
-    cs_compressed_size,
-    cs_uncompressed_size,
+    cs_column_part,
+    cs_compressed_bytes,
+    cs_uncompressed_bytes,
     cs_compression_ratio,
     cs_slices,
     cs_compressed_slices,
+    cs_primary_compressed_bytes,
+    cs_secondary_compressed_bytes,
+    cs_num_primary_compressed_slices,
+    cs_num_secondary_compressed_slices,
     q_name,
     q_suite,
     q_source,
@@ -412,11 +427,15 @@ CREATE VIEW gqe_compression_stats_per_table AS
     q_suite,
     q_source,
     d_scale_factor,
-    SUM(cs_compressed_size) AS total_compressed_size,
-    SUM(cs_uncompressed_size) AS total_uncompressed_size,
-    CAST(SUM(cs_uncompressed_size) AS REAL) / SUM(cs_compressed_size) AS avg_compression_ratio,
+    SUM(cs_compressed_bytes) AS total_compressed_bytes,
+    SUM(cs_uncompressed_bytes) AS total_uncompressed_bytes,
+    CAST(SUM(cs_uncompressed_bytes) AS REAL) / SUM(cs_compressed_bytes) AS avg_compression_ratio,
     SUM(cs_slices) AS total_slices,
-    SUM(cs_compressed_slices) AS total_compressed_slices
+    SUM(cs_compressed_slices) AS total_compressed_slices,
+    SUM(cs_primary_compressed_bytes) AS total_primary_compressed_bytes,
+    SUM(cs_secondary_compressed_bytes) AS total_secondary_compressed_bytes,
+    SUM(cs_num_primary_compressed_slices) AS total_num_primary_compressed_slices,
+    SUM(cs_num_secondary_compressed_slices) AS total_num_secondary_compressed_slices
     FROM gqe_compression_stats
     GROUP BY ts_data_info_ext_id,
              ts_table_name,
@@ -442,11 +461,15 @@ CREATE VIEW gqe_compression_stats_per_data_info AS
     q_name,
     q_suite,
     d_scale_factor,
-    SUM(cs_compressed_size) AS total_compressed_size,
-    SUM(cs_uncompressed_size) AS total_uncompressed_size,
-    CAST(SUM(cs_uncompressed_size) AS REAL) / SUM(cs_compressed_size) AS avg_compression_ratio,
+    SUM(cs_compressed_bytes) AS total_compressed_bytes,
+    SUM(cs_uncompressed_bytes) AS total_uncompressed_bytes,
+    CAST(SUM(cs_uncompressed_bytes) AS REAL) / SUM(cs_compressed_bytes) AS avg_compression_ratio,
     SUM(cs_slices) AS total_slices,
-    SUM(cs_compressed_slices) AS total_compressed_slices
+    SUM(cs_compressed_slices) AS total_compressed_slices,
+    SUM(cs_primary_compressed_bytes) AS total_primary_compressed_bytes,
+    SUM(cs_secondary_compressed_bytes) AS total_secondary_compressed_bytes,
+    SUM(cs_num_primary_compressed_slices) AS total_num_primary_compressed_slices,
+    SUM(cs_num_secondary_compressed_slices) AS total_num_secondary_compressed_slices
     FROM gqe_compression_stats
     GROUP BY ts_data_info_ext_id,
              q_name,

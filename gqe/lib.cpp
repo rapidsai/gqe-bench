@@ -971,15 +971,75 @@ PYBIND11_MODULE(lib, py_module)
   py_module.def("register_tables_in_memory", &lib::register_tables_in_memory);
   py_module.def("get_table_stats", &lib::get_table_stats);
 
+  // Base column compression statistics for fixed-width value columns.
+  py::class_<gqe::fixed_width_compression_statistics>(py_module, "BaseCompressionStatistics")
+    .def_readonly("num_compressed_row_groups",
+                  &gqe::fixed_width_compression_statistics::num_compressed_row_groups)
+    .def_readonly("compressed_size", &gqe::fixed_width_compression_statistics::compressed_size)
+    .def_readonly("uncompressed_size", &gqe::fixed_width_compression_statistics::uncompressed_size)
+    .def_readonly("primary_compressed_size",
+                  &gqe::fixed_width_compression_statistics::primary_compressed_size)
+    .def_readonly("secondary_compressed_size",
+                  &gqe::fixed_width_compression_statistics::secondary_compressed_size)
+    .def_readonly("num_primary_compressed_row_groups",
+                  &gqe::fixed_width_compression_statistics::num_primary_compressed_row_groups)
+    .def_readonly("num_secondary_compressed_row_groups",
+                  &gqe::fixed_width_compression_statistics::num_secondary_compressed_row_groups);
+  // String column compression statistics.
+  py::class_<gqe::string_compression_statistics>(py_module, "StringCompressionStatistics")
+    .def_readonly("offsets_stats", &gqe::string_compression_statistics::offsets_stats)
+    .def_readonly("chars_stats", &gqe::string_compression_statistics::chars_stats);
+  // Column statistics. column_compression_statistics is a variant, we cannot pybind it directly, so
+  // we provide access methods here using std::visit.
+  py::class_<gqe::column_statistics>(py_module, "ColumnStatistics")
+    .def_readonly("column_id", &gqe::column_statistics::column_id)
+    .def("is_string_column",
+         [](const gqe::column_statistics& self) {
+           return std::visit(
+             [](auto&& stats) -> bool {
+               using T = std::decay_t<decltype(stats)>;
+               return std::is_same_v<T, gqe::string_compression_statistics>;
+             },
+             self.compression_stats);
+         })
+    .def(
+      "get_fixed_width_stats",
+      [](const gqe::column_statistics& self) -> const gqe::fixed_width_compression_statistics& {
+        return std::visit(
+          [](auto&& stats) -> const gqe::fixed_width_compression_statistics& {
+            using T = std::decay_t<decltype(stats)>;
+            if constexpr (std::is_same_v<T, gqe::fixed_width_compression_statistics>) {
+              return stats;
+            } else {
+              throw std::runtime_error(
+                "compression_stats does not contain fixed_width_compression_statistics");
+            }
+          },
+          self.compression_stats);
+      },
+      py::return_value_policy::reference_internal)
+    .def(
+      "get_string_stats",
+      [](const gqe::column_statistics& self) -> const gqe::string_compression_statistics& {
+        return std::visit(
+          [](auto&& stats) -> const gqe::string_compression_statistics& {
+            using T = std::decay_t<decltype(stats)>;
+            if constexpr (std::is_same_v<T, gqe::string_compression_statistics>) {
+              return stats;
+            } else {
+              throw std::runtime_error(
+                "compression_stats does not contain string_compression_statistics");
+            }
+          },
+          self.compression_stats);
+      },
+      py::return_value_policy::reference_internal);
   // Table statistics
   py::class_<gqe::table_statistics>(py_module, "TableStatistics")
     .def_readonly("num_rows", &gqe::table_statistics::num_rows)
     .def_readonly("num_columns", &gqe::table_statistics::num_columns)
     .def_readonly("num_row_groups", &gqe::table_statistics::num_row_groups)
-    .def_readonly("compressed_num_row_groups", &gqe::table_statistics::compressed_num_row_groups)
-    .def_readonly("compressed_size_per_column", &gqe::table_statistics::compressed_size_per_column)
-    .def_readonly("uncompressed_size_per_column",
-                  &gqe::table_statistics::uncompressed_size_per_column);
+    .def_readonly("column_stats", &gqe::table_statistics::column_stats);
 
   // Relations
   py::class_<gqe::physical::relation, std::shared_ptr<gqe::physical::relation>> relation_cls(

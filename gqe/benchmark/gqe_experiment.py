@@ -120,13 +120,18 @@ class GqeTableStats:
 class GqeColumnStats:
     _table_name = "gqe_column_stats"
     _table_prefix = "cs_"
+    gqe_table_stats_id: GqeTableStatsId
     column_name: str
-    compressed_size: int
-    uncompressed_size: int
+    column_part: str  # "offset" or "char" for string columns, "value" for fixed-width columns.
+
+    compressed_bytes: int
+    uncompressed_bytes: int
     slices: int
     compressed_slices: int
-
-    gqe_table_stats_id: GqeTableStatsId
+    primary_compressed_bytes: int
+    secondary_compressed_bytes: int
+    num_primary_compressed_slices: int
+    num_secondary_compressed_slices: int
 
     def __init__(
         self,
@@ -134,14 +139,27 @@ class GqeColumnStats:
         column_name: str,
         col_idx: int,
         stats: gqe.lib.TableStatistics,
+        column_part: str,
     ):
-        self.column_name = column_name
-        self.compressed_size = stats.compressed_size_per_column[col_idx]
-        self.uncompressed_size = stats.uncompressed_size_per_column[col_idx]
-        self.slices = stats.num_row_groups
-        self.compressed_slices = stats.compressed_num_row_groups[col_idx]
-
         self.gqe_table_stats_id = gqe_table_stats_id
+        self.column_name = column_name
+        self.column_part = column_part
+
+        if column_part == "char":
+            comp_stats = stats.column_stats[col_idx].get_string_stats().chars_stats
+        elif column_part == "offset":
+            comp_stats = stats.column_stats[col_idx].get_string_stats().offsets_stats
+        else:  # column_part == "value" (fixed-width columns)
+            comp_stats = stats.column_stats[col_idx].get_fixed_width_stats()
+
+        self.compressed_bytes = comp_stats.compressed_size
+        self.uncompressed_bytes = comp_stats.uncompressed_size
+        self.slices = stats.num_row_groups
+        self.compressed_slices = comp_stats.num_compressed_row_groups
+        self.primary_compressed_bytes = comp_stats.primary_compressed_size
+        self.secondary_compressed_bytes = comp_stats.secondary_compressed_size
+        self.num_primary_compressed_slices = comp_stats.num_primary_compressed_row_groups
+        self.num_secondary_compressed_slices = comp_stats.num_secondary_compressed_row_groups
 
 
 class GqeExperimentConnection(ExperimentConnection):
