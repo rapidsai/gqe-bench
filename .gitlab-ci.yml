@@ -32,7 +32,7 @@ tests:
     - pip install -e .
     - conda install -y pytest
     # Run TPC-H parameter sweep.
-    - gqe-run-parameter-sweep --json ./gqe/tpch_sweep_config.template.json5
+    - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
     # Run all Python tests on TPC-H parameter sweep results.
     - pytest tests/ -v --database /tmp/gqe_experiment.db3
     # Run TPC-H pretuned with best parameters from sweep.
