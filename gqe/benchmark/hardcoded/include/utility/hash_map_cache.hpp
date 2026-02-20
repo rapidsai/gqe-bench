@@ -164,9 +164,11 @@ class task_hash_map {
    * @arg load_factor The load factor of the hash map.
    */
   explicit task_hash_map(size_t cardinality_estimate,
-                         double load_factor            = 0.5,
-                         bool enable_bloom_filter      = false,
-                         std::size_t num_filter_blocks = 0)
+                         double load_factor       = 0.5,
+                         bool enable_bloom_filter = false,
+                         // TODO: this was set because = 0 creates an illegal memory access; desires
+                         // further investigation into why the default is being used
+                         std::size_t num_filter_blocks = 1)
     : _cardinality_estimate(cardinality_estimate),
       _load_factor(load_factor),
       _identifier_type(cudf::type_id::EMPTY),
@@ -333,8 +335,8 @@ class task_hash_map {
  private:
   size_t _cardinality_estimate;             ///< The cardinality used to size the hash map.
   double _load_factor;                      ///< The hash map load factor.
-  bool _enable_bloom_filter      = false;   ///< Whether to enable the bloom filter.
-  std::size_t _num_filter_blocks = 0;       ///< The number of filter blocks for the bloom filter.
+  bool _enable_bloom_filter = false;        ///< Whether to enable the bloom filter.
+  std::size_t _num_filter_blocks;           ///< The number of filter blocks for the bloom filter.
   cudf::data_type _identifier_type;         ///< The identifier type used for the hash map key.
   std::once_flag _is_hash_map_initialized;  ///< Used for initializing the hash map.
   std::once_flag _is_bloom_filter_initialized;  ///< Used for initializing the bloom filter.
