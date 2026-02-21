@@ -825,6 +825,10 @@ def _run_suite(
                     errors.append((f"{query.identifier} query execution", parameter, f"{error}"))
                     pipe_send(pipe, False)
                     insert_gqe_run_error(edb, experiment_id, count, is_root_rank, err_str)
+                    if is_unrecoverable_error(error):
+                        return
+                    else:
+                        break
                     break
             if validate_results:
                 # All ranks validate result, alternatively we need to communicate if there is an error
