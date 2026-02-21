@@ -824,7 +824,12 @@ def _run_suite(
                     print(err_str)
                     errors.append((f"{query.identifier} query execution", parameter, f"{error}"))
                     pipe_send(pipe, False)
-                    insert_gqe_run_error(edb, experiment_id, count, is_root_rank, err_str)
+                    if is_root_rank:
+                        edb.insert_failed_run(
+                            exp.FailedRun(
+                                experiment_id=experiment_id, number=count, error_msg=err_str
+                            )
+                        )
                     if is_unrecoverable_error(error):
                         return
                     else:
@@ -841,7 +846,12 @@ def _run_suite(
                     print(err_str)
                     invalid_results.append((query.identifier, parameter))
                     pipe_send(pipe, False)
-                    insert_gqe_run_error(edb, experiment_id, count, is_root_rank, err_str)
+                    if is_root_rank:
+                        edb.insert_failed_run(
+                            exp.FailedRun(
+                                experiment_id=experiment_id, number=count, error_msg=err_str
+                            )
+                        )
                     if is_unrecoverable_error(error):
                         return
                     else:
@@ -889,10 +899,3 @@ def _run_suite(
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
     catalog = None
     context = None
-
-
-def insert_gqe_run_error(edb, experiment_id, count, is_root_rank, error):
-    if is_root_rank:
-        edb.insert_failed_run(
-            exp.FailedRun(experiment_id=experiment_id, number=count, error_msg=error)
-        )
