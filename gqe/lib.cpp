@@ -630,7 +630,8 @@ struct multi_process_context : base_context {
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
 
     std::chrono::duration<double> elapsed_time_s = end_time - start_time;
-    py::tuple performance = py::make_tuple(elapsed_time_s.count(), py::none());
+    // TODO: Add stage measurement for multi-GPU
+    py::tuple performance = py::make_tuple(elapsed_time_s.count(), py::list(), py::none());
 
     return performance;
   }
