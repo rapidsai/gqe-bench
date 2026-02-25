@@ -452,6 +452,12 @@ void log_physical_plan(std::shared_ptr<gqe::physical::relation> relation, std::s
   }
 }
 
+struct stage {
+  inline static const std::string task_graph_generation = "task_graph_generation";
+  inline static const std::string task_graph_execution  = "task_graph_execution";
+  inline static const std::string output_generation     = "output_generation";
+};
+
 struct base_context {
   virtual gqe::task_manager_context* get_task_manager_ctx()                        = 0;
   virtual py::tuple execute(gqe::catalog* catalog,
@@ -529,7 +535,7 @@ struct context : base_context {
     // Time generation of task graph
     std::unique_ptr<gqe::task_graph> task_graph;
     total_duration_s += execute_and_collect_runtime(
-      stage_durations, "task_graph_generation", [this, catalog, &relation, &task_graph]() {
+      stage_durations, stage::task_graph_generation, [this, catalog, &relation, &task_graph]() {
         gqe::task_graph_builder graph_builder(
           gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, catalog);
         task_graph = graph_builder.build(relation.get());
@@ -542,8 +548,8 @@ struct context : base_context {
     if (_profiler) { _profiler->start(); }
 
     // Time task graph execution
-    total_duration_s +=
-      execute_and_collect_runtime(stage_durations, "task_graph_execution", [this, &task_graph]() {
+    total_duration_s += execute_and_collect_runtime(
+      stage_durations, stage::task_graph_execution, [this, &task_graph]() {
         execute_task_graph_single_gpu(
           gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, task_graph.get());
       });
@@ -561,7 +567,7 @@ struct context : base_context {
     // Time writing the result to disk but don't add to total query runtime
     if (output_path) {
       execute_and_collect_runtime(
-        stage_durations, "output_generation", [&output_path, &task_graph]() {
+        stage_durations, stage::output_generation, [&output_path, &task_graph]() {
           auto destination = cudf::io::sink_info(output_path.value());
           auto options     = cudf::io::parquet_writer_options::builder(
             destination, task_graph->root_tasks[0]->result().value());
@@ -600,38 +606,104 @@ struct multi_process_context : base_context {
     _query_ctx                              = std::make_unique<gqe::query_context>(parameters);
   }
 
+  double compute_mpi_duration(
+    const std::string_view stage,
+    const std::chrono::time_point<std::chrono::high_resolution_clock> start_time,
+    const std::chrono::time_point<std::chrono::high_resolution_clock> end_time)
+  {
+    long long start = start_time.time_since_epoch().count();
+    long long end   = end_time.time_since_epoch().count();
+    // output_generation is never performed collectively so we should not reduce here
+    if (stage != stage::output_generation) {
+      // We take min start time and max end time to get full range of stage compute
+      // Allreduce for simplicity, though currently only root rank needs the result.
+      GQE_MPI_TRY(MPI_Allreduce(&start, &start, 1, MPI_LONG_LONG, MPI_MIN, MPI_COMM_WORLD));
+      GQE_MPI_TRY(MPI_Allreduce(&end, &end, 1, MPI_LONG_LONG, MPI_MAX, MPI_COMM_WORLD));
+    }
+    std::chrono::duration<double> total_secs =
+      std::chrono::high_resolution_clock::duration(end - start);
+    return total_secs.count();
+  }
+
+  py::list get_stage_durations_mpi(
+    const std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>>& stage_starts,
+    const std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>>& stage_ends,
+    const std::vector<std::string_view>& stage_strings)
+  {
+    py::list result{stage_starts.size()};
+    for (size_t i = 0; i < stage_starts.size(); ++i) {
+      double duration_s = compute_mpi_duration(stage_strings[i], stage_starts[i], stage_ends[i]);
+      result[i]         = py::make_tuple(stage_strings[i], duration_s);
+    }
+    return result;
+  }
+
+  // Execute a query execution stage and record its duration
+  void execute_and_collect_times_mpi(
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>>& stage_starts,
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>>& stage_ends,
+    std::vector<std::string_view>& stage_strings,
+    const std::string_view stage_string,
+    const std::function<void()> fun)
+  {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    fun();
+    auto end_time = std::chrono::high_resolution_clock::now();
+    stage_starts.push_back(start_time);
+    stage_ends.push_back(end_time);
+    stage_strings.push_back(stage_string);
+  }
+
   // Specifing `output_path` while `relation` does not produce an output has undefined behavior.
   // Return execution time in ms.
   py::tuple execute(gqe::catalog* catalog,
                     std::shared_ptr<gqe::physical::relation> relation,
                     std::optional<std::string> output_path = std::nullopt)
   {
-    gqe::task_graph_builder graph_builder(
-      gqe::context_reference{_task_manager_ctx, _query_ctx.get()}, catalog);
-    auto task_graph = graph_builder.build(relation.get());
-
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>> stage_starts;
+    std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>> stage_ends;
+    std::vector<std::string_view> stage_strings;
+    std::unique_ptr<gqe::task_graph> task_graph;
+    execute_and_collect_times_mpi(stage_starts,
+                                  stage_ends,
+                                  stage_strings,
+                                  stage::task_graph_generation,
+                                  [this, catalog, &relation, &task_graph]() {
+                                    gqe::task_graph_builder graph_builder(
+                                      gqe::context_reference{_task_manager_ctx, _query_ctx.get()},
+                                      catalog);
+                                    task_graph = graph_builder.build(relation.get());
+                                  });
     // Barrier sync to ensure all processes are ready to execute
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    execute_task_graph_multi_process(gqe::context_reference{_task_manager_ctx, _query_ctx.get()},
-                                     task_graph.get());
+    execute_and_collect_times_mpi(
+      stage_starts, stage_ends, stage_strings, stage::task_graph_execution, [this, &task_graph]() {
+        execute_task_graph_multi_process(
+          gqe::context_reference{_task_manager_ctx, _query_ctx.get()}, task_graph.get());
+      });
     auto end_time = std::chrono::high_resolution_clock::now();
 
     // Output the result to disk
     if (output_path && _task_manager_ctx->comm->rank() == 0) {
-      auto destination = cudf::io::sink_info(output_path.value());
-      auto options     = cudf::io::parquet_writer_options::builder(
-        destination, task_graph->root_tasks[0]->result().value());
-      cudf::io::write_parquet(options);
+      execute_and_collect_times_mpi(stage_starts,
+                                    stage_ends,
+                                    stage_strings,
+                                    stage::output_generation,
+                                    [&output_path, &task_graph]() {
+                                      auto destination = cudf::io::sink_info(output_path.value());
+                                      auto options     = cudf::io::parquet_writer_options::builder(
+                                        destination, task_graph->root_tasks[0]->result().value());
+                                      cudf::io::write_parquet(options);
+                                    });
     }
 
     // Wait for result to be written to disk
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
-
-    std::chrono::duration<double> elapsed_time_s = end_time - start_time;
-    // TODO: Add stage measurement for multi-GPU
-    py::tuple performance = py::make_tuple(elapsed_time_s.count(), py::list(), py::none());
+    py::list stage_durs   = get_stage_durations_mpi(stage_starts, stage_ends, stage_strings);
+    double elapsed_time_s = compute_mpi_duration("total", start_time, end_time);
+    py::tuple performance = py::make_tuple(elapsed_time_s, stage_durs, py::none());
 
     return performance;
   }
