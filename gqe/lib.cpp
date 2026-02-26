@@ -628,12 +628,17 @@ struct multi_process_context : base_context {
   py::list get_stage_durations_mpi(
     const std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>>& stage_starts,
     const std::vector<std::chrono::time_point<std::chrono::high_resolution_clock>>& stage_ends,
-    const std::vector<std::string_view>& stage_strings)
+    const std::vector<std::string_view>& stage_strings,
+    std::vector<std::pair<std::string_view, double>>& stage_durations)
   {
     py::list result{stage_starts.size()};
+    stage_durations.clear();
+    stage_durations.reserve(stage_starts.size());
     for (size_t i = 0; i < stage_starts.size(); ++i) {
       double duration_s = compute_mpi_duration(stage_strings[i], stage_starts[i], stage_ends[i]);
-      result[i]         = py::make_tuple(stage_strings[i], duration_s);
+      // we create a C++-friendly vector and a py::list of the stage durations
+      result[i] = py::make_tuple(stage_strings[i], duration_s);
+      stage_durations.push_back(std::pair(stage_strings[i], duration_s));
     }
     return result;
   }
@@ -677,13 +682,11 @@ struct multi_process_context : base_context {
     // Barrier sync to ensure all processes are ready to execute
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
 
-    auto start_time = std::chrono::high_resolution_clock::now();
     execute_and_collect_times_mpi(
       stage_starts, stage_ends, stage_strings, stage::task_graph_execution, [this, &task_graph]() {
         execute_task_graph_multi_process(
           gqe::context_reference{_task_manager_ctx, _query_ctx.get()}, task_graph.get());
       });
-    auto end_time = std::chrono::high_resolution_clock::now();
 
     // Output the result to disk
     if (output_path && _task_manager_ctx->comm->rank() == 0) {
@@ -701,9 +704,18 @@ struct multi_process_context : base_context {
 
     // Wait for result to be written to disk
     GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD));
-    py::list stage_durs   = get_stage_durations_mpi(stage_starts, stage_ends, stage_strings);
-    double elapsed_time_s = compute_mpi_duration("total", start_time, end_time);
-    py::tuple performance = py::make_tuple(elapsed_time_s, stage_durs, py::none());
+    // record a vector and py::list of stage_durs so we can do some analysis here and return the
+    // pylist
+    std::vector<std::pair<std::string_view, double>> stage_durs;
+    py::list py_stage_durs =
+      get_stage_durations_mpi(stage_starts, stage_ends, stage_strings, stage_durs);
+    double elapsed_time_s = 0;
+    // accumulate stage_durs except output
+    for (size_t i = 0; i < stage_durs.size(); ++i) {
+      auto local_stage = stage_durs[i];
+      if (local_stage.first != stage::output_generation) { elapsed_time_s += local_stage.second; }
+    }
+    py::tuple performance = py::make_tuple(elapsed_time_s, py_stage_durs, py::none());
 
     return performance;
   }
