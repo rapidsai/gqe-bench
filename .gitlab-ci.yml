@@ -31,7 +31,7 @@ tests:
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - pip install -e .
+    - pip install .
     - conda install -y pytest
     # Run TPC-H parameter sweep.
     - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
@@ -41,6 +41,41 @@ tests:
     - gqe-run-pretuned /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment.db3 -o /tmp/gqe_pretuned.db3
     # Run only Python SQLite tests on TPC-H pretuned results.
     - pytest tests/test_sql_views.py -v --database /tmp/gqe_pretuned.db3
+  rules:
+    - if: $CI_MERGE_REQUEST_DRAFT == "true"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+tests_multigpu:
+  stage: test
+  tags:
+    - multigpu
+  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
+  before_script:
+    - source /conda/bin/activate gqe
+  script:
+    - hostname
+    - nvidia-smi
+    - export CCACHE_DIR=/ccache_files
+    # For https links, the CI does not have access to the ssh keys, so we need to use deploy tokens.
+    # Rather than have multiple deploy tokens for all dependencies, we use a single token for all dependencies, which is stored in the Variables section here: https://gitlab-master.nvidia.com/haog/gqe-python/-/settings/ci_cd.
+    # TODO: Setup runner account for CI.
+    - git config --global url."https://${GQE_NVCOMP_DEPLOY_USERNAME}:${GQE_NVCOMP_DEPLOY_TOKEN}@gitlab-master.nvidia.com/".insteadOf "https://gitlab-master.nvidia.com/"
+    # The *_DEPLOY_* environment variables are set in Settings → CI/CD → Variables
+    # They are created in the Deploy tokens sections of these links:
+    #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
+    #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
+    - pip install .
+    - conda install -y pytest
+    # Run TPC-H parameter sweep.
+    - mpirun --allow-run-as-root --tag-output -n 2 gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI_multigpu.json5
+    # TODO: Run all Python tests on TPC-H parameter sweep results without --deselect.
+    - pytest tests/ -v --database /tmp/gqe_experiment_multigpu.db3 --deselect tests/test_sql_views.py::TestSqlViews::test_gqe_compression_stats_per_data_info --deselect tests/test_sql_views.py::TestSqlViews::test_runs_have_stage_metrics
+    # Run TPC-H pretuned with best parameters from sweep.
+    - mpirun --allow-run-as-root --tag-output -n 2 gqe-run-pretuned /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment_multigpu.db3 --multiprocess --validate-dir /tmp/gqe_results -o /tmp/gqe_pretuned_multigpu.db3
+    # TODO: Run only Python SQLite tests on TPC-H pretuned results without --deselect.
+    - pytest tests/test_sql_views.py -v --database /tmp/gqe_pretuned_multigpu.db3 --deselect tests/test_sql_views.py::TestSqlViews::test_gqe_compression_stats_per_data_info --deselect tests/test_sql_views.py::TestSqlViews::test_runs_have_stage_metrics
   rules:
     - if: $CI_MERGE_REQUEST_DRAFT == "true"
       when: never
