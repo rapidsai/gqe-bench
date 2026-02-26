@@ -9,8 +9,6 @@ code_style:
   script:
     - pre-commit run --all-files --show-diff-on-failure
   rules:
-    - if: $CI_MERGE_REQUEST_DRAFT == "true"
-      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
@@ -42,8 +40,6 @@ tests:
     # Run only Python SQLite tests on TPC-H pretuned results.
     - pytest tests/test_sql_views.py -v --database /tmp/gqe_pretuned.db3
   rules:
-    - if: $CI_MERGE_REQUEST_DRAFT == "true"
-      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
@@ -77,7 +73,5 @@ tests_multigpu:
     # TODO: Run only Python SQLite tests on TPC-H pretuned results without --deselect.
     - pytest tests/test_sql_views.py -v --database /tmp/gqe_pretuned_multigpu.db3 --deselect tests/test_sql_views.py::TestSqlViews::test_gqe_compression_stats_per_data_info
   rules:
-    - if: $CI_MERGE_REQUEST_DRAFT == "true"
-      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
