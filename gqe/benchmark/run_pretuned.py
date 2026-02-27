@@ -23,7 +23,6 @@ import sys
 
 from database_benchmarking_tools.experiment import ExperimentDB
 from database_benchmarking_tools.utility import generate_db_path
-
 from gqe import lib
 from gqe.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe.benchmark.run import (

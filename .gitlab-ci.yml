@@ -29,7 +29,7 @@ tests:
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - pip install .
+    - uv pip install --system .
     - conda install -y pytest
     # Run TPC-H parameter sweep.
     - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
@@ -62,7 +62,7 @@ tests_multigpu:
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - pip install .
+    - uv pip install --system .
     - conda install -y pytest
     # Run TPC-H parameter sweep.
     - mpirun --allow-run-as-root --tag-output -n 2 gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI_multigpu.json5

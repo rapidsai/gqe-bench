@@ -3,9 +3,10 @@
 This repository contains the python interface for the GPU Query Executor (GQE). In addition it also contains scripts for generating TPC-H dataset, and reference files.
 
 ## Installation
+The commands below assume that the working directory is the local gqe-python repo, and the GQE Conda environment is active.
 
 ```
-pip install -e .
+uv pip install --system -e .
 ```
 
 By default the package uses upstream GQE from gitlab.
@@ -13,25 +14,25 @@ By default the package uses upstream GQE from gitlab.
 You can pass your own GQE git repository and tag to the install command.
 
 ```
-pip install -e . -C cmake.define.GQE_GIT_REPOSITORY=<your_repository> -C cmake.define.GQE_GIT_TAG=<your_tag>
+uv pip install --system -e . -C cmake.define.GQE_GIT_REPOSITORY=<your_repository> -C cmake.define.GQE_GIT_TAG=<your_tag>
 ```
 
 You can also pass the path to a local GQE clone to the install command.
 
 ```
-pip install -e . -C cmake.define.GQE_SOURCE_DIR=<path_to_local_gqe>
+uv pip install --system -e . -C cmake.define.GQE_SOURCE_DIR=<path_to_local_gqe>
 ```
 
 You can also use a custom gqe-nvcomp branch/tag to use
 
 ```
-pip install -e . -C cmake.define.GQE_NVCOMP_TAG=<gqe-nvcomp commit/branch>
+uv pip install --system -e . -C cmake.define.GQE_NVCOMP_TAG=<gqe-nvcomp commit/branch>
 ```
 
 Or you could also point it to a local nvcomp directory (This takes precedence over the git tag)
 
 ```
-pip install -e . -C cmake.define.GQE_NVCOMP_SOURCE_DIR=<path_to_nvcomp_folder>
+uv pip install --system -e . -C cmake.define.GQE_NVCOMP_SOURCE_DIR=<path_to_nvcomp_folder>
 ```
 
 ## Benchmarking

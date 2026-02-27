@@ -26,10 +26,10 @@ from typing import Optional
 
 import nvtx
 import pandas as pd
-from database_benchmarking_tools import experiment as exp
-from database_benchmarking_tools.experiment import ExperimentDB
 
 import gqe.lib
+from database_benchmarking_tools import experiment as exp
+from database_benchmarking_tools.experiment import ExperimentDB
 from gqe import Catalog, Context, MultiProcessContext, optimization_parameters
 from gqe.benchmark.gqe_experiment import (
     GqeColumnStats,

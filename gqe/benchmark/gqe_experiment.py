@@ -15,6 +15,7 @@
 
 from dataclasses import dataclass
 
+import gqe.lib
 from database_benchmarking_tools import sql_generator
 from database_benchmarking_tools.experiment import (
     DataInfoId,
@@ -22,8 +23,6 @@ from database_benchmarking_tools.experiment import (
     ParametersId,
     SutInfoId,
 )
-
-import gqe.lib
 
 
 @dataclass

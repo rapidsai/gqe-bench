@@ -21,16 +21,22 @@ build-backend = "scikit_build_core.build"
 name = "gqe"
 version = "0.0.1"
 description = "GPU Query Executor (GQE)"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "json5",
-    "database-benchmarking-tools @ git+https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking.git@6e5fd3dd",
+    "database-benchmarking-tools",
     "nvidia-ml-py",
     "pandas",
     "pyarrow",
     "nvtx",
     "sqlglot>=23.0.0"
 ]
+
+# override dependency sources
+[tool.uv.sources]
+database_benchmarking_tools = { path = "database_benchmarking_tools" }
 
 [tool.scikit-build]
 cmake.source-dir = "."
