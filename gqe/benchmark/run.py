@@ -834,7 +834,6 @@ def _run_suite(
                         return
                     else:
                         break
-                    break
             if validate_results:
                 # All ranks validate result, alternatively we need to communicate if there is an error
                 try:

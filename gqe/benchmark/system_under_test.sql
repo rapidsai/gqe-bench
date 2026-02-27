@@ -125,7 +125,15 @@ CREATE TABLE gqe_column_stats(
   UNIQUE (
     cs_gqe_table_stats_id,
     cs_column_name,
-    cs_column_part
+    cs_column_part,
+    cs_compressed_bytes,
+    cs_uncompressed_bytes,
+    cs_slices,
+    cs_compressed_slices,
+    cs_primary_compressed_bytes,
+    cs_secondary_compressed_bytes,
+    cs_num_primary_compressed_slices,
+    cs_num_secondary_compressed_slices
   ),
   FOREIGN KEY (cs_gqe_table_stats_id) REFERENCES gqe_table_stats(ts_id)
 );
