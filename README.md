@@ -1,9 +1,9 @@
-# GPU Query Executor (GQE) python interface
+# GPU Query Executor (GQE) benchmarking suite
 
-This repository contains the python interface for the GPU Query Executor (GQE). In addition it also contains scripts for generating TPC-H dataset, and reference files.
+This repository contains the accompanying benchmarking suite for the GPU Query Executor (GQE). In addition it also contains scripts for generating TPC-H dataset, and reference files.
 
 ## Installation
-The commands below assume that the working directory is the local gqe-python repo, and the GQE Conda environment is active.
+The commands below assume that the working directory is the local GQE Bench repo, and the GQE Conda environment is active.
 
 ```
 uv pip install --system -e .
@@ -39,7 +39,16 @@ uv pip install --system -e . -C cmake.define.GQE_NVCOMP_SOURCE_DIR=<path_to_nvco
 
 Primarily used for benchmarking TPC-H queries using GQE, but can run custom queries on custom dataset as well.
 
-Instruction for running the benchmark can be found [here](https://confluence.nvidia.com/pages/viewpage.action?spaceKey=DevtechCompute&title=Run+TPC+Benchmarks), in the section "Run TPC-H Queries with Python interface".
+Basic command for running the benchmark after [installation](#installation):
+
+```bash
+python -m gqe.benchmark.run_parameter_sweep <dataset> <substrait_plans> <reference_results>/%d.parquet
+```
+
+Other options are documented in the help section of `run_parameter_sweep`:
+```bash
+python -m gqe.benchmark.run_parameter_sweep -h
+```
 
 ### JSON Configuration
 
@@ -87,7 +96,7 @@ When using `--json`, all other CLI arguments are ignored (a warning is printed i
 
 ## Substrait Plan Generation
 
-Make sure to compile Substrait-producer in GQE with gqe-python using:
+Make sure to compile Substrait-producer in GQE with GQE Bench using:
 
 ```
 pip install -e . -C cmake.define.GQE_ENABLE_SUBSTRAIT_PRODUCER=ON

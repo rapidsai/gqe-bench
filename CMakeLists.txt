@@ -35,7 +35,7 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES "80-real" "90-real" "100-real" "120")
 endif()
 
-project(gqe-python LANGUAGES CXX CUDA)
+project(gqe_bench LANGUAGES CXX CUDA)
 
 include(cmake/CPM.cmake)
 
@@ -122,28 +122,28 @@ endif()
 
 pybind11_add_module(
   lib
-  gqe/lib.cpp
-  gqe/benchmark/hardcoded/src/tpch/q10/fused_probes.cu
-  gqe/benchmark/hardcoded/src/tpch/q10/fused_probes_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q10/sort_limit_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q10/unique_key_inner_join.cu
-  gqe/benchmark/hardcoded/src/tpch/q10/unique_key_inner_join_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q13/filter_orders_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q13/groupjoin_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q13/kernels.cu
-  gqe/benchmark/hardcoded/src/tpch/q18/groupby_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q22/task.cu
-  gqe/benchmark/hardcoded/src/tpch/q22/fused_project_filter.cu
-  gqe/benchmark/hardcoded/src/tpch/q22/mark_join.cu
-  gqe/benchmark/hardcoded/src/tpch/q16/join_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q16/aggregate_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q16/fused_filter_join.cu
-  gqe/benchmark/hardcoded/src/tpch/q21/mark_join_task.cu
-  gqe/benchmark/hardcoded/src/tpch/q21/mark_join.cu)
+  gqe_bench/lib.cpp
+  gqe_bench/benchmark/hardcoded/src/tpch/q10/fused_probes.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q10/fused_probes_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q10/sort_limit_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q10/unique_key_inner_join.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q10/unique_key_inner_join_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q13/filter_orders_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q13/groupjoin_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q13/kernels.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q18/groupby_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q22/task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q22/fused_project_filter.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q22/mark_join.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q16/join_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q16/aggregate_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q16/fused_filter_join.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q21/mark_join_task.cu
+  gqe_bench/benchmark/hardcoded/src/tpch/q21/mark_join.cu)
 
 # Include the GQE build directory to get the git revision header
 target_include_directories(
-  lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gqe/benchmark/hardcoded/include
+  lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/gqe_bench/benchmark/hardcoded/include
               ${libgqe_BINARY_DIR})
 target_compile_options(
   lib
@@ -151,4 +151,4 @@ target_compile_options(
           $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
           $<$<COMPILE_LANGUAGE:CUDA>:--default-stream=per-thread>)
 target_link_libraries(lib PUBLIC gqe)
-install(TARGETS lib LIBRARY DESTINATION gqe)
+install(TARGETS lib LIBRARY DESTINATION gqe_bench)

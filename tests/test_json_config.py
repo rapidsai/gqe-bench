@@ -23,7 +23,7 @@ from argparse import Namespace
 
 import pytest
 
-from gqe.param_sweep_config import (
+from gqe_bench.param_sweep_config import (
     BENCHMARK_CONFIG_DEFAULTS,
     QUERY_CONFIG_FIELDS,
     config_to_args,
