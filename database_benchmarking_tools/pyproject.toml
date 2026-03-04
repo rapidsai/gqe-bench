@@ -14,8 +14,8 @@
 # the License.
 
 [build-system]
-requires = [ "setuptools>=61.0" ]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "database-benchmarking-tools"
@@ -26,13 +26,6 @@ dependencies = [
     "nvidia-ml-py"
 ]
 
-[tool.setuptools]
+[tool.hatch.build]
 packages = [ "database_benchmarking_tools" ]
-
-[tool.setuptools.package-data]
-"database_benchmarking_tools" = [
-    "**/*.sql"
-]
-
-[tool.distutils.egg_info]
-egg_base = "/tmp/"
+include = ["**/*.sql"]
