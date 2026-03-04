@@ -72,6 +72,12 @@ CREATE TABLE hw_info(
   --
   -- Sanity check to detect faulty hardware.
   h_gpu_ecc_errors INTEGER,
+  -- Operating system name (optional).
+  -- (e.g., "linux", "windows", "darwin")
+  h_system TEXT,
+  -- Operating system kernel version (optional).
+  -- (e.g., "6.11.0-17-generic")
+  h_os_kernel_version TEXT,
   -- Each system (i.e., hardware + OS) should be unique within the experiment
   -- database.
   UNIQUE (
@@ -87,7 +93,9 @@ CREATE TABLE hw_info(
     h_gpu_pcie_link_generation,
     h_gpu_max_clock_sm_mhz,
     h_gpu_max_clock_memory_mhz,
-    h_gpu_ecc_errors
+    h_gpu_ecc_errors,
+    h_system,
+    h_os_kernel_version
   )
 );
 

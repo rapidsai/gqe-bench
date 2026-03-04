@@ -73,6 +73,8 @@ class HwInfo:
     gpu_max_clock_sm_mhz: int | None = None
     gpu_max_clock_memory_mhz: int | None = None
     gpu_ecc_errors: int | None = None
+    system: str | None = None
+    os_kernel_version: str | None = None
 
 
 @dataclass
@@ -173,6 +175,8 @@ class ExperimentConnection:
             gpu_max_clock_sm_mhz=gpu_info.max_sm_clock(gpu_id),
             gpu_max_clock_memory_mhz=gpu_info.max_memory_clock(gpu_id),
             gpu_ecc_errors=gpu_info.total_ecc_errors(gpu_id),
+            system=platform.uname().system.lower(),
+            os_kernel_version=platform.uname().release,
         )
 
         sql_generator.insert_or_ignore(self._cursor, entry)
