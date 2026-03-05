@@ -1,0 +1,86 @@
+{
+  "dataset": "/tpch_scratch/datasets/sf0.01/sf0.01_id64",
+  "plan": "/tpch_scratch/substrait_plans/sf0.01",
+  "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
+  "output": "/tmp/gqe_experiment_multigpu.db3",
+  "validate_dir": "/tmp/gqe_results",
+  "multiprocess": true,
+  "boost_pool_size": 1,
+
+  "read_use_overlap_mtx": [false],
+  "join_use_hash_map_cache": [true, false],
+  "read_use_zero_copy": [false],
+  "join_use_unique_keys": [true],
+  "join_use_perfect_hash": [true],
+  "join_use_mark_join": [true, false],
+  "read_use_filter_pruning": [true, false],
+  "filter_use_like_shift_and": [true],
+  "aggregation_use_perfect_hash": [false],
+
+  "storage_kind": ["boost_shared_memory"],
+  "compression_format": ["none"],
+
+  "query_overrides": [
+    {
+      "queries": [
+        "1",
+        "2_fused_filter",
+        "3_fused_filter",
+        "4",
+        "6",
+        "7_fused_filter",
+        "8",
+        "10_fused_filter",
+        "10_opt",
+        "13",
+        "13_opt",
+        "13_fused",
+        "14",
+        "16",
+        "16_opt",
+        "17",
+        "19",
+        "20_fused_filter",
+        "21_fused_filter",
+        "21_opt",
+        "22",
+        "22_opt"
+      ],
+      "join_use_perfect_hash": [false],
+      "join_use_hash_map_cache": [true]
+    },
+    {
+      "queries": [
+        "2",
+        "9",
+        "13",
+        "14",
+        "16",
+        "20"
+      ],
+      "filter_use_like_shift_and": [true]
+    },
+    {
+      "queries": [
+        "1",
+        "2",
+        "3",
+        "6",
+        "11",
+        "15",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "aggregation_use_perfect_hash": [true]
+    },
+    {
+      "queries": [
+        "18_opt"
+      ],
+      "join_use_perfect_hash": [true],
+      "join_use_hash_map_cache": [false]
+    }
+  ]
+}

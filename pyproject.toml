@@ -18,13 +18,15 @@ requires = ["scikit-build-core>=0.3.3", "pybind11"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "gqe"
+name = "gqe_bench"
 version = "0.0.1"
-description = "GPU Query Executor (GQE)"
+description = "GPU Query Executor (GQE) benchmarking suite"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "json5",
-    "database-benchmarking-tools @ git+https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking.git@6e5fd3dd",
+    "database-benchmarking-tools",
     "nvidia-ml-py",
     "pandas",
     "pyarrow",
@@ -32,14 +34,22 @@ dependencies = [
     "sqlglot>=23.0.0"
 ]
 
+# enable license scanning via BlackDuck
+[tool.uv]
+managed = true
+
+# override dependency sources
+[tool.uv.sources]
+database_benchmarking_tools = { path = "database_benchmarking_tools" }
+
 [tool.scikit-build]
 cmake.source-dir = "."
 cmake.verbose = true
 install.strip=false
 
 [project.scripts]
-gqe-run-parameter-sweep = "gqe.benchmark.run_parameter_sweep:main"
-gqe-run-pretuned = "gqe.benchmark.run_pretuned:main"
+gqe-run-parameter-sweep = "gqe_bench.benchmark.run_parameter_sweep:main"
+gqe-run-pretuned = "gqe_bench.benchmark.run_pretuned:main"
 
 [tool.ruff]
 line-length = 100
@@ -59,4 +69,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"gqe/__init__.py" = ["F401"]  # unused imports in __init__ are intentional
+"gqe_bench/__init__.py" = ["F401"]  # unused imports in __init__ are intentional
