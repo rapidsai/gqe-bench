@@ -68,7 +68,7 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "load_all_data": None,
     "metrics": None,
     "storage_kind": ["numa_pinned_memory"],
-    "multiprocess": False,
+    "num_ranks": 1,
     "repeat": 6,
     "query_timeout": 1800,
     "data_timeout": 10800,

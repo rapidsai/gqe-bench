@@ -89,6 +89,8 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <sys/prctl.h>
+#include <sys/resource.h>
 
 namespace py = pybind11;
 
@@ -289,6 +291,23 @@ void mpi_finalize() { GQE_MPI_TRY(MPI_Finalize()); }
 void mpi_barrier() { GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD)); }
 
 /*
+ * In some cases, we spend far too long doing core dumps.
+ * For example, multi-gpu with boost shared memory takes so long that the sandbox times it out every
+ * time, wasting a lot of time. This disables them for this process and child processes, but does
+ * not affect other processes, so no need to reset later.
+ */
+void disable_core_dumps()
+{
+  struct rlimit rl;
+  rl.rlim_cur = 0;
+  rl.rlim_max = 0;
+  // tells system core dump size limit is 0
+  setrlimit(RLIMIT_CORE, &rl);
+  // tells systemd this process cannot be dumped to avoid systemd coredump override
+  prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+}
+
+/*
   Multi process runtime context stores the multiprocess task manager context which is used
   to manage the nvshmem initialization, scheduler, communicator and device memory resource.
   It also stores the whether to use shared in-memory table, and initializes the shared memory if
@@ -310,6 +329,8 @@ struct multi_process_runtime_context {
 
     if (storage_kind != "boost_shared_memory") { return; }
 
+    // with shared mem, core dumps take a long time and require sandboxing to time them out
+    disable_core_dumps();
     use_in_memory_table_multigpu = true;
 
     // Eagerly initialize the boost shared memory resource to avoid

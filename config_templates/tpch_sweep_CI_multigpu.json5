@@ -4,8 +4,9 @@
   "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
   "output": "/tmp/gqe_experiment_multigpu.db3",
   "validate_dir": "/tmp/gqe_results",
-  "multiprocess": true,
+  "num_ranks": 2,
   "boost_pool_size": 1,
+  "quiet": true, // because of CI output cutoff limit
 
   "read_use_overlap_mtx": [false],
   "join_use_hash_map_cache": [true, false],

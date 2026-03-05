@@ -15,14 +15,15 @@
 
 import argparse
 import importlib.resources
-
-# Alias multiprocessing due to namespace class in GQE
-import multiprocessing as subprocessing
 import os
+import pickle
 import re
+import sys
+import traceback
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields
-from typing import Optional
+from enum import Enum
+from typing import BinaryIO, Optional
 
 import nvtx
 import pandas as pd
@@ -136,6 +137,13 @@ class CatalogContext:
     in_memory_table_secondary_compression_multiplier_threshold: float
     in_memory_table_use_cpu_compression: bool
     in_memory_table_compression_level: int
+
+
+class QueryError(Enum):
+    load_data = 1
+    context = 2
+    execution = 3
+    validation = 4
 
 
 # Extract only the fields that belong to the superclass
@@ -462,14 +470,13 @@ def run_suite(
     errors: list,
     invalid_results: list,
     repeat: int,
-    is_root_rank: bool,
     is_mp: bool,
     multiprocess_runtime_context: gqe_bench.lib.MultiProcessRuntimeContext,
     validate_results: bool,
     validate_dir: str,
     suite_name: str,
     quiet: bool = False,
-    pipe: subprocessing.Pipe = None,
+    pipe=None,
 ):
     # only send DB to root rank so we will get error if there is a logic mistake
     if is_root_rank:
@@ -487,7 +494,6 @@ def run_suite(
                 errors,
                 invalid_results,
                 repeat,
-                is_root_rank,
                 is_mp,
                 multiprocess_runtime_context,
                 validate_results,
@@ -508,7 +514,6 @@ def run_suite(
             errors,
             invalid_results,
             repeat,
-            is_root_rank,
             is_mp,
             multiprocess_runtime_context,
             validate_results,
@@ -519,9 +524,12 @@ def run_suite(
         )
 
 
-def pipe_send(pipe: subprocessing.Pipe, status: bool):
-    if pipe is not None:
-        pipe.send(status)
+# Sends a boolean value, with an optional extra payload
+def pipe_send(pipe: BinaryIO, data: bool, extra=None):
+    if pipe:
+        pickle.dump(data, pipe)
+        if extra is not None:
+            pickle.dump(extra, pipe)
 
 
 # if cuda error matches any of these regex, it's unrecoverable and we need a new process
@@ -549,14 +557,13 @@ def _run_suite(
     errors: list,
     invalid_results: list,
     repeat: int,
-    is_root_rank: bool,
     is_mp: bool,
     multiprocess_runtime_context: gqe_bench.lib.MultiProcessRuntimeContext,
     validate_results: bool,
     validate_dir: bool,
     suite_name: str,
     quiet: bool,
-    pipe: subprocessing.Pipe,
+    pipe: BinaryIO,
 ):
     if is_root_rank:
         data_info_id = edb.insert_data_info(upcast_to_super(data, exp.DataInfo))
@@ -596,19 +603,20 @@ def _run_suite(
                 **asdict(cat_ctx),
             )
         except Exception as error:
-            print(f"Error registering table: {error}", is_root_rank)
+            err_str = f"Error registering table: {error}\n{traceback.format_exc()}"
+            err_pack = (f"load_all_data", err_str)
+            print(err_str, is_root_rank)
             print(
                 f"load_all_data failed to load due to context creation or table registration, discarding remaining {len(parameters)} experiments",
             )
-            pipe_send(pipe, False)
-            errors.append(("load_all_data", f"{error}"))
-            parameters[:] = []
+            pipe_send(pipe, False, {QueryError.load_data: err_pack})
+            errors.append(err_pack)
+            clear_queue(parameters)
             return
-        # Typically, we would expect a pipe_send(True) here, but it will be satisfied by the per-query send below.
+        # Typically, we would expect a pipe_send(pipe, True) here, but it will be satisfied by the per-query send below.
 
     previous_query_str = None
     while parameters:
-        # pop lets main process know we are making forward progress
         parameter = parameters.pop(0)
         query_info_ctx = parameter.query_info_ctx
 
@@ -667,19 +675,17 @@ def _run_suite(
                     **asdict(cat_ctx),
                 )
             except Exception as error:
-                print(
-                    f"Error creating context or registering in memory table for query {query_info_ctx.query_idx} {type(error).__name__}: {error}",
+                err_str = f"Error creating context or registering in memory table for query {query_info_ctx.query_idx} {type(error).__name__}: {error}\n{traceback.format_exc()}"
+                err_pack = (
+                    f"{query_info_ctx.query_str} load_query_data",
+                    parameter,
+                    err_str,
                 )
-                pipe_send(pipe, False)
-                # Query is not built yet without table definitions so just build the Q identifier here.
-                errors.append((f"Q{query_info_ctx.query_str} load_query_data", f"{error}"))
+                print(err_str)
+                pipe_send(pipe, False, {QueryError.load_data: err_pack})
+                errors.append(err_pack)
                 # Since we failed to load this data set, purge the remaining matching queries.
-                parameters[:] = list(
-                    filter(
-                        lambda p: p.query_info_ctx.query_idx != query_info_ctx.query_idx,
-                        list(parameters),
-                    )
-                )
+                clear_query_from_queue(parameter, parameters)
                 # We can continue processing since this is one query; on next iter we reload data
                 # if the error corrupts the cuda context though, we need to start over
                 if is_unrecoverable_error(error):
@@ -707,16 +713,12 @@ def _run_suite(
             # Refresh the query context with new optimization parameters
             context.refresh_query_context(opt_params)
         except Exception as error:
+            err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+            err_pack = (f"Q{query_info_ctx.query_str} refresh_context", parameter, err_str)
             print("Error refreshing query context")
-            print(f"{type(error).__name__}: {error}")
-            errors.append(
-                (
-                    f"Q{query_info_ctx.query_str} refresh_context",
-                    parameter,
-                    f"{error}",
-                )
-            )
-            pipe_send(pipe, False)
+            print(err_str)
+            pipe_send(pipe, False, {QueryError.context: err_pack})
+            errors.append(err_pack)
             if is_unrecoverable_error(error):
                 break
             else:
@@ -810,9 +812,8 @@ def _run_suite(
         if is_mp:
             multiprocess_runtime_context.update_scheduler(gqe_bench.lib.scheduler_type.ROUND_ROBIN)
 
+        out_file = os.path.join(f"{validate_dir}", f"{query.identifier}_out.parquet")
         for count in range(repeat):
-            out_file = os.path.join(f"{validate_dir}", f"{query.identifier}_out.parquet")
-
             with nvtx.annotate(f"Run {query.identifier}"):
                 try:
                     print_mp(
@@ -823,11 +824,16 @@ def _run_suite(
                         catalog, query.root_relation, out_file
                     )
                 except Exception as error:
-                    err_str = f"{type(error).__name__}: {error}"
+                    err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+                    err_pack = (
+                        f"{query.identifier} query execution",
+                        parameter,
+                        err_str,
+                    )
                     print("Error during query execution")
                     print(err_str)
-                    errors.append((f"{query.identifier} query execution", parameter, f"{error}"))
-                    pipe_send(pipe, False)
+                    pipe_send(pipe, False, {QueryError.execution: err_pack})
+                    errors.append(err_pack)
                     if is_root_rank:
                         edb.insert_failed_run(
                             exp.FailedRun(
@@ -844,11 +850,16 @@ def _run_suite(
                     print_mp("Start validation...", is_root_rank and not quiet)
                     validate_parquet(out_file, query.reference_solution, query.validator)
                 except Exception as error:
-                    err_str = f"{type(error).__name__}: {error}"
+                    err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+                    err_pack = (
+                        f"{query.identifier} query validation",
+                        parameter,
+                        err_str,
+                    )
                     print("Error validating solution")
                     print(err_str)
-                    invalid_results.append((query.identifier, parameter))
-                    pipe_send(pipe, False)
+                    pipe_send(pipe, False, {QueryError.validation: err_pack})
+                    invalid_results.append(err_pack)
                     if is_root_rank:
                         edb.insert_failed_run(
                             exp.FailedRun(
@@ -902,3 +913,74 @@ def _run_suite(
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
     catalog = None
     context = None
+
+
+def clear_query_from_queue(parameter, parameter_queue):
+    parameter_queue[:] = list(
+        filter(
+            lambda p: p.query_info_ctx.query_idx != parameter.query_info_ctx.query_idx,
+            list(parameter_queue),
+        )
+    )
+
+
+def clear_queue(parameter_queue):
+    parameter_queue[:] = []
+
+
+is_root_rank = True
+
+
+def sandbox_run_suite():
+    global is_root_rank
+
+    # the below arguments are items that are passed in as arg, but require special parsing or interpretation based on the rules in the run_p*.py scripts, so we pass them individually
+    pipe_path = sys.argv[1]
+    load_all_data = bool(sys.argv[2])
+    scale_factor = float(sys.argv[3])
+    # these variables are list, None-able, and True/False respectively, so we eval them to convert them to the right type
+    storage_kind = eval(sys.argv[4])
+    boost_pool_size = eval(sys.argv[5])
+    is_mp = eval(sys.argv[6])
+
+    multiprocess_runtime_context = None
+    if is_mp:
+        gqe_bench.lib.mpi_init()
+        if storage_kind == ["boost_shared_memory"]:
+            pool_size = boost_shared_memory_pool_size(boost_pool_size, scale_factor, load_all_data)
+            print(f"Initializing CPU shared memory with pool size {pool_size}")
+            gqe_bench.lib.initialize_shared_memory(pool_size)
+
+        multiprocess_runtime_context = gqe_bench.lib.MultiProcessRuntimeContext(
+            gqe_bench.lib.scheduler_type.ROUND_ROBIN, storage_kind[0]
+        )
+    is_root_rank = (not is_mp) or (gqe_bench.lib.mpi_rank() == 0)
+    # if we are single process this should always be {pipe_path}0, else it depends on rank
+    worker_pipe_path = f"{pipe_path}{0 if not is_mp else gqe_bench.lib.mpi_rank()}"
+
+    # all ranks intake arguments from main
+    with open(worker_pipe_path, "r+b", buffering=0) as worker_pipe:
+        run_suite_args = pickle.load(worker_pipe)
+    # only root has output pipe to main to sync timeouts
+    if is_root_rank:
+        sandbox_pipe = open(pipe_path, "wb", buffering=0)
+        # these are override arguments for run_tpc
+        run_suite_args["pipe"] = sandbox_pipe
+    run_suite_args["multiprocess_runtime_context"] = multiprocess_runtime_context
+
+    run_suite(**run_suite_args)
+
+    if is_mp:
+        multiprocess_runtime_context.finalize()
+        if storage_kind == ["boost_shared_memory"] and is_root_rank:
+            gqe_bench.lib.finalize_shared_memory()
+        gqe_bench.lib.mpi_finalize()
+
+    if is_root_rank:
+        sandbox_pipe.close()
+
+
+if __name__ == "__main__":
+    sandbox_run_suite()
+    # this exit seems to help error'd mpi ranks exit faster, and is consistent with what we do in the run* scripts.
+    sys.exit()

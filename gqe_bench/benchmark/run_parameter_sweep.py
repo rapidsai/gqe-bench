@@ -18,15 +18,11 @@
 
 import argparse
 import functools
+import inspect
 import itertools
 import json
-
-# We rename this because of namespace clash with multiprocessing in GQE
-import multiprocessing as subprocessing
 import os
-import signal
 import sys
-import time
 
 from database_benchmarking_tools.experiment import ExperimentDB
 from database_benchmarking_tools.utility import generate_db_path
@@ -35,9 +31,9 @@ from gqe_bench.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe_bench.benchmark.run import (
     CatalogContext,
     DataInfo,
+    QueryError,  # noqa: F401 needed because pickle for sandboxing
     QueryExecutionContext,
     QueryInfoContext,
-    boost_shared_memory_pool_size,
     identifier_type_to_sql,
     is_valid_identifier_type,
     parse_bool,
@@ -48,6 +44,7 @@ from gqe_bench.benchmark.run import (
     set_eager_module_loading,
     setup_db,
 )
+from gqe_bench.benchmark.sandboxing import run_sandboxed
 from gqe_bench.param_sweep_config import (
     BENCHMARK_CONFIG_DEFAULTS,
     QUERY_CONFIG_DEFAULTS,
@@ -322,7 +319,11 @@ def parse_args():
         default=BENCHMARK_CONFIG_DEFAULTS["storage_kind"],
     )
     metrics_group.add_argument(
-        "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
+        "--num_ranks",
+        "-nr",
+        type=int,
+        help=f"Set the number of GPUs to use. More than 1 GPU implies MPI/multiprocessing. Defaults to {BENCHMARK_CONFIG_DEFAULTS['num_ranks']} ",
+        default=BENCHMARK_CONFIG_DEFAULTS["num_ranks"],
     )
     arg_parser.add_argument(
         "--repeat",
@@ -334,14 +335,14 @@ def parse_args():
     arg_parser.add_argument(
         "--query-timeout",
         "-qt",
-        help="Timeout in (s) for queries in subprocesses. Used to kill suspected hanging jobs after timeout exceeded. Ignored if -sb is not set. Ignored if -m is set. Default: 30m",
+        help=f"Timeout in (s) for queries in subprocesses. Used to kill suspected hanging jobs after timeout exceeded. Always used with -m. Ignored unless -sb and/or -m are set. Default: {BENCHMARK_CONFIG_DEFAULTS['query_timeout']}s",
         type=int,
         default=BENCHMARK_CONFIG_DEFAULTS["query_timeout"],
     )
     arg_parser.add_argument(
         "--data-timeout",
         "-dt",
-        help="Timeout in (s) for data load subprocesses. Used to kill suspected hanging jobs after timeout exceeded. Ignored if -sb is not set. Ignored if -m is set. Default: 3hr",
+        help=f"Timeout in (s) for data load subprocesses. Used to kill suspected hanging jobs after timeout exceeded. Always used with -m. Ignored unless -sb and/or -m are set. Default: {BENCHMARK_CONFIG_DEFAULTS['data_timeout']}s",
         type=int,
         default=BENCHMARK_CONFIG_DEFAULTS["data_timeout"],
     )
@@ -351,7 +352,7 @@ def parse_args():
     arg_parser.add_argument(
         "--sandboxing",
         "-sb",
-        help="Run with sandboxing. Ignored if -m is set.",
+        help="Run with sandboxing. If process fails, a new process will start to run remaining queries.",
         action="store_true",
     )
     arg_parser.add_argument(
@@ -488,9 +489,6 @@ def parse_args():
 def main():
     args = parse_args()
 
-    if args.query_source == "custom_substrait" and not args.load_all_data:
-        raise ValueError("Custom substrait queries must be run with load_all_data=1")
-
     # Handle JSON configuration file
     if args.json:
         # Warn if other CLI args were provided
@@ -519,16 +517,20 @@ def main():
 
     print(f"Arguments: {args}")
 
+    if args.query_source == "custom_substrait" and not args.load_all_data:
+        raise ValueError("Custom substrait queries must be run with load_all_data=1")
+    if "parquet_file" in args.storage_kind and not args.load_all_data:
+        raise ValueError("Parquet file queries must be run with load_all_data=1")
+
+    if args.num_ranks < 1:
+        print("# GPUs must be a positive integer")
+        sys.exit(1)
     if args.query_timeout < 0 or args.data_timeout < 0:
         print(f"Timeouts cannot be negative: {args.query_timeout}, {args.data_timeout}")
         print("Timeout must be a positive integer or 0")
         print("Exiting with error")
         sys.exit(1)
 
-    if args.sandboxing and args.multiprocess:
-        print(
-            f"Multi-process sandboxing enabled by -sb is not compatible with multi-gpu set by -m at this time. Ignoring sandboxing."
-        )
     validate_dir = get_validation_dir(args.validate_dir)
 
     gqe_host = "localhost"
@@ -536,26 +538,13 @@ def main():
     load_all_data = (
         args.load_all_data if args.load_all_data is not None else (1 if scale_factor <= 200 else 0)
     )
-
+    # this is always true now that mpi has been deferred until later, but still needed as argument
     multiprocess_runtime_context = None
-    if args.multiprocess:
+    if args.num_ranks > 1:
         if args.storage_kind != ["parquet_file"] and args.storage_kind != ["boost_shared_memory"]:
             raise ValueError(
                 "Multiprocess mode is only supported with parquet_file storage kind or boost_shared_memory storage kind"
             )
-
-        lib.mpi_init()
-
-        if args.storage_kind == ["boost_shared_memory"]:
-            pool_size = boost_shared_memory_pool_size(
-                args.boost_pool_size, scale_factor, load_all_data
-            )
-            print(f"Initializing CPU shared memory with pool size {pool_size}")
-            lib.initialize_shared_memory(pool_size)
-
-        multiprocess_runtime_context = lib.MultiProcessRuntimeContext(
-            lib.scheduler_type.ROUND_ROBIN, args.storage_kind[0]
-        )
 
     # If DDL file path is provided, identifier type is unused, we just default to int64
     # As DDL will specify the datatype for each column
@@ -571,21 +560,16 @@ def main():
 
     set_eager_module_loading()
 
-    edb_file = None
     edb_config = None
     edb_info = None
-    is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
-    if is_root_rank:
-        edb_file = (
-            args.output if args.output else generate_db_path(f"gqe", args.suite_name, gqe_host)
-        )
+    edb_file = args.output if args.output else generate_db_path(f"gqe", args.suite_name, gqe_host)
 
-        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
-        edb_config.create_experiment_db()
-        edb_info = None
-        with edb_config as edb:
-            edb_info = setup_db(edb)
-        print(f"Writing SQLite file to {edb_file}")
+    edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
+    edb_config.create_experiment_db()
+    edb_info = None
+    with edb_config as edb:
+        edb_info = setup_db(edb)
+    print(f"Writing SQLite file to {edb_file}")
 
     handcoded_queries, substrait_queries, custom_substrait_queries = get_queries(
         args.query_source, args.queries, args.plan
@@ -593,7 +577,6 @@ def main():
 
     def run_sweep(edb_file, edb_info, args):
         nonlocal identifier_type
-        errors = []
         num_row_group_list = []
         if args.row_groups:
             num_row_group_list = args.row_groups
@@ -774,7 +757,7 @@ def main():
                         if read_use_zero_copy and (num_partitions != num_row_groups):
                             print_mp(
                                 f"Skipping read_use_zero_copy: {read_use_zero_copy}, num_partitions: {num_partitions}, num_row_groups: {num_row_groups} because zero copy requires row groups to be equal to partitions",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
@@ -782,7 +765,7 @@ def main():
                         if read_use_zero_copy and storage_kind == "parquet_file":
                             print_mp(
                                 f"Skipping read_use_zero_copy: {read_use_zero_copy}, storage_kind: {storage_kind} because zero copy is not supported for parquet files",
-                                is_root_rank,
+                                not args.quiet,
                             )
                             continue
 
@@ -792,21 +775,21 @@ def main():
                         if read_use_zero_copy and compression_format != "none":
                             print_mp(
                                 f"Skipping read_use_zero_copy: {read_use_zero_copy}, compression_format: {compression_format} because zero copy is not supported with compression",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
                         if num_workers > num_partitions:
                             print_mp(
                                 f"Skipping num_workers: {num_workers}, num_partitions: {num_partitions} because num_workers greater than num_partitions",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
                         if compression_format != "none" and use_overlap_mtx:
                             print_mp(
                                 f"Skipping compression_format: {compression_format}, use_overlap_mtx: {use_overlap_mtx} because its not optimal to use overlap matrix with compression",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
@@ -815,7 +798,7 @@ def main():
                         if join_use_perfect_hash == join_use_hash_map_cache:
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, join_use_hash_map_cache: {join_use_hash_map_cache} because hash map caching should always be used except with perfect hashing",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
@@ -825,7 +808,7 @@ def main():
                         ):
                             print_mp(
                                 f"Skipping join_use_perfect_hash: {join_use_perfect_hash}, aggregation_use_perfect_hash: {aggregation_use_perfect_hash}, query_source: {query_source}. Because, perfect hash is only manually enabled in physical plans",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
@@ -841,7 +824,7 @@ def main():
                         ):
                             print_mp(
                                 f"Skipping num_partitions: {num_partitions}, num_row_groups: {num_row_groups}, scale_factor: {scale_factor} because configuration is likely to encounter cuDF concatenate error",
-                                is_root_rank and not args.quiet,
+                                not args.quiet,
                             )
                             continue
 
@@ -864,11 +847,46 @@ def main():
             # group same-query sets together to minimize data reloads
             # For custom queries, we could sort by query_str, but anyways we require the entire dataset to be loaded so the sort order doesn't impact loading time
             parameters.sort(key=lambda p: p.query_info_ctx.query_idx)
-            # We use the non-sandboxing path if sandboxing is not set, or if multiprocessing/multigpu is set.
-            if not args.sandboxing or args.multiprocess:
+
+            is_mp = args.num_ranks > 1
+            # Subprocess/Multi-GPU Case
+            # Ideal case: spawn process, run to completion, join.
+            # If subprocess fails, we iterate and launch the process again w/ the remaining parameters.
+            if is_mp or args.sandboxing:
+                # bind args so mpi process can call run_suite exactly like this
+                func_sig = inspect.signature(run_suite)
+                run_suite_args = func_sig.bind(
+                    cat_ctx,
+                    data_info,
+                    scale_factor,
+                    parameters,
+                    edb_file,
+                    edb_info,
+                    args.metrics,
+                    all_errors,
+                    all_invalid_results,
+                    args.repeat,
+                    is_mp,
+                    multiprocess_runtime_context,
+                    args.validate_results,
+                    validate_dir,
+                    args.suite_name,
+                    args.quiet,
+                )
+                run_suite_args.apply_defaults()
+                run_sandboxed(
+                    run_suite_args,
+                    parameters,
+                    load_all_data,
+                    scale_factor,
+                    all_errors,
+                    all_invalid_results,
+                    args,
+                )
+            else:
                 print_mp(
-                    "Running experiments without subprocess sandbox",
-                    is_root_rank and not args.quiet,
+                    "Running single-gpu experiments without subprocess sandbox",
+                    not args.quiet,
                 )
                 run_suite(
                     cat_ctx,
@@ -881,8 +899,7 @@ def main():
                     all_errors,
                     all_invalid_results,
                     args.repeat,
-                    is_root_rank,
-                    args.multiprocess,
+                    is_mp,
                     multiprocess_runtime_context,
                     args.validate_results,
                     validate_dir,
@@ -890,214 +907,27 @@ def main():
                     args.quiet,
                 )
 
-            # Subprocess Case
-            # Ideal case: spawn process, run to completion, join.
-            # If subprocess fails, we iterate and launch the process again w/ the remaining parameters.
-            # Subprocess MUST remove tasks from list for this to function correctly.
-            else:
-                subproc_ctx = subprocessing.get_context("spawn")
-                with subproc_ctx.Manager() as manager:
-                    parameter_queue = manager.list(parameters)
-                    # explicitly replace errors list with list proxy
-                    errors = manager.list()
-                    invalid_results = manager.list()
-                    print_mp("Running experiments with subprocess sandbox", is_root_rank)
-                    while parameter_queue:
-                        parent_pipe, child_pipe = subproc_ctx.Pipe()
-                        subproc = subproc_ctx.Process(
-                            target=run_suite,
-                            args=(
-                                cat_ctx,
-                                data_info,
-                                scale_factor,
-                                parameter_queue,
-                                edb_file,
-                                edb_info,
-                                args.metrics,
-                                errors,
-                                invalid_results,
-                                args.repeat,
-                                is_root_rank,
-                                args.multiprocess,
-                                multiprocess_runtime_context,
-                                args.validate_results,
-                                validate_dir,
-                                args.suite_name,
-                                args.quiet,
-                                child_pipe,
-                            ),
-                        )
-                        subprocess_run(
-                            subproc,
-                            parameter_queue,
-                            load_all_data,
-                            is_root_rank,
-                            parent_pipe,
-                            args,
-                        )
-                    # convert to regular list before manager destructs
-                    all_invalid_results += list(invalid_results)
-                    all_errors += list(errors)
         # Return should match outer loop indentation
         return all_errors, all_invalid_results
 
-    errors = []
     errors, invalid_results = run_sweep(edb_file, edb_info, args)
-    print_mp(f"Finished SQLite file at {edb_file}", is_root_rank)
+    print(f"Finished SQLite file at {edb_file}")
 
     if invalid_results:
-        print_mp(
+        print(
             f"The following {len(invalid_results)} configurations run successfully but produce incorrect results",
-            is_root_rank,
         )
         for result in invalid_results:
-            print_mp(result, is_root_rank)
+            print(result, args.quiet)
 
     if errors:
-        print_mp(f"The following {len(errors)} configurations produced errors", is_root_rank)
-        print_mp("note: hard crashes e.g. segfault will not be recorded here:", is_root_rank)
+        print(f"The following {len(errors)} configurations produced errors")
+        print("note: hard crashes e.g. segfault will not be recorded here:")
         for error in errors:
-            print_mp(error, is_root_rank)
-
-    if args.multiprocess:
-        multiprocess_runtime_context.finalize()
-        if args.storage_kind == "boost_shared_memory" and lib.mpi_rank() == 0:
-            lib.finalize_shared_memory()
-        lib.mpi_finalize()
+            print(error)
 
     if errors or invalid_results:
         sys.exit(1)
-
-
-def subprocess_kill(subproc, message, is_root_rank):
-    print_mp(message, is_root_rank)
-    subproc.terminate()
-    time.sleep(1)
-    # If process is still alive, try to kill more forcefully.
-    if subproc.is_alive():
-        print_mp("Process still alive after terminate, trying sigkill", is_root_rank)
-        subproc.kill()
-        time.sleep(1)
-        # if subprocess is still alive after here something is really bad
-        # TODO investigate ways to mitigate if it becomes an issue
-
-
-def do_poll(subproc, pipe, timeout):
-    start = time.monotonic()
-    current = time.monotonic()
-    poll_time = 1
-    result = False
-    # Iterate while timeout isn't reached, experiments are still in queue, and the subprocess is alive.
-    while current - start < timeout and subproc.is_alive() and not result:
-        result = pipe.poll(poll_time)
-        current = time.monotonic()
-    elapsed = current - start
-    return result, elapsed
-
-
-def subprocess_run(subproc, parameter_queue, load_all_data, is_root_rank, pipe, args):
-    query_timeout = args.query_timeout
-    data_timeout = args.data_timeout
-    print(f"Starting parameter set execution with {len(parameter_queue)} sets remaining")
-    print(f"Using {query_timeout}s query timeout and {data_timeout}s data load timeout")
-    subproc.start()
-
-    killed = False
-    iters = 0
-    # Subprocess must pop items from queue for this to work properly
-    while parameter_queue and not killed:
-        print_mp(
-            f"Parameter sets remaining: {len(parameter_queue)}",
-            is_root_rank,
-        )
-        iters += 1
-        # Stage 1: Wait on data load. Two Cases
-        # load_all_data = True; the first iter, this determines success. After, we always expect success (no data to load).
-        # load_all_data = False; we don't always load data, so we get true if it succeeded or didn't load, otherwise false.
-        data_avail, elapsed = do_poll(subproc, pipe, data_timeout)
-        print_mp(f"Data load stage ended after {elapsed:.2f}s", is_root_rank)
-        if not data_avail:
-            if elapsed >= data_timeout:
-                subprocess_kill(
-                    subproc,
-                    f"Timeout triggered - data load did not complete within {data_timeout} seconds",
-                    is_root_rank,
-                )
-                killed = True
-                if load_all_data:
-                    print_mp(
-                        "Because this is load_all_data, dropping dependent experiments",
-                        is_root_rank,
-                    )
-                    parameter_queue[:] = []
-            # always break if we get here to move on to new process
-            # the other option is we're not alive, so we break anyway
-            break
-        # if we get a false on receive, it means data loading failed for some reason
-        if not pipe.recv():
-            # Since load_all_data failed, we need to discard the experiments or we will not make forward progress.
-            if load_all_data:
-                parameter_queue[:] = []
-                break
-            # if loading only query data, safe to proceed to next query and try again
-            else:
-                continue
-
-        # Stage 2: wait on context build
-        data_avail, elapsed = do_poll(subproc, pipe, query_timeout)
-        print_mp(f"Context creation ended after {elapsed:.2f}s", is_root_rank)
-        if not data_avail:
-            if elapsed >= query_timeout:
-                killed = True
-                subprocess_kill(
-                    subproc,
-                    f"Timeout triggered - query did not complete within {query_timeout} seconds",
-                    is_root_rank,
-                )
-            # always break if we get here to move on to new process
-            break
-        # If pipe sends false, it means we failed to load context and move on to next parameter set.
-        if not pipe.recv():
-            continue
-
-        # Stage 3: Wait on query completion
-        for i in range(args.repeat):
-            # Wait on query process
-            data_avail, elapsed = do_poll(subproc, pipe, query_timeout)
-            print_mp(
-                f"Query execution/validation iteration {i} ended after {elapsed:.2f}s",
-                is_root_rank,
-            )
-            if not data_avail:
-                if elapsed >= query_timeout:
-                    killed = True
-                    subprocess_kill(
-                        subproc,
-                        f"Timeout triggered - query did not complete within {query_timeout} seconds",
-                        is_root_rank,
-                    )
-                # always break if we get here to move on to new process
-                break
-            # If pipe sends false, it generally means a query error or query validation failed.
-            if not pipe.recv():
-                # Both multiprocessing and single gpu break out of query or query validation if error.
-                # Note that this only breaks the inner loop - all other cases continue
-                break
-    subproc.join()
-
-    # Breaking above will always take you here, which evaluates the subprocess execution status.
-    if subproc.exitcode != 0:
-        print_mp(
-            f"Subprocess exited with non-zero return code with {len(parameter_queue)} tasks remaining.",
-            is_root_rank,
-        )
-        print_mp(f"Subprocess Exit Code {subproc.exitcode}", is_root_rank)
-        # We won't print the "may have" part if we deliberately killed the subprocess ourselves.
-        if subproc.exitcode < 0 and not killed:
-            print_mp(
-                f"Subprocess may have been killed by {signal.Signals(-subproc.exitcode).name}",
-                is_root_rank,
-            )
 
 
 if __name__ == "__main__":
