@@ -34,6 +34,10 @@ dependencies = [
     "sqlglot>=23.0.0"
 ]
 
+# enable license scanning via BlackDuck
+[tool.uv]
+managed = true
+
 # override dependency sources
 [tool.uv.sources]
 database_benchmarking_tools = { path = "database_benchmarking_tools" }
