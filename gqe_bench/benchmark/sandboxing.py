@@ -208,6 +208,7 @@ def monitor_sandbox(
         not args.quiet,
     )
 
+    killed = False
     unrecoverable = False
     while parameter_queue and not unrecoverable:
         print_mp(f"Parameter sets remaining: {len(parameter_queue)}", not args.quiet)
