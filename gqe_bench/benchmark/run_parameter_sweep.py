@@ -29,11 +29,6 @@ from database_benchmarking_tools.utility import generate_db_path
 from gqe_bench import lib
 from gqe_bench.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe_bench.benchmark.run import (
-    CatalogContext,
-    DataInfo,
-    QueryError,  # noqa: F401 needed because pickle for sandboxing
-    QueryExecutionContext,
-    QueryInfoContext,
     identifier_type_to_sql,
     is_valid_identifier_type,
     parse_bool,
@@ -43,6 +38,12 @@ from gqe_bench.benchmark.run import (
     run_suite,
     set_eager_module_loading,
     setup_db,
+)
+from gqe_bench.benchmark.run_types import (
+    CatalogContext,
+    DataInfo,
+    QueryExecutionContext,
+    QueryInfoContext,
 )
 from gqe_bench.benchmark.sandboxing import run_sandboxed
 from gqe_bench.param_sweep_config import (

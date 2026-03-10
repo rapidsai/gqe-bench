@@ -27,12 +27,12 @@ from typing import BinaryIO
 
 from gqe_bench.benchmark import run
 from gqe_bench.benchmark.run import (
-    QueryError,
     clear_query_from_queue,
     clear_queue,
     is_unrecoverable_error,
     print_mp,
 )
+from gqe_bench.benchmark.run_types import QueryError
 
 
 def run_sandboxed(
@@ -199,6 +199,7 @@ def monitor_sandbox(
 ):
     query_timeout = args.query_timeout
     data_timeout = args.data_timeout
+
     print_mp(
         f"Starting parameter set execution with {len(parameter_queue)} sets remaining",
         not args.quiet,
