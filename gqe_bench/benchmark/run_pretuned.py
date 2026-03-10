@@ -144,6 +144,11 @@ def main():
         default=BENCHMARK_CONFIG_DEFAULTS["num_ranks"],
     )
     arg_parser.add_argument(
+        "--time-breakdown",
+        help="Profile time breakdown with CUPTI activity profiling",
+        action="store_true",
+    )
+    arg_parser.add_argument(
         "--repeat", "-rep", help="How many times to run each query", type=int, default=6
     )
     arg_parser.add_argument(
@@ -383,6 +388,7 @@ def main():
                     edb_file,
                     edb_info,
                     args.metrics,
+                    args.time_breakdown,
                     errors_local,
                     invalid_results_local,
                     repeat,
@@ -411,6 +417,7 @@ def main():
                     edb_file,
                     edb_info,
                     args.metrics,
+                    args.time_breakdown,
                     errors_local,
                     invalid_results_local,
                     repeat,

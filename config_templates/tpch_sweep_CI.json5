@@ -3,6 +3,7 @@
   "plan": "/tpch_scratch/substrait_plans/sf0.01",
   "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
   "output": "/tmp/gqe_experiment.db3",
+  "time_breakdown": true,
 
   "compression_format": ["none"],
   "read_use_overlap_mtx": [true], // Change to false when running with compression enabled

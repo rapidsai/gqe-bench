@@ -302,6 +302,11 @@ def parse_args():
         default=None,
     )
     arg_parser.add_argument(
+        "--time-breakdown",
+        help="Profile time breakdown with CUPTI activity profiling",
+        action="store_true",
+    )
+    arg_parser.add_argument(
         "--storage-kind",
         "-k",
         help="Storage kind",
@@ -864,6 +869,7 @@ def main():
                     edb_file,
                     edb_info,
                     args.metrics,
+                    args.time_breakdown,
                     all_errors,
                     all_invalid_results,
                     args.repeat,
@@ -897,6 +903,7 @@ def main():
                     edb_file,
                     edb_info,
                     args.metrics,
+                    args.time_breakdown,
                     all_errors,
                     all_invalid_results,
                     args.repeat,

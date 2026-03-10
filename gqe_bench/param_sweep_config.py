@@ -67,6 +67,7 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "zone_map_partition_size": [200000],
     "load_all_data": None,
     "metrics": None,
+    "time_breakdown": False,
     "storage_kind": ["numa_pinned_memory"],
     "num_ranks": 1,
     "repeat": 6,

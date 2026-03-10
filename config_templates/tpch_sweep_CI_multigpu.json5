@@ -3,6 +3,7 @@
   "plan": "/tpch_scratch/substrait_plans/sf0.01",
   "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
   "output": "/tmp/gqe_experiment_multigpu.db3",
+  "time_breakdown": false,
   "validate_dir": "/tmp/gqe_results",
   "num_ranks": 2,
   "boost_pool_size": 1,

@@ -36,6 +36,7 @@ from gqe_bench.benchmark.gqe_experiment import (
     GqeMetricInfo,
     GqeParameters,
     GqeRunExt,
+    GqeRunTimeBreakdown,
     GqeTableStats,
 )
 from gqe_bench.benchmark.run_types import (
@@ -388,6 +389,7 @@ def run_suite(
     edb_file: str,
     edb_info: EdbInfo,
     cupti_metrics: list[str] | None,
+    time_breakdown: bool,
     errors: list,
     invalid_results: list,
     repeat: int,
@@ -412,6 +414,7 @@ def run_suite(
                 edb,
                 edb_info,
                 cupti_metrics,
+                time_breakdown,
                 errors,
                 invalid_results,
                 repeat,
@@ -431,6 +434,7 @@ def run_suite(
             parameters,
             None,
             edb_info,
+            None,
             None,
             errors,
             invalid_results,
@@ -475,6 +479,7 @@ def _run_suite(
     edb: exp.ExperimentDB,
     edb_info: EdbInfo,
     cupti_metrics: list[str] | None,
+    time_breakdown: bool,
     errors: list,
     invalid_results: list,
     repeat: int,
@@ -518,6 +523,7 @@ def _run_suite(
                     task_manager_params,
                     debug_mem_usage=debug_mem_usage,
                     cupti_metrics=cupti_metrics,
+                    time_breakdown=time_breakdown,
                 )
             catalog = Catalog(context)
             table_definitions = catalog.register_tables(
@@ -588,6 +594,7 @@ def _run_suite(
                         opt_params,
                         debug_mem_usage=debug_mem_usage,
                         cupti_metrics=cupti_metrics,
+                        time_breakdown=time_breakdown,
                     )
                 catalog = Catalog(context)
                 # Set up context with new query ID
@@ -829,6 +836,20 @@ def _run_suite(
                                 metric_value=metric_values[metric],
                             )
                         )
+
+                if time_breakdown:
+                    edb.insert_gqe_run_time_breakdown(
+                        GqeRunTimeBreakdown(
+                            experiment_id=experiment_id,
+                            run_number=count,
+                            in_memory_read_task_s=metric_values["in_memory_read_task_s"],
+                            compute_kernel_s=metric_values["compute_kernel_s"],
+                            io_kernel_s=metric_values["io_kernel_s"],
+                            memcpy_s=metric_values["memcpy_s"],
+                            mem_decompress_s=metric_values["mem_decompress_s"],
+                            merged_io_activity_s=metric_values["merged_io_activity_s"],
+                        )
+                    )
 
     # Explicit cleanup in correct order to avoid segfault at exit.
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
