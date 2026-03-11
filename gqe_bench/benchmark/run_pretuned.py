@@ -50,7 +50,7 @@ from gqe_bench.param_sweep_config import (
 def get_best_parameters_file(sqlite_file: str):
     conn = sqlite3.connect(sqlite_file)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute("SELECT * FROM gqe_best_parameters")
+    cursor = conn.execute("SELECT * FROM gqe_best_parameters_validated")
     best_parameters = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return best_parameters
