@@ -144,6 +144,12 @@ def main():
         default=BENCHMARK_CONFIG_DEFAULTS["num_ranks"],
     )
     arg_parser.add_argument(
+        "--sandboxing",
+        "-sb",
+        help="Run with sandboxing. Queries are run in subprocess to prevent process crash in case of query failure.",
+        action="store_true",
+    )
+    arg_parser.add_argument(
         "--time-breakdown",
         help="Profile time breakdown with CUPTI activity profiling",
         action="store_true",
@@ -194,8 +200,7 @@ def main():
     )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
-    # Add two arguments for inter-module compatibility. TODO: potentially support these arguments
-    args.sandboxing = False
+    # Add argument for inter-module compatibility. TODO: potentially support this argument
     args.quiet = False
 
     repeat = args.repeat
@@ -377,8 +382,8 @@ def main():
                 compression_level,
             )
             is_mp = args.num_ranks > 1
-            if is_mp:
-                # bind args so mpi process can call run_suite exactly like this
+            if is_mp or args.sandboxing:
+                # bind args so child process can call run_suite exactly like this
                 func_sig = inspect.signature(run_suite)
                 run_suite_args = func_sig.bind(
                     cat_ctx,
