@@ -20,6 +20,7 @@ import pickle
 import re
 import sys
 import traceback
+from contextlib import nullcontext
 from dataclasses import asdict, fields
 from typing import BinaryIO, Optional
 
@@ -655,84 +656,85 @@ def _run_suite(
         pipe_send(pipe, True)
 
         if is_root_rank:
-            parameter.sut_info_id = edb_info.sut_info_id
-            parameters_id = edb.insert_gqe_parameters(upcast_to_super(parameter, GqeParameters))
+            with edb.transaction():
+                parameter.sut_info_id = edb_info.sut_info_id
+                parameters_id = edb.insert_gqe_parameters(upcast_to_super(parameter, GqeParameters))
 
-            # Normalize query_source: both "substrait" and "custom_substrait" are stored as "substrait"
-            normalized_source = (
-                "substrait"
-                if "substrait" in query_info_ctx.query_source
-                else query_info_ctx.query_source
-            )
-
-            query_info_id = edb.insert_query_info(
-                exp.QueryInfo(
-                    name=query.identifier,
-                    suite=suite_name,
-                    source=normalized_source,
+                # Normalize query_source: both "substrait" and "custom_substrait" are stored as "substrait"
+                normalized_source = (
+                    "substrait"
+                    if "substrait" in query_info_ctx.query_source
+                    else query_info_ctx.query_source
                 )
-            )
 
-            experiment_id = edb.insert_experiment(
-                Experiment(
-                    sut_info_id=edb_info.sut_info_id,
-                    parameters_id=parameters_id,
-                    hw_info_id=edb_info.hw_info_id,
-                    build_info_id=edb_info.build_info_id,
-                    data_info_id=data_info_id,
-                    data_info_ext_id=data_info_ext_id,
-                    query_info_id=query_info_id,
-                    sample_size=repeat,
-                )
-            )
-
-            table_stats = gqe_bench.lib.get_table_stats(catalog._catalog)
-            for table_name, stats in table_stats.items():
-                # We also register parquet tables, but that doesn't undergo `in_memory_write_task` and would not have compression stats logged. Ignore here.
-                if stats.num_row_groups == 0:
-                    continue
-                gqe_table_stats_id = edb.insert_gqe_table_stats(
-                    GqeTableStats(
-                        data_info_ext_id=data_info_ext_id,
-                        query_info_id=query_info_id,
-                        table_name=table_name,
-                        stats=stats,
+                query_info_id = edb.insert_query_info(
+                    exp.QueryInfo(
+                        name=query.identifier,
+                        suite=suite_name,
+                        source=normalized_source,
                     )
                 )
-                column_names = catalog._catalog.column_names(table_name)
-                for col_idx in range(stats.num_columns):
-                    if stats.column_stats[col_idx].is_string_column():
-                        # Insert two entries for char and offset since they are stored in separate buffers but logically one column.
-                        edb.insert_gqe_column_stats(
-                            GqeColumnStats(
-                                gqe_table_stats_id=gqe_table_stats_id,
-                                column_name=column_names[col_idx],
-                                col_idx=col_idx,
-                                stats=stats,
-                                column_part="char",
-                            )
-                        )
-                        edb.insert_gqe_column_stats(
-                            GqeColumnStats(
-                                gqe_table_stats_id=gqe_table_stats_id,
-                                column_name=column_names[col_idx],
-                                col_idx=col_idx,
-                                stats=stats,
-                                column_part="offset",
-                            )
-                        )
-                    else:
-                        edb.insert_gqe_column_stats(
-                            GqeColumnStats(
-                                gqe_table_stats_id=gqe_table_stats_id,
-                                column_name=column_names[col_idx],
-                                col_idx=col_idx,
-                                stats=stats,
-                                column_part="value",
-                            )
-                        )
 
-            print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
+                experiment_id = edb.insert_experiment(
+                    Experiment(
+                        sut_info_id=edb_info.sut_info_id,
+                        parameters_id=parameters_id,
+                        hw_info_id=edb_info.hw_info_id,
+                        build_info_id=edb_info.build_info_id,
+                        data_info_id=data_info_id,
+                        data_info_ext_id=data_info_ext_id,
+                        query_info_id=query_info_id,
+                        sample_size=repeat,
+                    )
+                )
+
+                table_stats = gqe_bench.lib.get_table_stats(catalog._catalog)
+                for table_name, stats in table_stats.items():
+                    # We also register parquet tables, but that doesn't undergo `in_memory_write_task` and would not have compression stats logged. Ignore here.
+                    if stats.num_row_groups == 0:
+                        continue
+                    gqe_table_stats_id = edb.insert_gqe_table_stats(
+                        GqeTableStats(
+                            data_info_ext_id=data_info_ext_id,
+                            query_info_id=query_info_id,
+                            table_name=table_name,
+                            stats=stats,
+                        )
+                    )
+                    column_names = catalog._catalog.column_names(table_name)
+                    for col_idx in range(stats.num_columns):
+                        if stats.column_stats[col_idx].is_string_column():
+                            # Insert two entries for char and offset since they are stored in separate buffers but logically one column.
+                            edb.insert_gqe_column_stats(
+                                GqeColumnStats(
+                                    gqe_table_stats_id=gqe_table_stats_id,
+                                    column_name=column_names[col_idx],
+                                    col_idx=col_idx,
+                                    stats=stats,
+                                    column_part="char",
+                                )
+                            )
+                            edb.insert_gqe_column_stats(
+                                GqeColumnStats(
+                                    gqe_table_stats_id=gqe_table_stats_id,
+                                    column_name=column_names[col_idx],
+                                    col_idx=col_idx,
+                                    stats=stats,
+                                    column_part="offset",
+                                )
+                            )
+                        else:
+                            edb.insert_gqe_column_stats(
+                                GqeColumnStats(
+                                    gqe_table_stats_id=gqe_table_stats_id,
+                                    column_name=column_names[col_idx],
+                                    col_idx=col_idx,
+                                    stats=stats,
+                                    column_part="value",
+                                )
+                            )
+
+                print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
 
         """
         This conditional is added to modify the scheduler type to ROUND_ROBIN for query execution in multi-process mode.
@@ -742,114 +744,115 @@ def _run_suite(
 
         out_file = os.path.join(f"{validate_dir}", f"{query.identifier}_out.parquet")
         for count in range(repeat):
-            with nvtx.annotate(f"Run {query.identifier}"):
-                try:
-                    print_mp(
-                        f"Starting query {query.identifier} repetition {count}...",
-                        is_root_rank and not quiet,
-                    )
-                    duration_s, stage_durations, metric_values = context.execute(
-                        catalog, query.root_relation, out_file
-                    )
-                except Exception as error:
-                    err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
-                    err_pack = (
-                        f"{query.identifier} query execution",
-                        parameter,
-                        err_str,
-                    )
-                    print("Error during query execution")
-                    print(err_str)
-                    pipe_send(pipe, False, {QueryError.execution: err_pack})
-                    errors.append(err_pack)
-                    if is_root_rank:
-                        edb.insert_failed_run(
-                            exp.FailedRun(
-                                experiment_id=experiment_id, number=count, error_msg=err_str
-                            )
+            with edb.transaction() if is_root_rank else nullcontext():
+                with nvtx.annotate(f"Run {query.identifier}"):
+                    try:
+                        print_mp(
+                            f"Starting query {query.identifier} repetition {count}...",
+                            is_root_rank and not quiet,
                         )
-                    if is_unrecoverable_error(error):
-                        return
-                    else:
-                        break
-            if validate_results:
-                # All ranks validate result, alternatively we need to communicate if there is an error
-                try:
-                    print_mp("Start validation...", is_root_rank and not quiet)
-                    validate_parquet(out_file, query.reference_solution, query.validator)
-                except Exception as error:
-                    err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
-                    err_pack = (
-                        f"{query.identifier} query validation",
-                        parameter,
-                        err_str,
-                    )
-                    print("Error validating solution")
-                    print(err_str)
-                    pipe_send(pipe, False, {QueryError.validation: err_pack})
-                    invalid_results.append(err_pack)
-                    if is_root_rank:
-                        edb.insert_failed_run(
-                            exp.FailedRun(
-                                experiment_id=experiment_id, number=count, error_msg=err_str
-                            )
+                        duration_s, stage_durations, metric_values = context.execute(
+                            catalog, query.root_relation, out_file
                         )
-                    if is_unrecoverable_error(error):
-                        return
-                    else:
-                        break
-            else:
-                print_mp("Skipping validation...", is_root_rank and not quiet)
-            # Logging on host process creates a small race condition; sending before doing DB insertion
-            # helps order the print messages w/o having to resort to more complicated syncronization.
-            pipe_send(pipe, True)
-            if is_root_rank:
-                edb.insert_run(
-                    exp.Run(
-                        experiment_id=experiment_id,
-                        number=count,
-                        nvtx_marker=None,
-                        duration_s=duration_s,
-                    )
-                )
-
-                for stage, duration_s in stage_durations:
-                    metric_id = edb.insert_metric_info(GqeMetricInfo(name=stage))
-                    edb.insert_gqe_run_ext(
-                        GqeRunExt(
+                    except Exception as error:
+                        err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+                        err_pack = (
+                            f"{query.identifier} query execution",
+                            parameter,
+                            err_str,
+                        )
+                        print("Error during query execution")
+                        print(err_str)
+                        pipe_send(pipe, False, {QueryError.execution: err_pack})
+                        errors.append(err_pack)
+                        if is_root_rank:
+                            edb.insert_failed_run(
+                                exp.FailedRun(
+                                    experiment_id=experiment_id, number=count, error_msg=err_str
+                                )
+                            )
+                        if is_unrecoverable_error(error):
+                            return
+                        else:
+                            break
+                if validate_results:
+                    # All ranks validate result, alternatively we need to communicate if there is an error
+                    try:
+                        print_mp("Start validation...", is_root_rank and not quiet)
+                        validate_parquet(out_file, query.reference_solution, query.validator)
+                    except Exception as error:
+                        err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+                        err_pack = (
+                            f"{query.identifier} query validation",
+                            parameter,
+                            err_str,
+                        )
+                        print("Error validating solution")
+                        print(err_str)
+                        pipe_send(pipe, False, {QueryError.validation: err_pack})
+                        invalid_results.append(err_pack)
+                        if is_root_rank:
+                            edb.insert_failed_run(
+                                exp.FailedRun(
+                                    experiment_id=experiment_id, number=count, error_msg=err_str
+                                )
+                            )
+                        if is_unrecoverable_error(error):
+                            return
+                        else:
+                            break
+                else:
+                    print_mp("Skipping validation...", is_root_rank and not quiet)
+                # Logging on host process creates a small race condition; sending before doing DB insertion
+                # helps order the print messages w/o having to resort to more complicated syncronization.
+                pipe_send(pipe, True)
+                if is_root_rank:
+                    edb.insert_run(
+                        exp.Run(
                             experiment_id=experiment_id,
-                            run_number=count,
-                            metric_info_id=metric_id,
-                            metric_value=duration_s,
+                            number=count,
+                            nvtx_marker=None,
+                            duration_s=duration_s,
                         )
                     )
 
-                if cupti_metrics:
-                    for metric in cupti_metrics:
-                        metric_id = edb.insert_metric_info(GqeMetricInfo(name=metric))
-
+                    for stage, duration_s in stage_durations:
+                        metric_id = edb.insert_metric_info(GqeMetricInfo(name=stage))
                         edb.insert_gqe_run_ext(
                             GqeRunExt(
                                 experiment_id=experiment_id,
                                 run_number=count,
                                 metric_info_id=metric_id,
-                                metric_value=metric_values[metric],
+                                metric_value=duration_s,
                             )
                         )
 
-                if time_breakdown:
-                    edb.insert_gqe_run_time_breakdown(
-                        GqeRunTimeBreakdown(
-                            experiment_id=experiment_id,
-                            run_number=count,
-                            in_memory_read_task_s=metric_values["in_memory_read_task_s"],
-                            compute_kernel_s=metric_values["compute_kernel_s"],
-                            io_kernel_s=metric_values["io_kernel_s"],
-                            memcpy_s=metric_values["memcpy_s"],
-                            mem_decompress_s=metric_values["mem_decompress_s"],
-                            merged_io_activity_s=metric_values["merged_io_activity_s"],
+                    if cupti_metrics:
+                        for metric in cupti_metrics:
+                            metric_id = edb.insert_metric_info(GqeMetricInfo(name=metric))
+
+                            edb.insert_gqe_run_ext(
+                                GqeRunExt(
+                                    experiment_id=experiment_id,
+                                    run_number=count,
+                                    metric_info_id=metric_id,
+                                    metric_value=metric_values[metric],
+                                )
+                            )
+
+                    if time_breakdown:
+                        edb.insert_gqe_run_time_breakdown(
+                            GqeRunTimeBreakdown(
+                                experiment_id=experiment_id,
+                                run_number=count,
+                                in_memory_read_task_s=metric_values["in_memory_read_task_s"],
+                                compute_kernel_s=metric_values["compute_kernel_s"],
+                                io_kernel_s=metric_values["io_kernel_s"],
+                                memcpy_s=metric_values["memcpy_s"],
+                                mem_decompress_s=metric_values["mem_decompress_s"],
+                                merged_io_activity_s=metric_values["merged_io_activity_s"],
+                            )
                         )
-                    )
 
     # Explicit cleanup in correct order to avoid segfault at exit.
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.

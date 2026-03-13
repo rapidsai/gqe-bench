@@ -16,6 +16,7 @@
 import importlib.resources
 import platform
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from database_benchmarking_tools import hardware_info, sql_generator, utility
@@ -144,6 +145,15 @@ class ExperimentConnection:
         self._analyze()
         self._conn.commit()
 
+    @contextmanager
+    def transaction(self):
+        try:
+            yield
+            self._conn.commit()
+        except:
+            self._conn.rollback()
+            raise
+
     def hostname(self) -> str:
         return self._hostname
 
@@ -186,24 +196,13 @@ class ExperimentConnection:
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_experiment(self, entry: Experiment) -> ExperimentId:
-        experiment_id = sql_generator.insert(self._cursor, entry)
-
-        # Infer from experiment without any runs that the first run
-        # failed and experiment was skipped.
-        self._conn.commit()
-
-        return experiment_id
+        return sql_generator.insert(self._cursor, entry)
 
     def insert_run(self, entry: Run):
         sql_generator.insert_natural_key(self._cursor, entry)
 
-        # Ensure that each successful run is written to DB.
-        self._conn.commit()
-
     def insert_failed_run(self, entry: FailedRun):
         sql_generator.insert_natural_key(self._cursor, entry)
-        # Ensure that each successful run is written to DB.
-        self._conn.commit()
 
     def insert_query_info(self, entry: QueryInfo) -> QueryInfoId:
         sql_generator.insert_or_ignore(self._cursor, entry)
