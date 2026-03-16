@@ -56,9 +56,7 @@ def run_sandboxed(
             "Running experiments using MPI multi-gpu with sandboxing",
             not args.quiet,
         )
-    # track if process had to quit due to unrecoverable error
-    unrecoverable = False
-    while parameters and not unrecoverable:
+    while parameters:
         tmpdir = tempfile.mkdtemp()
         # create a pipe to exchange with root mpi process
         pipe_path = os.path.join(tmpdir, "gqe_sandbox_pipe")
@@ -209,7 +207,6 @@ def monitor_sandbox(
         not args.quiet,
     )
 
-    killed = False
     unrecoverable = False
     while parameter_queue and not unrecoverable:
         print_mp(f"Parameter sets remaining: {len(parameter_queue)}", not args.quiet)
@@ -230,7 +227,7 @@ def monitor_sandbox(
                 kill_msg = f"No data available but timeout not triggered; likely fatal error; attempting kill and reset"
 
             sandbox_kill(process, kill_msg)
-            killed = True
+            unrecoverable = True
             if load_all_data:
                 clear_queue(parameter_queue)
             else:
@@ -256,7 +253,7 @@ def monitor_sandbox(
         data_avail, elapsed = sandbox_poll(process, pipe, query_timeout)
         print_mp(f"Context creation ended after {elapsed:.2f}s", not args.quiet)
         if not data_avail:
-            killed = True
+            unrecoverable = True
             if elapsed >= query_timeout:
                 kill_msg = (
                     f"Timeout triggered - query did not complete within {query_timeout} seconds"
@@ -282,7 +279,7 @@ def monitor_sandbox(
                 not args.quiet,
             )
             if not data_avail:
-                killed = True
+                unrecoverable = True
                 if elapsed >= query_timeout:
                     kill_msg = (
                         f"Timeout triggered - query did not complete within {query_timeout} seconds"
@@ -308,7 +305,7 @@ def monitor_sandbox(
         )
         print_mp(f"Subprocess Exit Code {exit_code}", not args.quiet)
         # We won't print the "may have" part if we deliberately killed the process ourselves.
-        if exit_code < 0 and not killed:
+        if exit_code < 0 and not unrecoverable:
             print_mp(
                 f"Subprocess may have been killed by {signal.Signals(-exit_code).name}",
                 not args.quiet,
