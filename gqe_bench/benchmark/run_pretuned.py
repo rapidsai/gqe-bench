@@ -16,6 +16,7 @@
 # the License.
 
 import argparse
+import inspect
 import os
 import re
 import sqlite3
@@ -23,14 +24,8 @@ import sys
 
 from database_benchmarking_tools.experiment import ExperimentDB
 from database_benchmarking_tools.utility import generate_db_path
-from gqe_bench import lib
 from gqe_bench.benchmark.gqe_experiment import GqeExperimentConnection
 from gqe_bench.benchmark.run import (
-    CatalogContext,
-    DataInfo,
-    QueryExecutionContext,
-    QueryInfoContext,
-    boost_shared_memory_pool_size,
     identifier_type_to_sql,
     parse_bool,
     parse_scale_factor,
@@ -39,6 +34,13 @@ from gqe_bench.benchmark.run import (
     setup_db,
     sql_to_identifier_type,
 )
+from gqe_bench.benchmark.run_types import (
+    CatalogContext,
+    DataInfo,
+    QueryExecutionContext,
+    QueryInfoContext,
+)
+from gqe_bench.benchmark.sandboxing import run_sandboxed
 from gqe_bench.param_sweep_config import (
     BENCHMARK_CONFIG_DEFAULTS,
     get_validation_dir,
@@ -48,7 +50,7 @@ from gqe_bench.param_sweep_config import (
 def get_best_parameters_file(sqlite_file: str):
     conn = sqlite3.connect(sqlite_file)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute("SELECT * FROM gqe_best_parameters")
+    cursor = conn.execute("SELECT * FROM gqe_best_parameters_validated")
     best_parameters = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return best_parameters
@@ -135,7 +137,22 @@ def main():
         default=None,
     )
     metrics_group.add_argument(
-        "--multiprocess", "-m", help="Run in multiprocess mode", action="store_true"
+        "--num_ranks",
+        "-nr",
+        type=int,
+        help=f"Set the number of GPUs to use. More than 1 GPU implies MPI/multiprocessing. Defaults to {BENCHMARK_CONFIG_DEFAULTS['num_ranks']} ",
+        default=BENCHMARK_CONFIG_DEFAULTS["num_ranks"],
+    )
+    arg_parser.add_argument(
+        "--sandboxing",
+        "-sb",
+        help="Run with sandboxing. Queries are run in subprocess to prevent process crash in case of query failure.",
+        action="store_true",
+    )
+    arg_parser.add_argument(
+        "--time-breakdown",
+        help="Profile time breakdown with CUPTI activity profiling",
+        action="store_true",
     )
     arg_parser.add_argument(
         "--repeat", "-rep", help="How many times to run each query", type=int, default=6
@@ -167,8 +184,24 @@ def main():
         type=str,
         default=BENCHMARK_CONFIG_DEFAULTS["suite_name"],
     )
+    arg_parser.add_argument(
+        "--query-timeout",
+        "-qt",
+        help=f"Timeout in (s) for MPI ranks executing queries. Used to kill suspected hanging jobs after timeout exceeded. Only used if -m is set. Default: {BENCHMARK_CONFIG_DEFAULTS['query_timeout']}s",
+        type=int,
+        default=BENCHMARK_CONFIG_DEFAULTS["query_timeout"],
+    )
+    arg_parser.add_argument(
+        "--data-timeout",
+        "-dt",
+        help=f"Timeout in (s) for MPI ranks during data load. Used to kill suspected hanging jobs after timeout exceeded. Only used if -m is set. Default: {BENCHMARK_CONFIG_DEFAULTS['data_timeout']}s",
+        type=int,
+        default=BENCHMARK_CONFIG_DEFAULTS["data_timeout"],
+    )
     args = arg_parser.parse_args()
     # TODO: add --nsys-trace to collect nsys traces for the best parameters
+    # Add argument for inter-module compatibility. TODO: potentially support this argument
+    args.quiet = False
 
     repeat = args.repeat
     gqe_host = "localhost"
@@ -192,40 +225,29 @@ def main():
     # TODO: Multiprocess mode needs to check if spawned ranks is equal to that in the best parameters
     # https://gitlab-master.nvidia.com/haog/gqe-python/-/issues/13
     multiprocess_runtime_context = None
-    if args.multiprocess:
-        lib.mpi_init()
 
+    # arg for compatibility between modules
+    args.storage_kind = [best_parameters[0].get("d_storage_device_kind")]
+
+    if args.num_ranks > 1:
         all_storage_kind_is = lambda params, kind: all(
             bp.get("d_storage_device_kind") == kind for bp in params
         )
-
-        all_storage_kind = best_parameters[0].get("d_storage_device_kind")
-        if all_storage_kind_is(best_parameters, "boost_shared_memory"):
-            pool_size = boost_shared_memory_pool_size(
-                args.boost_pool_size, scale_factor, args.load_all_data
-            )
-            print(f"Initializing CPU shared memory with pool size {pool_size}")
-            lib.initialize_shared_memory(pool_size)
-        elif not all_storage_kind_is(best_parameters, "parquet_file"):
+        if not all_storage_kind_is(
+            best_parameters, "boost_shared_memory"
+        ) and not all_storage_kind_is(best_parameters, "parquet_file"):
             raise ValueError(
                 "Multiprocess mode is only supported with parquet_file storage kind or boost_shared_memory storage kind"
             )
-        multiprocess_runtime_context = lib.MultiProcessRuntimeContext(
-            lib.scheduler_type.ROUND_ROBIN, all_storage_kind
-        )
 
-    is_root_rank = (not args.multiprocess) or (lib.mpi_rank() == 0)
     edb_file = None
     edb_config = None
-    if is_root_rank:
-        edb_file = (
-            args.output if args.output else generate_db_path(f"gqe", args.suite_name, gqe_host)
-        )
-        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
-        edb_config.create_experiment_db()
-        print(f"Writing SQLite file to {edb_file}")
+    edb_file = args.output if args.output else generate_db_path(f"gqe", args.suite_name, gqe_host)
+    edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
+    edb_config.create_experiment_db()
+    print(f"Writing SQLite file to {edb_file}")
 
-    if physical_plan_folder and is_root_rank:
+    if physical_plan_folder:
         print(f"Writing Physical Plan to the folder {physical_plan_folder}")
 
     def run_all(edb_info):
@@ -340,12 +362,12 @@ def main():
                     f"Skipping {best_parameter['q_name']} because custom substrait queries must be run with load_all_data=1"
                 )
                 continue
-
+            load_all_data = 0 if args.load_all_data else -1
             cat_ctx = CatalogContext(
                 args.dataset,
                 storage_kind,
                 num_row_groups,
-                0 if args.load_all_data else -1,
+                load_all_data,
                 identifier_type,
                 use_opt_type_for_single_char_col,
                 args.ddl_file_path,
@@ -359,54 +381,77 @@ def main():
                 use_cpu_compression,
                 compression_level,
             )
-
-            run_suite(
-                cat_ctx,
-                data_info,
-                scale_factor,
-                [gqe_parameter],
-                edb_file,
-                edb_info,
-                args.metrics,
-                errors_local,
-                invalid_results_local,
-                repeat,
-                is_root_rank,
-                args.multiprocess,
-                multiprocess_runtime_context,
-                args.validate_results,
-                validate_dir,
-                args.suite_name,
-            )
+            is_mp = args.num_ranks > 1
+            if is_mp or args.sandboxing:
+                # bind args so child process can call run_suite exactly like this
+                func_sig = inspect.signature(run_suite)
+                run_suite_args = func_sig.bind(
+                    cat_ctx,
+                    data_info,
+                    scale_factor,
+                    [gqe_parameter],
+                    edb_file,
+                    edb_info,
+                    args.metrics,
+                    args.time_breakdown,
+                    errors_local,
+                    invalid_results_local,
+                    repeat,
+                    is_mp,
+                    multiprocess_runtime_context,
+                    args.validate_results,
+                    validate_dir,
+                    args.suite_name,
+                )
+                run_suite_args.apply_defaults()
+                run_sandboxed(
+                    run_suite_args,
+                    [gqe_parameter],
+                    load_all_data,
+                    scale_factor,
+                    errors_local,
+                    invalid_results_local,
+                    args,
+                )
+            else:
+                run_suite(
+                    cat_ctx,
+                    data_info,
+                    scale_factor,
+                    [gqe_parameter],
+                    edb_file,
+                    edb_info,
+                    args.metrics,
+                    args.time_breakdown,
+                    errors_local,
+                    invalid_results_local,
+                    repeat,
+                    is_mp,
+                    multiprocess_runtime_context,
+                    args.validate_results,
+                    validate_dir,
+                    args.suite_name,
+                )
 
         return errors_local, invalid_results_local
 
-    if is_root_rank:
-        with edb_config as edb:
-            edb_info = setup_db(edb)
-        errors, invalid_results = run_all(edb_info)
+    with edb_config as edb:
+        edb_info = setup_db(edb)
+    errors, invalid_results = run_all(edb_info)
 
-        print(f"Finished SQLite file at {edb_file}")
-        if physical_plan_folder:
-            print(f"Finished Physical Plan at the folder {physical_plan_folder}")
+    print(f"Finished SQLite file at {edb_file}")
+    if physical_plan_folder:
+        print(f"Finished Physical Plan at the folder {physical_plan_folder}")
 
-        if invalid_results:
-            print("The following configurations run successfully but produce incorrect results")
-            for result in invalid_results:
-                print(result)
+    if invalid_results:
+        print("The following configurations run successfully but produce incorrect results")
+        for result in invalid_results:
+            print(result)
 
-        if errors:
-            print("The following configurations produced errors:")
-            for error in errors:
-                print(error)
-    else:
-        errors, invalid_results = run_all(None)
-
-    if args.multiprocess:
-        multiprocess_runtime_context.finalize()
-        if all_storage_kind == "boost_shared_memory" and lib.mpi_rank() == 0:
-            lib.finalize_shared_memory()
-        lib.mpi_finalize()
+    if errors:
+        print("The following configurations produced errors:")
+        for error in errors:
+            print(error)
 
     if errors or invalid_results:
         sys.exit(1)

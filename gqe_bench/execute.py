@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import os
+from ctypes.util import find_library
 from typing import TYPE_CHECKING
 
 import gqe_bench.lib
@@ -25,12 +27,26 @@ if TYPE_CHECKING:
     from gqe_bench.catalog import Catalog
 
 
+def _inject_nvtx():
+    """Set NVTX_INJECTION64_PATH if not already set.
+
+    CUPTI requires this environment variable to inject into the NVTX library
+    and capture NVTX marker activity records (used for time breakdown).
+    Must be set before any NVTX calls occur.
+    """
+    if "NVTX_INJECTION64_PATH" not in os.environ:
+        cupti_path = find_library("cupti")
+        if cupti_path:
+            os.environ["NVTX_INJECTION64_PATH"] = cupti_path
+
+
 class Context:
     def __init__(
         self,
         optimization_parameters: gqe_bench.lib.OptimizationParameters,
         debug_mem_usage: bool = False,
         cupti_metrics: list[str] | None = None,
+        time_breakdown: bool = False,
     ):
         """
         Create a new context.
@@ -38,12 +54,17 @@ class Context:
         :param optimization_parameters: Optimization parameters for query execution.
         :param debug_mem_usage: Enable debug memory usage tracking.
         :param cupti_metrics: The CUPTI range metrics to profile. If this argument is `None`, the profiler is completely disabled.
+        :param time_breakdown: Enable CUPTI activity time breakdown profiling. If False, the activity profiler is completely disabled.
         """
+
+        if time_breakdown:
+            _inject_nvtx()
 
         self._context = gqe_bench.lib.Context(
             optimization_parameters,
             debug_mem_usage,
             cupti_metrics,
+            time_breakdown,
         )
 
     def execute(

@@ -63,6 +63,7 @@ class GqeDataInfoExt:
 
 type MetricInfoId = int
 type GqeRunExtId = int
+type GqeRunTimeBreakdownId = int
 type GqeTableStatsId = int
 type GqeColumnStatsId = int
 type ExperimentId = int
@@ -85,6 +86,21 @@ class GqeRunExt:
     experiment_id: ExperimentId | None = None  # Don't set manually
     run_number: int | None = None  # Don't set manually
     metric_info_id: MetricInfoId | None = None  # Don't set manually
+
+
+@dataclass
+class GqeRunTimeBreakdown:
+    _table_name = "gqe_run_time_breakdown"
+    _table_prefix = "tb_"
+    in_memory_read_task_s: float
+    compute_kernel_s: float
+    io_kernel_s: float
+    memcpy_s: float
+    mem_decompress_s: float
+    merged_io_activity_s: float
+
+    experiment_id: ExperimentId | None = None  # Don't set manually
+    run_number: int | None = None  # Don't set manually
 
 
 @dataclass
@@ -178,6 +194,10 @@ class GqeExperimentConnection(ExperimentConnection):
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_gqe_run_ext(self, entry: GqeRunExt) -> GqeRunExtId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gqe_run_time_breakdown(self, entry: GqeRunTimeBreakdown) -> GqeRunTimeBreakdownId:
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)
 

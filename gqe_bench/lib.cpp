@@ -58,7 +58,8 @@
 #include <gqe/query_context.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
-#include <gqe/utility/cupti.hpp>
+#include <gqe/utility/cupti_activity.hpp>
+#include <gqe/utility/cupti_range.hpp>
 #include <gqe/utility/error.hpp>
 #include <gqe/utility/helpers.hpp>
 #include <gqe/utility/logger.hpp>
@@ -89,6 +90,8 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <sys/prctl.h>
+#include <sys/resource.h>
 
 namespace py = pybind11;
 
@@ -289,6 +292,23 @@ void mpi_finalize() { GQE_MPI_TRY(MPI_Finalize()); }
 void mpi_barrier() { GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD)); }
 
 /*
+ * In some cases, we spend far too long doing core dumps.
+ * For example, multi-gpu with boost shared memory takes so long that the sandbox times it out every
+ * time, wasting a lot of time. This disables them for this process and child processes, but does
+ * not affect other processes, so no need to reset later.
+ */
+void disable_core_dumps()
+{
+  struct rlimit rl;
+  rl.rlim_cur = 0;
+  rl.rlim_max = 0;
+  // tells system core dump size limit is 0
+  setrlimit(RLIMIT_CORE, &rl);
+  // tells systemd this process cannot be dumped to avoid systemd coredump override
+  prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+}
+
+/*
   Multi process runtime context stores the multiprocess task manager context which is used
   to manage the nvshmem initialization, scheduler, communicator and device memory resource.
   It also stores the whether to use shared in-memory table, and initializes the shared memory if
@@ -310,6 +330,8 @@ struct multi_process_runtime_context {
 
     if (storage_kind != "boost_shared_memory") { return; }
 
+    // with shared mem, core dumps take a long time and require sandboxing to time them out
+    disable_core_dumps();
     use_in_memory_table_multigpu = true;
 
     // Eagerly initialize the boost shared memory resource to avoid
@@ -473,7 +495,8 @@ struct base_context {
 struct context : base_context {
   context(gqe::optimization_parameters parameters,
           bool debug_mem_usage                                  = false,
-          std::optional<std::vector<std::string>> cupti_metrics = std::nullopt)
+          std::optional<std::vector<std::string>> cupti_metrics = std::nullopt,
+          bool time_breakdown                                   = false)
   {
     if (debug_mem_usage) {
       auto _mr =
@@ -498,7 +521,12 @@ struct context : base_context {
     if (cupti_metrics) {
       gqe::utility::user_range_profiler::configuration profiler_config;
       profiler_config.metrics = *cupti_metrics;
-      _profiler = std::make_unique<gqe::utility::user_range_profiler>(std::move(profiler_config));
+      _user_range_profiler =
+        std::make_unique<gqe::utility::user_range_profiler>(std::move(profiler_config));
+    }
+
+    if (time_breakdown) {
+      _activity_profiler = std::make_unique<gqe::utility::activity_profiler>();
     }
   }
 
@@ -545,7 +573,8 @@ struct context : base_context {
     py::dict profile;
 
     // Start profiling.
-    if (_profiler) { _profiler->start(); }
+    if (_user_range_profiler) { _user_range_profiler->start(); }
+    if (_activity_profiler) { _activity_profiler->start(); }
 
     // Time task graph execution
     total_duration_s += execute_and_collect_runtime(
@@ -555,13 +584,24 @@ struct context : base_context {
       });
 
     // Stop profiling.
-    if (_profiler) {
-      auto cupti_profile = _profiler->stop();
+    if (_user_range_profiler) {
+      auto cupti_profile = _user_range_profiler->stop();
 
       // Convert profile from C++ map to Python dict.
       for (auto& metric_value : cupti_profile.metric_values) {
         profile[metric_value.first.c_str()] = metric_value.second;
       }
+    }
+
+    if (_activity_profiler) {
+      auto activity_profile = _activity_profiler->stop();
+      auto time_breakdown   = gqe::utility::activity_profiler::get_time_breakdown(activity_profile);
+      profile["in_memory_read_task_s"] = time_breakdown.in_memory_read_task_s;
+      profile["compute_kernel_s"]      = time_breakdown.compute_kernel_s;
+      profile["io_kernel_s"]           = time_breakdown.io_kernel_s;
+      profile["memcpy_s"]              = time_breakdown.memcpy_s;
+      profile["mem_decompress_s"]      = time_breakdown.mem_decompress_s;
+      profile["merged_io_activity_s"]  = time_breakdown.merged_io_activity_s;
     }
 
     // Time writing the result to disk but don't add to total query runtime
@@ -581,7 +621,8 @@ struct context : base_context {
 
   std::unique_ptr<gqe::query_context> _query_ctx;
   std::unique_ptr<gqe::task_manager_context> _task_manager_ctx;
-  std::unique_ptr<gqe::utility::user_range_profiler> _profiler;
+  std::unique_ptr<gqe::utility::user_range_profiler> _user_range_profiler;
+  std::unique_ptr<gqe::utility::activity_profiler> _activity_profiler;
 };
 
 struct multi_process_context : base_context {
@@ -1267,13 +1308,15 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<lib::base_context, std::shared_ptr<lib::base_context>>(py_module, "BaseContext");
 
   py::class_<lib::context, lib::base_context, std::shared_ptr<lib::context>>(py_module, "Context")
-    .def(py::init<gqe::optimization_parameters,            // parameters
-                  bool,                                    // debug_mem_usage
-                  std::optional<std::vector<std::string>>  // cupti_metrics
+    .def(py::init<gqe::optimization_parameters,             // parameters
+                  bool,                                     // debug_mem_usage
+                  std::optional<std::vector<std::string>>,  // cupti_metrics
+                  bool                                      // time_breakdown
                   >(),
          py::arg("parameters"),
          py::arg("debug_mem_usage") = false,
-         py::arg("cupti_metrics")   = std::nullopt)
+         py::arg("cupti_metrics")   = std::nullopt,
+         py::arg("time_breakdown")  = false)
     .def("execute", &lib::context::execute)
     .def("refresh_query_context", &lib::context::refresh_query_context);
 
