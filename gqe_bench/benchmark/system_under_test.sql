@@ -172,6 +172,23 @@ CREATE TABLE gqe_run_ext(
   FOREIGN KEY (re_metric_info_id) REFERENCES gqe_metric_info(m_id)
 );
 
+-- GQE time breakdown per run.
+--
+-- A fact table that stores the CUPTI activity time breakdown for a single run.
+-- Each column corresponds to a fixed, well-defined GQE time breakdown metric.
+CREATE TABLE gqe_run_time_breakdown (
+  tb_id INTEGER PRIMARY KEY,
+  tb_experiment_id INTEGER NOT NULL,
+  tb_run_number INTEGER NOT NULL,
+  tb_in_memory_read_task_s REAL NOT NULL,
+  tb_compute_kernel_s REAL NOT NULL,
+  tb_io_kernel_s REAL NOT NULL,
+  tb_memcpy_s REAL NOT NULL,
+  tb_mem_decompress_s REAL NOT NULL,
+  tb_merged_io_activity_s REAL NOT NULL,
+  FOREIGN KEY (tb_experiment_id, tb_run_number) REFERENCES run(r_experiment_id, r_number)
+);
+
 -- GQE unioned run + failed_run view
 --
 -- This view is an intermediary used to generate other views, where all run info is desired.

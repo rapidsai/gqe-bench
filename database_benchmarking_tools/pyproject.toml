@@ -19,7 +19,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "database-benchmarking-tools"
-version = "0.0.2"
+version = "0.0.3"
 description = "Database Benchmarking Tools"
 requires-python = ">=3.12"
 dependencies = [

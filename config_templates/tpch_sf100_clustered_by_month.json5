@@ -6,6 +6,7 @@
   "plan": "/plan",
   "solution": "/solution_sf100/%d.parquet",
   "output": "/output/pbr_output.db3",
+  "time_breakdown": false,
 
   "storage_kind": ["numa_pinned_memory"],
   "identifier_type": ["int64"],
