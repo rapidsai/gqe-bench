@@ -76,6 +76,9 @@
 #include <cudf/wrappers/durations.hpp>
 
 #include <mpi.h>
+
+#include <nvcomp/shared_types.h>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
