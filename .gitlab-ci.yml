@@ -29,8 +29,26 @@ tests:
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - uv pip install --system .
     - conda install -y pytest
+    ##########################################################
+    # First run tests with public build of GQE (default).
+    ##########################################################
+    - conda install -y libnvcomp-dev=5.2.0.10
+    - uv pip install --system .
+    # Run TPC-H parameter sweep.
+    - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
+    # Run all Python tests on TPC-H parameter sweep results.
+    - pytest tests/ -v --database /tmp/gqe_experiment.db3
+    # Run TPC-H pretuned with best parameters from sweep.
+    - gqe-run-pretuned /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment.db3 --time-breakdown -o /tmp/gqe_pretuned.db3
+    # Run only Python SQLite tests on TPC-H pretuned results.
+    - pytest tests/test_experiment_views.py tests/test_experiment_tables.py -v --database /tmp/gqe_pretuned.db3
+    ##########################################################
+    # Repeat tests with private build of GQE (explicitly disable public build).
+    ##########################################################
+    - conda remove -y libnvcomp
+    - uv pip install --system . -C cmake.define.GQE_ENABLE_PUBLIC_BUILD=OFF
+    - rm /tmp/gqe_experiment.db3 /tmp/gqe_pretuned.db3
     # Run TPC-H parameter sweep.
     - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
     # Run all Python tests on TPC-H parameter sweep results.
@@ -62,7 +80,7 @@ tests_multigpu:
     # They are created in the Deploy tokens sections of these links:
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
     #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - uv pip install --system .
+    - uv pip install --system . -C cmake.define.GQE_ENABLE_PUBLIC_BUILD=OFF
     - conda install -y pytest
     # Run TPC-H parameter sweep.
     - GQE_MAX_QUERY_MEMORY=$((1*1024*1024*1024)) gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI_multigpu.json5

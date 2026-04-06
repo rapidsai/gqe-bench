@@ -13,9 +13,7 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-# build options (TODO: Update default to ON when GQE is ready for public
-# release)
-option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" OFF)
+option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" ON)
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
@@ -84,7 +82,7 @@ else()
         "https://gitlab-master.nvidia.com/Devtech-Compute/gqe.git")
   endif()
   if(NOT DEFINED GQE_GIT_TAG)
-    set(GQE_GIT_TAG "2d6a06e4c5929c09efe33f18f6ba2904d3d9b56d")
+    set(GQE_GIT_TAG "febd6937d5eacf1e21daf09c910d66e5b7298744")
   endif()
 
   message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")
