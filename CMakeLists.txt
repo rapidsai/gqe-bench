@@ -13,9 +13,7 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-# build options (TODO: Update default to ON when GQE is ready for public
-# release)
-option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" OFF)
+option(GQE_ENABLE_PUBLIC_BUILD "Enable building for external user" ON)
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
