@@ -64,6 +64,7 @@ BENCHMARK_CONFIG_DEFAULTS = {
     "use_cpu_compression": [False],
     "compression_level": [10],
     "compression_chunk_size": [2**17],
+    "decompression_backend": ["default"],
     "zone_map_partition_size": [200000],
     "load_all_data": None,
     "metrics": None,

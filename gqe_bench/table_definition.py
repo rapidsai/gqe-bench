@@ -35,6 +35,11 @@ class TableDefinitions(ABC):
     ) -> dict[str, list["gqe_bench.lib.ColumnTraits"]]:
         pass
 
+    @abstractmethod
+    def query_unique_keys(self, query_idx: int) -> dict[str, list[list[str]]]:
+        """Return per-table single-column UNIQUE / PRIMARY KEY constraints for the given query."""
+        pass
+
 
 class TPCHTableDefinitions:
     def __init__(
@@ -53,84 +58,95 @@ class TPCHTableDefinitions:
         self.string_type = gqe_bench.lib.DataType(gqe_bench.lib.TypeId.string)
         self.date_type = gqe_bench.lib.DataType(gqe_bench.lib.TypeId.timestamp_days)
 
+        # Column type definitions — no uniqueness here; see self.unique_keys below.
         self.definitions = {
             "part": {
-                "p_partkey": [self.identifier_type, [gqe_bench.lib.ColumnProperty.unique]],
-                "p_name": [self.string_type],
-                "p_mfgr": [self.string_type],
-                "p_brand": [self.string_type],
-                "p_type": [self.string_type],
-                "p_size": [self.integer_type],
-                "p_container": [self.string_type],
-                "p_retailprice": [self.decimal_type],
-                "p_comment": [self.string_type],
+                "p_partkey": self.identifier_type,
+                "p_name": self.string_type,
+                "p_mfgr": self.string_type,
+                "p_brand": self.string_type,
+                "p_type": self.string_type,
+                "p_size": self.integer_type,
+                "p_container": self.string_type,
+                "p_retailprice": self.decimal_type,
+                "p_comment": self.string_type,
             },
             "supplier": {
-                "s_suppkey": [self.identifier_type, [gqe_bench.lib.ColumnProperty.unique]],
-                "s_name": [self.string_type],
-                "s_address": [self.string_type],
-                "s_nationkey": [self.identifier_type],
-                "s_phone": [self.string_type],
-                "s_acctbal": [self.decimal_type],
-                "s_comment": [self.string_type],
+                "s_suppkey": self.identifier_type,
+                "s_name": self.string_type,
+                "s_address": self.string_type,
+                "s_nationkey": self.identifier_type,
+                "s_phone": self.string_type,
+                "s_acctbal": self.decimal_type,
+                "s_comment": self.string_type,
             },
             "partsupp": {
-                "ps_partkey": [self.identifier_type],
-                "ps_suppkey": [self.identifier_type],
-                "ps_availqty": [self.integer_type],
-                "ps_supplycost": [self.decimal_type],
-                "ps_comment": [self.string_type],
+                "ps_partkey": self.identifier_type,
+                "ps_suppkey": self.identifier_type,
+                "ps_availqty": self.integer_type,
+                "ps_supplycost": self.decimal_type,
+                "ps_comment": self.string_type,
             },
             "customer": {
-                "c_custkey": [self.identifier_type, [gqe_bench.lib.ColumnProperty.unique]],
-                "c_name": [self.string_type],
-                "c_address": [self.string_type],
-                "c_nationkey": [self.identifier_type],
-                "c_phone": [self.string_type],
-                "c_acctbal": [self.decimal_type],
-                "c_mktsegment": [self.string_type],
-                "c_comment": [self.string_type],
+                "c_custkey": self.identifier_type,
+                "c_name": self.string_type,
+                "c_address": self.string_type,
+                "c_nationkey": self.identifier_type,
+                "c_phone": self.string_type,
+                "c_acctbal": self.decimal_type,
+                "c_mktsegment": self.string_type,
+                "c_comment": self.string_type,
             },
             "orders": {
-                "o_orderkey": [self.identifier_type, [gqe_bench.lib.ColumnProperty.unique]],
-                "o_custkey": [self.identifier_type],
-                "o_orderstatus": [self.char_type],
-                "o_totalprice": [self.decimal_type],
-                "o_orderdate": [self.date_type],
-                "o_orderpriority": [self.string_type],
-                "o_clerk": [self.string_type],
-                "o_shippriority": [self.integer_type],
-                "o_comment": [self.string_type],
+                "o_orderkey": self.identifier_type,
+                "o_custkey": self.identifier_type,
+                "o_orderstatus": self.char_type,
+                "o_totalprice": self.decimal_type,
+                "o_orderdate": self.date_type,
+                "o_orderpriority": self.string_type,
+                "o_clerk": self.string_type,
+                "o_shippriority": self.integer_type,
+                "o_comment": self.string_type,
             },
             "lineitem": {
-                "l_orderkey": [self.identifier_type],
-                "l_partkey": [self.identifier_type],
-                "l_suppkey": [self.identifier_type],
-                "l_linenumber": [self.integer_type],
-                "l_quantity": [self.decimal_type],
-                "l_extendedprice": [self.decimal_type],
-                "l_discount": [self.decimal_type],
-                "l_tax": [self.decimal_type],
-                "l_returnflag": [self.char_type],
-                "l_linestatus": [self.char_type],
-                "l_shipdate": [self.date_type],
-                "l_commitdate": [self.date_type],
-                "l_receiptdate": [self.date_type],
-                "l_shipinstruct": [self.string_type],
-                "l_shipmode": [self.string_type],
-                "l_comment": [self.string_type],
+                "l_orderkey": self.identifier_type,
+                "l_partkey": self.identifier_type,
+                "l_suppkey": self.identifier_type,
+                "l_linenumber": self.integer_type,
+                "l_quantity": self.decimal_type,
+                "l_extendedprice": self.decimal_type,
+                "l_discount": self.decimal_type,
+                "l_tax": self.decimal_type,
+                "l_returnflag": self.char_type,
+                "l_linestatus": self.char_type,
+                "l_shipdate": self.date_type,
+                "l_commitdate": self.date_type,
+                "l_receiptdate": self.date_type,
+                "l_shipinstruct": self.string_type,
+                "l_shipmode": self.string_type,
+                "l_comment": self.string_type,
             },
             "nation": {
-                "n_nationkey": [self.identifier_type, [gqe_bench.lib.ColumnProperty.unique]],
-                "n_name": [self.string_type],
-                "n_regionkey": [self.identifier_type],
-                "n_comment": [self.string_type],
+                "n_nationkey": self.identifier_type,
+                "n_name": self.string_type,
+                "n_regionkey": self.identifier_type,
+                "n_comment": self.string_type,
             },
             "region": {
-                "r_regionkey": [self.identifier_type, [gqe_bench.lib.ColumnProperty.unique]],
-                "r_name": [self.string_type],
-                "r_comment": [self.string_type],
+                "r_regionkey": self.identifier_type,
+                "r_name": self.string_type,
+                "r_comment": self.string_type,
             },
+        }
+
+        # Per-table single-column PRIMARY KEY / UNIQUE constraints.
+        self.unique_keys: dict[str, list[list[str]]] = {
+            "part": [["p_partkey"]],
+            "supplier": [["s_suppkey"]],
+            "customer": [["c_custkey"]],
+            "orders": [["o_orderkey"]],
+            "nation": [["n_nationkey"]],
+            "region": [["r_regionkey"]],
         }
 
     def get_column_types(
@@ -139,17 +155,35 @@ class TPCHTableDefinitions:
         definitions = {}
         for table, columns in tables.items():
             definitions[table] = [
-                gqe_bench.lib.ColumnTraits(col, *self.definitions[table][col]) for col in columns
+                gqe_bench.lib.ColumnTraits(col, self.definitions[table][col]) for col in columns
             ]
         return definitions
 
     def query_table_definitions(
         self, query_idx: int
     ) -> dict[str, list["gqe_bench.lib.ColumnTraits"]]:
-        """Return the tables and and columns (encoded as C++ ColumnTraits) requrired by a query."""
+        """Return the tables and columns (encoded as C++ ColumnTraits) required by a query."""
 
         schema = self.get_schema(query_idx)
         return self.get_column_types(schema)
+
+    def query_unique_keys(self, query_idx: int) -> dict[str, list[list[str]]]:
+        """Return unique key-sets for the tables used by the given query.
+
+        Only includes tables present in the query schema. Keys whose columns were
+        pruned out of the query's column list are dropped (defensive; doesn't happen
+        in practice for TPC-H since PK columns are always selected).
+        """
+        schema = self.get_schema(query_idx)
+        result = {}
+        for table, columns in schema.items():
+            if table not in self.unique_keys:
+                continue
+            col_set = set(columns)
+            valid_keys = [key for key in self.unique_keys[table] if all(c in col_set for c in key)]
+            if valid_keys:
+                result[table] = valid_keys
+        return result
 
     def get_schema(self, query_idx: int) -> dict[str, list[str]]:
         """Return column and table names required by a query."""
@@ -475,78 +509,66 @@ mapping_parse_type_to_gqe_type = {
 
 class CustomTableDefinitions(TableDefinitions):
     def __init__(self, ddl_file_path: str):
-        self.definitions = self.parse_table_definitions(ddl_file_path)
+        self.definitions, self.unique_keys = self.parse_table_definitions(ddl_file_path)
 
     def query_table_definitions(
         self, query_idx: int
     ) -> dict[str, list["gqe_bench.lib.ColumnTraits"]]:
         return {
-            table: [
-                gqe_bench.lib.ColumnTraits(col, *type_traits) for col, type_traits in cols.items()
-            ]
+            table: [gqe_bench.lib.ColumnTraits(col, data_type) for col, data_type in cols.items()]
             for table, cols in self.definitions.items()
         }
 
-    def get_single_column_identifiers(
-        self, expression: sqlglot.exp.Expression, column_names: list[str]
-    ):
-        column_identifiers = expression.find_all(sqlglot.exp.Identifier)
-        column_names_cur = [col.name.lower() for col in column_identifiers]
-        # Composite column uniqueness (ex. UNIQUE (a,b) ) is not supported by GQE yet.
-        # So, we only add the column name if it is a single column.
-        if len(column_names_cur) == 1:
-            column_names.append(column_names_cur[0])
+    def query_unique_keys(self, query_idx: int) -> dict[str, list[list[str]]]:
+        return self.unique_keys
 
-    def parse_table_definitions(self, ddl_file_path: str) -> dict[str, dict[str, str]]:
-        # Parse the DDL file contents into statements (safe: use file contents, not path)
+    def parse_table_definitions(
+        self, ddl_file_path: str
+    ) -> tuple[dict[str, dict[str, "gqe_bench.lib.DataType"]], dict[str, list[list[str]]]]:
         with open(ddl_file_path, "r", encoding="utf-8") as f:
             ddl_text = f.read()
         statements = sqlglot.parse(ddl_text)
-        table_definitions = {}
+        table_definitions: dict[str, dict[str, gqe_bench.lib.DataType]] = {}
+        unique_keys: dict[str, list[list[str]]] = {}
+
         for statement in statements:
-            # Assume there should be only one table per statement
             table_name = statement.find(sqlglot.exp.Table).name.lower()
 
-            column_names = []
-            column_types = []
-            unique_column_names = []
+            column_names: list[str] = []
+            column_types: list[gqe_bench.lib.DataType] = []
+            table_unique_keys: list[list[str]] = []
 
-            # This parses all column level options
-            # [column name] [data type] {NULL | NOT NULL} {column options}
             for column in statement.find_all(sqlglot.exp.ColumnDef):
-                column_names.append(column.name.lower())
+                col_name = column.name.lower()
+                column_names.append(col_name)
                 column_types.append(
                     mapping_parse_type_to_gqe_type[column.args.get("kind").this.name.upper()]
                 )
-
                 for constraint in column.constraints:
-                    if str(constraint).upper() == "UNIQUE":
-                        unique_column_names.append(column.name.lower())
-                    if str(constraint).upper() == "PRIMARY KEY":
-                        unique_column_names.append(column.name.lower())
+                    constraint_str = str(constraint).upper()
+                    if constraint_str in ("UNIQUE", "PRIMARY KEY"):
+                        table_unique_keys.append([col_name])
 
-            # This parses the primary key constraint
-            #  PRIMARY KEY (column name [, column name ...])
-            #  CONSTRAINT [constraint name] PRIMARY KEY (column name [, column name ...])
+            # Table-level PRIMARY KEY (col). Multi-column keys are not supported.
             for primary_key_expression in statement.find_all(sqlglot.exp.PrimaryKey):
-                self.get_single_column_identifiers(primary_key_expression, unique_column_names)
+                idents = [
+                    ident.name.lower()
+                    for ident in primary_key_expression.find_all(sqlglot.exp.Identifier)
+                ]
+                if len(idents) == 1:
+                    table_unique_keys.append(idents)
 
-            # This parses the unique column constraint
-            #  CONSTRAINT [constraint name] UNIQUE (column name [, column name ...])
+            # Table-level CONSTRAINT ... UNIQUE (col). Multi-column keys are not supported.
             for unique_key_expression in statement.find_all(sqlglot.exp.UniqueColumnConstraint):
-                self.get_single_column_identifiers(unique_key_expression, unique_column_names)
+                idents = [
+                    ident.name.lower()
+                    for ident in unique_key_expression.find_all(sqlglot.exp.Identifier)
+                ]
+                if len(idents) == 1:
+                    table_unique_keys.append(idents)
 
-            # If the column is in the unique column names, we attach the unique column property to table definition
-            table_definitions[table_name] = {}
-            for column in column_names:
-                if column in unique_column_names:
-                    table_definitions[table_name][column] = [
-                        column_types[column_names.index(column)],
-                        [gqe_bench.lib.ColumnProperty.unique],
-                    ]
-                else:
-                    table_definitions[table_name][column] = [
-                        column_types[column_names.index(column)]
-                    ]
+            table_definitions[table_name] = dict(zip(column_names, column_types))
+            if table_unique_keys:
+                unique_keys[table_name] = table_unique_keys
 
-        return table_definitions
+        return table_definitions, unique_keys

@@ -57,6 +57,7 @@ CREATE TABLE gqe_data_info_ext(
   de_secondary_compression_format TEXT NOT NULL,
   de_secondary_compression_ratio_threshold REAL NOT NULL,
   de_secondary_compression_multiplier_threshold REAL NOT NULL,
+  de_decompression_backend TEXT NOT NULL,
   de_use_cpu_compression INTEGER NOT NULL,
   de_compression_level INTEGER NOT NULL,
   UNIQUE (
@@ -69,6 +70,7 @@ CREATE TABLE gqe_data_info_ext(
     de_secondary_compression_format,
     de_secondary_compression_ratio_threshold,
     de_secondary_compression_multiplier_threshold,
+    de_decompression_backend,
     de_use_cpu_compression,
     de_compression_level
   ),
@@ -189,6 +191,77 @@ CREATE TABLE gqe_run_time_breakdown (
   FOREIGN KEY (tb_experiment_id, tb_run_number) REFERENCES run(r_experiment_id, r_number)
 );
 
+-- GQE raw CUPTI activity events per run.
+--
+-- The CUPTI activity timeline is stored as one fact table per event type so
+-- that every column on every row is meaningful. Compared to
+-- gqe_run_time_breakdown which stores aggregated durations, these tables
+-- preserve the full event timeline so that arbitrary breakdowns can be
+-- reconstructed and analyzed offline.
+--
+-- All event tables share the same (experiment_id, run_number, gpu_info_id,
+-- start_time, end_time) columns. start_time / end_time are CUPTI timestamps in
+-- nanoseconds. gpu_info_id attributes the event to the physical GPU that
+-- emitted it, so multi-GPU runs can be analysed per-device. Per-type tables
+-- carry only the fields that are meaningful for that event type, and gain new
+-- fields independently as more CUPTI activity attributes are captured.
+
+-- CUpti_ActivityKernel (concurrent kernel) events per run.
+CREATE TABLE gqe_run_cupti_kernel_activity (
+  ka_id INTEGER PRIMARY KEY,
+  ka_experiment_id INTEGER NOT NULL,
+  ka_run_number INTEGER NOT NULL,
+  ka_gpu_info_id INTEGER NOT NULL,
+  ka_name TEXT NOT NULL,
+  ka_start_time INTEGER NOT NULL,
+  ka_end_time INTEGER NOT NULL,
+  FOREIGN KEY (ka_experiment_id, ka_run_number) REFERENCES run(r_experiment_id, r_number),
+  FOREIGN KEY (ka_gpu_info_id) REFERENCES gpu_info(g_id)
+);
+
+-- CUpti_ActivityMemcpy events per run.
+-- mca_memcpy_kind carries the CUpti_ActivityMemcpyKind value.
+-- mca_bytes is the number of bytes transferred by the memcpy.
+CREATE TABLE gqe_run_cupti_memcpy_activity (
+  mca_id INTEGER PRIMARY KEY,
+  mca_experiment_id INTEGER NOT NULL,
+  mca_run_number INTEGER NOT NULL,
+  mca_gpu_info_id INTEGER NOT NULL,
+  mca_memcpy_kind INTEGER NOT NULL,
+  mca_bytes INTEGER NOT NULL,
+  mca_start_time INTEGER NOT NULL,
+  mca_end_time INTEGER NOT NULL,
+  FOREIGN KEY (mca_experiment_id, mca_run_number) REFERENCES run(r_experiment_id, r_number),
+  FOREIGN KEY (mca_gpu_info_id) REFERENCES gpu_info(g_id)
+);
+
+-- CUpti_ActivityMarker (NVTX range) events per run.
+CREATE TABLE gqe_run_cupti_marker_activity (
+  mra_id INTEGER PRIMARY KEY,
+  mra_experiment_id INTEGER NOT NULL,
+  mra_run_number INTEGER NOT NULL,
+  mra_gpu_info_id INTEGER NOT NULL,
+  mra_name TEXT NOT NULL,
+  mra_start_time INTEGER NOT NULL,
+  mra_end_time INTEGER NOT NULL,
+  FOREIGN KEY (mra_experiment_id, mra_run_number) REFERENCES run(r_experiment_id, r_number),
+  FOREIGN KEY (mra_gpu_info_id) REFERENCES gpu_info(g_id)
+);
+
+-- CUpti_ActivityMemDecompress events per run.
+-- mda_source_bytes is the number of bytes read and decompressed in the batch operation.
+CREATE TABLE gqe_run_cupti_mem_decompress_activity (
+  mda_id INTEGER PRIMARY KEY,
+  mda_experiment_id INTEGER NOT NULL,
+  mda_run_number INTEGER NOT NULL,
+  mda_gpu_info_id INTEGER NOT NULL,
+  mda_source_bytes INTEGER NOT NULL,
+  mda_start_time INTEGER NOT NULL,
+  mda_end_time INTEGER NOT NULL,
+  FOREIGN KEY (mda_experiment_id, mda_run_number) REFERENCES run(r_experiment_id, r_number),
+  FOREIGN KEY (mda_gpu_info_id) REFERENCES gpu_info(g_id)
+);
+
 -- GQE unioned run + failed_run view
 --
 -- This view is an intermediary used to generate other views, where all run info is desired.
@@ -217,6 +290,10 @@ CREATE VIEW gqe_run_parameters AS
                 ;
 
 -- All information about a GQE run.
+--
+-- Note: this view fans out across the GPUs an experiment ran on. An
+-- experiment that used N GPUs produces N rows per run, one per GPU. Aggregate
+-- (e.g. GROUP BY r_experiment_id, r_number) if you want per-run totals.
 CREATE VIEW gqe_run_all_info AS
   SELECT * FROM
     _gqe_all_runs
@@ -224,7 +301,9 @@ CREATE VIEW gqe_run_all_info AS
          JOIN sut_info ON s_id = e_sut_info_id
          JOIN gqe_parameters ON gqe_parameters.p_id = e_parameters_id
              AND gqe_parameters.p_sut_info_id = e_sut_info_id
-         JOIN hw_info ON h_id = e_hw_info_id
+         JOIN experiment_gpu ON eg_experiment_id = experiment.e_id
+         JOIN gpu_info ON g_id = eg_gpu_info_id
+         JOIN hw_info ON h_id = g_hw_info_id
          JOIN data_info ON d_id = e_data_info_id
          JOIN gqe_data_info_ext ON de_id = e_data_info_ext_id
          JOIN build_info ON b_id = e_build_info_id
@@ -269,6 +348,7 @@ CREATE VIEW _gqe_data_base_view AS
       de_secondary_compression_format,
       de_secondary_compression_ratio_threshold,
       de_secondary_compression_multiplier_threshold,
+      de_decompression_backend,
       de_use_cpu_compression,
       de_compression_level,
       avg(r_duration_s) AS r_avg_duration_s,
@@ -316,6 +396,7 @@ CREATE VIEW _gqe_data_base_view AS
       de_secondary_compression_format,
       de_secondary_compression_ratio_threshold,
       de_secondary_compression_multiplier_threshold,
+      de_decompression_backend,
       de_use_cpu_compression,
       de_compression_level;
 

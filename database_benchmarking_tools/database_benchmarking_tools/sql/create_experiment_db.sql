@@ -38,8 +38,8 @@ INSERT INTO sut_info(s_id, s_name) VALUES (5993586517390597806, 'cuda');
 
 -- Hardware information
 --
--- A dimension table that describes the hardware and system environment in which
--- the experiment is conducted.
+-- A dimension table that describes the host (CPU + OS + driver) on which the
+-- experiment is conducted.
 CREATE TABLE hw_info(
   h_id INTEGER PRIMARY KEY,
   -- Hostname.
@@ -54,31 +54,23 @@ CREATE TABLE hw_info(
   h_cpu_physical_cores INTEGER,
   -- CPU logical cores (optional).
   h_cpu_logical_cores INTEGER,
-  -- GPU product name (optional).
-  h_gpu_product_name TEXT,
   -- System driver version (optional).
+  --
+  -- Host-wide and shared by all GPUs on the host, so it lives here rather than
+  -- in `gpu_info`.
   h_nvidia_driver_version TEXT,
   -- CUDA driver version (optional).
-  h_cuda_version TEXT,
-  -- PCIe link generation (optional).
-  h_gpu_pcie_link_generation INTEGER,
-  -- Number of GPU CUDA cores (optional).
-  h_gpu_cuda_cores INTEGER,
-  -- SM maximum clock rate in MHz (optional).
-  h_gpu_max_clock_sm_mhz INTEGER,
-  -- Memory maximum clock rate in MHz (optional).
-  h_gpu_max_clock_memory_mhz INTEGER,
-  -- Total number of ECC memory errors detected by the GPU (optional).
   --
-  -- Sanity check to detect faulty hardware.
-  h_gpu_ecc_errors INTEGER,
+  -- Host-wide and shared by all GPUs on the host, so it lives here rather than
+  -- in `gpu_info`.
+  h_cuda_version TEXT,
   -- Operating system name (optional).
   -- (e.g., "linux", "windows", "darwin")
   h_system TEXT,
   -- Operating system kernel version (optional).
   -- (e.g., "6.11.0-17-generic")
   h_os_kernel_version TEXT,
-  -- Each system (i.e., hardware + OS) should be unique within the experiment
+  -- Each host (i.e., CPU + driver + OS) should be unique within the experiment
   -- database.
   UNIQUE (
     h_hostname,
@@ -87,16 +79,47 @@ CREATE TABLE hw_info(
     h_cpu_clock_mhz,
     h_cpu_physical_cores,
     h_cpu_logical_cores,
-    h_gpu_product_name,
     h_nvidia_driver_version,
     h_cuda_version,
-    h_gpu_pcie_link_generation,
-    h_gpu_max_clock_sm_mhz,
-    h_gpu_max_clock_memory_mhz,
-    h_gpu_ecc_errors,
     h_system,
     h_os_kernel_version
   )
+);
+
+-- GPU information
+--
+-- A dimension table describing a single physical GPU attached to a host. A
+-- host (`hw_info`) may have N GPUs, and each `gpu_info` row is a child of
+-- exactly one `hw_info` row.
+--
+-- The natural identity of a physical GPU is its UUID (`g_uuid`, returned
+-- by `nvmlDeviceGetUUID`).
+CREATE TABLE gpu_info(
+  -- Note: g_id is not tied to the GPU properties, it is surrogate key.
+  g_id INTEGER PRIMARY KEY,
+  -- Host this GPU is attached to.
+  g_hw_info_id INTEGER NOT NULL,
+  -- Canonical GPU UUID; uniquely identifies the underlying physical device.
+  g_uuid TEXT NOT NULL,
+  -- GPU product name (optional).
+  g_product_name TEXT,
+  -- PCIe link generation (optional).
+  g_pcie_link_generation INTEGER,
+  -- Number of GPU CUDA cores (optional).
+  g_cuda_cores INTEGER,
+  -- SM maximum clock rate in MHz (optional).
+  g_max_clock_sm_mhz INTEGER,
+  -- Memory maximum clock rate in MHz (optional).
+  g_max_clock_memory_mhz INTEGER,
+  -- Total number of ECC memory errors detected by the GPU (optional).
+  --
+  -- Sanity check to detect faulty hardware.
+  g_ecc_errors INTEGER,
+  -- A physical GPU is uniquely identified by its UUID, scoped to the host
+  -- it lives on. (UUIDs are globally unique by construction; the host
+  -- prefix is included for symmetry with the parent FK.)
+  UNIQUE (g_hw_info_id, g_uuid),
+  FOREIGN KEY (g_hw_info_id) REFERENCES hw_info(h_id)
 );
 
 -- Build information
@@ -201,8 +224,6 @@ CREATE TABLE experiment(
   e_sut_info_id INTEGER NOT NULL,
   -- Reference to system-under-test parameters (optional).
   e_parameters_id INTEGER,
-  -- Reference to hardware information (optional).
-  e_hw_info_id INTEGER,
   -- Reference to build information (optional).
   e_build_info_id INTEGER,
   -- Reference to data information (optional).
@@ -220,10 +241,28 @@ CREATE TABLE experiment(
   -- Timezone of the data and time virtual columns (virtual column).
   e_timezone TEXT AS ('PST'),
   FOREIGN KEY (e_sut_info_id) REFERENCES sut_info(s_id),
-  FOREIGN KEY (e_hw_info_id) REFERENCES hw_info(h_id),
   FOREIGN KEY (e_build_info_id) REFERENCES build_info(b_id),
   FOREIGN KEY (e_data_info_id) REFERENCES data_info(d_id),
   FOREIGN KEY (e_query_info_id) REFERENCES query_info(q_id)
+);
+
+-- Association between an experiment and the GPUs it ran on.
+--
+-- Many-to-many junction: an experiment may use multiple GPUs (multi-process /
+-- multi-GPU runs), and a single GPU is usually used by many experiments.
+CREATE TABLE experiment_gpu(
+  eg_experiment_id INTEGER NOT NULL,
+  eg_gpu_info_id INTEGER NOT NULL,
+  -- CUDA device index that the experiment used to bind this GPU. Lives here
+  -- (rather than on `gpu_info`) because the same physical GPU can map to a
+  -- different CUDA index in a different experiment, e.g. when
+  -- `CUDA_VISIBLE_DEVICES` is permuted across experiments. Note that this
+  -- index may differ from the index reported by `nvidia-smi` whenever
+  -- `CUDA_VISIBLE_DEVICES`, MIG, or container runtimes are in use.
+  eg_cuda_index INTEGER NOT NULL,
+  PRIMARY KEY (eg_experiment_id, eg_gpu_info_id),
+  FOREIGN KEY (eg_experiment_id) REFERENCES experiment(e_id),
+  FOREIGN KEY (eg_gpu_info_id) REFERENCES gpu_info(g_id)
 );
 
 -- An experiment run

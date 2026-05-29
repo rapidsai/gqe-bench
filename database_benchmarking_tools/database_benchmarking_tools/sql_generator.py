@@ -46,6 +46,26 @@ def insert_natural_key(cursor: sqlite3.Cursor, entry):
     cursor.execute(sql, asdict(entry))
 
 
+def insert_many_natural_key(cursor: sqlite3.Cursor, entries):
+    # Batch version of `insert_natural_key` using `executemany`.
+
+    # `entries` is any iterable of dataclass instances of the same type.
+    # No `RETURNING` clause (not needed for natural-key tables, and `executemany` doesn't support it).
+    iterator = iter(entries)
+    try:
+        first = next(iterator)
+    except StopIteration:
+        return
+    sql = f"INSERT INTO { first._table_name } (\n" + _get_insert_body(cursor, first)
+
+    def _all_rows():
+        yield asdict(first)
+        for e in iterator:
+            yield asdict(e)
+
+    cursor.executemany(sql, _all_rows())
+
+
 def insert_or_ignore(cursor: sqlite3.Cursor, entry):
     # There is a UNIQUE constraint, so we IGNORE if the row already exists.
     #

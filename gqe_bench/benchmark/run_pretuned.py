@@ -278,6 +278,7 @@ def main():
             secondary_compression_multiplier_threshold = best_parameter[
                 "de_secondary_compression_multiplier_threshold"
             ]
+            decompression_backend = best_parameter["de_decompression_backend"]
             use_cpu_compression = best_parameter["de_use_cpu_compression"]
             compression_level = best_parameter["de_compression_level"]
             compression_chunk_size = best_parameter["de_compression_chunk_size"]
@@ -309,6 +310,7 @@ def main():
                 secondary_compression_format=secondary_compression_format,
                 secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
+                decompression_backend=decompression_backend,
                 use_cpu_compression=use_cpu_compression,
                 compression_level=compression_level,
                 compression_chunk_size=compression_chunk_size,
@@ -378,6 +380,7 @@ def main():
                 secondary_compression_format,
                 secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold,
+                decompression_backend,
                 use_cpu_compression,
                 compression_level,
             )
@@ -436,7 +439,7 @@ def main():
         return errors_local, invalid_results_local
 
     with edb_config as edb:
-        edb_info = setup_db(edb)
+        edb_info = setup_db(edb, num_ranks=args.num_ranks)
     errors, invalid_results = run_all(edb_info)
 
     print(f"Finished SQLite file at {edb_file}")

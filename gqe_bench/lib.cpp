@@ -56,6 +56,7 @@
 #include <gqe/physical/user_defined.hpp>
 #include <gqe/physical/write.hpp>
 #include <gqe/query_context.hpp>
+#include <gqe/storage/compression.hpp>
 #include <gqe/task_manager_context.hpp>
 #include <gqe/types.hpp>
 #include <gqe/utility/cupti_activity.hpp>
@@ -75,7 +76,9 @@
 #include <cudf/types.hpp>
 #include <cudf/wrappers/durations.hpp>
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
 #include <mpi.h>
+#endif
 
 #include <nvcomp/shared_types.h>
 
@@ -90,7 +93,10 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
+#include <format>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <sys/prctl.h>
@@ -100,25 +106,63 @@ namespace py = pybind11;
 
 namespace lib {
 
+// RAII guard that calls `.start()` on construction and `.stop()` on destruction.
+// Works with any profiler providing `.start()` and `.stop()` methods.
+// An explicit `stop()` is provided for the normal path so the caller can use the
+// return value; the destructor becomes a no-op if already stopped.
+template <typename Profiler>
+class cupti_profiler_guard {
+ public:
+  explicit cupti_profiler_guard(Profiler& profiler) : _profiler(profiler) { _profiler.start(); }
+
+  ~cupti_profiler_guard() noexcept
+  {
+    if (!_stopped) {
+      try {
+        _profiler.stop();
+      } catch (std::exception const& e) {
+        GQE_LOG_WARN("Profiler stop failed during cleanup: {}", e.what());
+      } catch (...) {
+      }
+    }
+  }
+
+  cupti_profiler_guard(cupti_profiler_guard const&)            = delete;
+  cupti_profiler_guard& operator=(cupti_profiler_guard const&) = delete;
+
+  auto stop()
+  {
+    _stopped = true;
+    return _profiler.stop();
+  }
+
+ private:
+  Profiler& _profiler;
+  bool _stopped = false;
+};
+
 std::shared_ptr<gqe::physical::relation> read(std::string table_name,
                                               std::vector<std::string> column_names,
                                               gqe::expression const* partial_filter,
                                               std::vector<gqe::column_traits> column_defs)
 {
   std::unordered_map<std::string, cudf::data_type> columns;
-  for (auto const& [column_name, type, column_properties] : column_defs) {
+  for (auto const& [column_name, type] : column_defs) {
     columns.insert({column_name, type});
   }
+  if (columns.empty() && !column_names.empty()) {
+    throw std::logic_error(
+      std::format("Column definitions must be provided for read relation on table \"{}\" "
+                  "because the task graph builder requires data types for each column",
+                  table_name));
+  }
   std::vector<cudf::data_type> data_types;
-  if (!columns.empty()) {
-    // if column_defs is given, we need to check whether column names are in it
-    for (const auto& name : column_names) {
-      if (columns.count(name)) {
-        data_types.push_back(columns[name]);
-      } else {
-        throw std::logic_error("unable to find column name " + name + " in the " + table_name +
-                               " table definition");
-      }
+  for (const auto& name : column_names) {
+    if (columns.count(name)) {
+      data_types.push_back(columns[name]);
+    } else {
+      throw std::logic_error(std::format(
+        "Unable to find column \"{}\" in the \"{}\" table definition", name, table_name));
     }
   }
   return std::make_shared<gqe::physical::read_relation>(
@@ -281,6 +325,7 @@ std::shared_ptr<gqe::physical::relation> union_all(std::shared_ptr<gqe::physical
   return std::make_shared<gqe::physical::union_all_relation>(std::move(lhs), std::move(rhs));
 }
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
 void mpi_init() { GQE_MPI_TRY(MPI_Init(nullptr, nullptr)); }
 
 int mpi_rank()
@@ -293,6 +338,17 @@ int mpi_rank()
 void mpi_finalize() { GQE_MPI_TRY(MPI_Finalize()); }
 
 void mpi_barrier() { GQE_MPI_TRY(MPI_Barrier(MPI_COMM_WORLD)); }
+
+// Broadcast a 64-bit integer from `root` to all ranks. The benchmark uses this
+// to share SQLite-assigned ids (e.g. the freshly inserted experiment_id) from
+// the root rank to non-root ranks so that every rank can write its own
+// per-rank rows tagged with the same id.
+int64_t mpi_bcast_int64(int64_t value, int root)
+{
+  GQE_MPI_TRY(MPI_Bcast(&value, 1, MPI_INT64_T, root, MPI_COMM_WORLD));
+  return value;
+}
+#endif
 
 /*
  * In some cases, we spend far too long doing core dumps.
@@ -311,6 +367,7 @@ void disable_core_dumps()
   prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
 }
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
 /*
   Multi process runtime context stores the multiprocess task manager context which is used
   to manage the nvshmem initialization, scheduler, communicator and device memory resource.
@@ -408,12 +465,17 @@ void share_statistics_interprocess(
     }
   }
 }
+#endif  // GQE_ENABLE_MULTI_PROCESS
 
 std::shared_ptr<gqe::physical::relation> load_substrait(
   gqe::catalog* catalog,
   std::string substrait_file,
-  bool optimize                                                                 = true,
-  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr)
+  bool optimize = true
+#ifdef GQE_ENABLE_MULTI_PROCESS
+  ,
+  std::shared_ptr<lib::multi_process_runtime_context> multi_process_runtime_ctx = nullptr
+#endif
+)
 {
   gqe::substrait_parser parser(catalog);
   auto logical_plan_vector = parser.from_file(substrait_file);
@@ -437,10 +499,12 @@ std::shared_ptr<gqe::physical::relation> load_substrait(
     GQE_LOG_TRACE("Optimized logical plan: \n {}", logical_plan->to_string());
   }
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
   if (multi_process_runtime_ctx && multi_process_runtime_ctx->use_in_memory_table_multigpu) {
     GQE_LOG_TRACE("Sharing statistics among processes");
     share_statistics_interprocess(catalog, multi_process_runtime_ctx);
   }
+#endif
 
   gqe::physical_plan_builder plan_builder(catalog);
   auto physical_plan = plan_builder.build(logical_plan.get());
@@ -575,9 +639,13 @@ struct context : base_context {
     // Initialize profile result outside of measurement range.
     py::dict profile;
 
-    // Start profiling.
-    if (_user_range_profiler) { _user_range_profiler->start(); }
-    if (_activity_profiler) { _activity_profiler->start(); }
+    // RAII guards ensure profilers are stopped even if execution throws.
+    // On the normal path, stop() is called explicitly to collect results.
+    // On the exception path, the destructor stops the profiler and logs a warning.
+    std::optional<cupti_profiler_guard<gqe::utility::user_range_profiler>> range_guard;
+    std::optional<cupti_profiler_guard<gqe::utility::activity_profiler>> activity_guard;
+    if (_user_range_profiler) { range_guard.emplace(*_user_range_profiler); }
+    if (_activity_profiler) { activity_guard.emplace(*_activity_profiler); }
 
     // Time task graph execution
     total_duration_s += execute_and_collect_runtime(
@@ -586,18 +654,27 @@ struct context : base_context {
           gqe::context_reference{_task_manager_ctx.get(), _query_ctx.get()}, task_graph.get());
       });
 
+    // Collect and update write statistics in the catalog.
+    if (relation->type() == gqe::physical::relation::relation_type::write &&
+        task_graph->write_statistics) {
+      auto* write_rel = static_cast<gqe::physical::write_relation*>(relation.get());
+      catalog->statistics(write_rel->table_name())
+        ->append_table_statistics(task_graph->write_statistics->statistics());
+    }
+
     // Stop profiling.
-    if (_user_range_profiler) {
-      auto cupti_profile = _user_range_profiler->stop();
+    if (range_guard) {
+      auto cupti_profile = range_guard->stop();
 
       // Convert profile from C++ map to Python dict.
       for (auto& metric_value : cupti_profile.metric_values) {
         profile[metric_value.first.c_str()] = metric_value.second;
       }
     }
-
-    if (_activity_profiler) {
-      auto activity_profile = _activity_profiler->stop();
+    // Raw CUPTI activity records collected during the measurement window.
+    py::object activity_records_obj = py::none();
+    if (activity_guard) {
+      auto activity_profile = activity_guard->stop();
       auto time_breakdown   = gqe::utility::activity_profiler::get_time_breakdown(activity_profile);
       profile["in_memory_read_task_s"] = time_breakdown.in_memory_read_task_s;
       profile["compute_kernel_s"]      = time_breakdown.compute_kernel_s;
@@ -605,6 +682,7 @@ struct context : base_context {
       profile["memcpy_s"]              = time_breakdown.memcpy_s;
       profile["mem_decompress_s"]      = time_breakdown.mem_decompress_s;
       profile["merged_io_activity_s"]  = time_breakdown.merged_io_activity_s;
+      activity_records_obj             = py::cast(std::move(activity_profile));
     }
 
     // Time writing the result to disk but don't add to total query runtime
@@ -618,7 +696,8 @@ struct context : base_context {
         });
     }
 
-    py::tuple performance = py::make_tuple(total_duration_s, stage_durations, profile);
+    py::tuple performance =
+      py::make_tuple(total_duration_s, stage_durations, profile, activity_records_obj);
     return performance;
   }
 
@@ -628,6 +707,7 @@ struct context : base_context {
   std::unique_ptr<gqe::utility::activity_profiler> _activity_profiler;
 };
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
 struct multi_process_context : base_context {
   multi_process_context(std::shared_ptr<lib::multi_process_runtime_context> runtime_ctx,
                         gqe::optimization_parameters parameters,
@@ -732,6 +812,14 @@ struct multi_process_context : base_context {
           gqe::context_reference{_task_manager_ctx, _query_ctx.get()}, task_graph.get());
       });
 
+    // Collect and update write statistics in the catalog.
+    if (relation->type() == gqe::physical::relation::relation_type::write &&
+        task_graph->write_statistics) {
+      auto* write_rel = static_cast<gqe::physical::write_relation*>(relation.get());
+      catalog->statistics(write_rel->table_name())
+        ->append_table_statistics(task_graph->write_statistics->statistics());
+    }
+
     // Output the result to disk
     if (output_path && _task_manager_ctx->comm->rank() == 0) {
       execute_and_collect_times_mpi(stage_starts,
@@ -759,7 +847,11 @@ struct multi_process_context : base_context {
       auto local_stage = stage_durs[i];
       if (local_stage.first != stage::output_generation) { elapsed_time_s += local_stage.second; }
     }
-    py::tuple performance = py::make_tuple(elapsed_time_s, py_stage_durs, py::none());
+    // The 4th element matches the single-process tuple shape and would carry
+    // raw CUPTI activity_records when the activity profiler is enabled. CUPTI
+    // activity profiling is not supported for multi-process yet, so return
+    // None here.
+    py::tuple performance = py::make_tuple(elapsed_time_s, py_stage_durs, py::none(), py::none());
 
     return performance;
   }
@@ -768,19 +860,25 @@ struct multi_process_context : base_context {
   std::unique_ptr<gqe::query_context> _query_ctx;
   gqe::multi_process_task_manager_context* _task_manager_ctx;
 };
+#endif  // GQE_ENABLE_MULTI_PROCESS
 
 void register_tables_parquet(
   gqe::catalog* catalog,
   std::string dataset_location,
-  std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions)
+  std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
+  std::unordered_map<std::string, std::vector<std::vector<std::string>>> unique_keys = {})
 {
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
+    auto it               = unique_keys.find(name);
+    auto const& uks =
+      (it != unique_keys.end()) ? it->second : std::vector<std::vector<std::string>>{};
 
     catalog->register_table(name,
                             definition,
                             gqe::storage_kind::parquet_file{file_paths},
-                            gqe::partitioning_schema_kind::automatic{});
+                            gqe::partitioning_schema_kind::automatic{},
+                            uks);
   }
 }
 
@@ -824,18 +922,21 @@ void register_table_in_memory(lib::base_context* ctx,
                               std::string name,
                               std::vector<gqe::column_traits> const& definition,
                               std::vector<std::string> const& file_paths,
-                              gqe::storage_kind::type storage_kind)
+                              gqe::storage_kind::type storage_kind,
+                              std::vector<std::vector<std::string>> const& unique_keys = {})
 {
   catalog->register_table(name + "_parquet",
                           definition,
                           gqe::storage_kind::parquet_file{file_paths},
-                          gqe::partitioning_schema_kind::automatic{});
+                          gqe::partitioning_schema_kind::automatic{},
+                          unique_keys);
 
-  catalog->register_table(name, definition, storage_kind, gqe::partitioning_schema_kind::none{});
+  catalog->register_table(
+    name, definition, storage_kind, gqe::partitioning_schema_kind::none{}, unique_keys);
 
   std::vector<std::string> column_names;
   std::vector<cudf::data_type> column_types;
-  for (auto const& [column_name, type, column_properties] : definition) {
+  for (auto const& [column_name, type] : definition) {
     column_names.push_back(column_name);
     column_types.push_back(type);
   }
@@ -858,14 +959,18 @@ void register_tables_in_memory(
   gqe::catalog* catalog,
   std::string dataset_location,
   std::unordered_map<std::string, std::vector<gqe::column_traits>> table_definitions,
-  const std::string& storage_kind_description)
+  const std::string& storage_kind_description,
+  std::unordered_map<std::string, std::vector<std::vector<std::string>>> unique_keys = {})
 {
   gqe::storage_kind::type storage_kind = parse_storage_kind(storage_kind_description, {});
   GQE_LOG_TRACE("Storage kind created: {}", storage_kind_description);
 
   for (auto const& [name, definition] : table_definitions) {
     auto const file_paths = gqe::utility::get_parquet_files(dataset_location + "/" + name);
-    register_table_in_memory(ctx, catalog, name, definition, file_paths, storage_kind);
+    auto it               = unique_keys.find(name);
+    auto const& uks =
+      (it != unique_keys.end()) ? it->second : std::vector<std::vector<std::string>>{};
+    register_table_in_memory(ctx, catalog, name, definition, file_paths, storage_kind, uks);
   }
 }
 
@@ -889,6 +994,7 @@ gqe::literal_expression<cudf::timestamp_D> date_from_days(cudf::timestamp_D::rep
   return gqe::literal_expression<cudf::timestamp_D>(cudf::timestamp_D(cudf::duration_D(days)));
 }
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
 void finalize_shared_memory()
 {
   boost::interprocess::shared_memory_object::remove("gqe_shared_memory");
@@ -913,6 +1019,7 @@ void initialize_shared_memory(size_t pool_size = 10ULL * 1024 * 1024 * 1024)
 
   mpi_barrier();
 }
+#endif  // GQE_ENABLE_MULTI_PROCESS
 
 }  // namespace lib
 
@@ -963,9 +1070,6 @@ PYBIND11_MODULE(lib, py_module)
     .value("string", cudf::type_id::STRING)
     .value("timestamp_days", cudf::type_id::TIMESTAMP_DAYS);
 
-  py::enum_<gqe::column_traits::column_property>(py_module, "ColumnProperty")
-    .value("unique", gqe::column_traits::column_property::unique);
-
   py::enum_<gqe::unique_keys_policy>(py_module, "UniqueKeysPolicy")
     .value("none", gqe::unique_keys_policy::none)
     .value("right", gqe::unique_keys_policy::right)
@@ -999,9 +1103,12 @@ PYBIND11_MODULE(lib, py_module)
     .value("cascaded", gqe::compression_format::cascaded)
     .value("zstd", gqe::compression_format::zstd)
     .value("gzip", gqe::compression_format::gzip)
-    .value("bitcomp", gqe::compression_format::bitcomp)
-    .value("best_compression_ratio", gqe::compression_format::best_compression_ratio)
-    .value("best_decompression_speed", gqe::compression_format::best_decompression_speed);
+    .value("bitcomp", gqe::compression_format::bitcomp);
+
+  py::enum_<gqe::decompression_backend>(py_module, "DecompressionBackend")
+    .value("default", gqe::decompression_backend::default_)
+    .value("sm", gqe::decompression_backend::sm)
+    .value("de", gqe::decompression_backend::de);
 
   py::enum_<gqe::io_engine_type>(py_module, "IoEngineType")
     .value("automatic", gqe::io_engine_type::automatic)
@@ -1059,6 +1166,7 @@ PYBIND11_MODULE(lib, py_module)
       &gqe::optimization_parameters::in_memory_table_secondary_compression_multiplier_threshold)
     .def_readwrite("in_memory_table_compression_ratio_threshold",
                    &gqe::optimization_parameters::in_memory_table_compression_ratio_threshold)
+    .def_readwrite("decompression_backend", &gqe::optimization_parameters::decompress_backend)
     .def_readwrite("in_memory_table_use_cpu_compression",
                    &gqe::optimization_parameters::use_cpu_compression)
     .def_readwrite("in_memory_table_compression_level",
@@ -1077,6 +1185,53 @@ PYBIND11_MODULE(lib, py_module)
                    &gqe::optimization_parameters::aggregation_use_perfect_hash)
     .def_readwrite("num_shuffle_partitions", &gqe::optimization_parameters::num_shuffle_partitions);
 
+  py_module.def(
+    "decompression_backend_from_string",
+    [](std::string const& backend_str) {
+      return gqe::from_string<gqe::decompression_backend>(backend_str);
+    },
+    py::arg("backend_str"));
+
+  py_module.def(
+    "compression_format_from_string",
+    [](std::string const& format_str) {
+      return gqe::from_string<gqe::compression_format>(format_str);
+    },
+    py::arg("format_str"));
+
+  // CUPTI activity records
+  //
+  // Bind the raw event types captured by gqe::utility::activity_profiler so
+  // that Python can iterate over the per-event timeline returned by
+  // Context.execute() (4th tuple element) and persist it to the experiment
+  // database.
+  py::class_<gqe::utility::event_interval>(py_module, "EventInterval")
+    .def_readonly("start_time", &gqe::utility::event_interval::start_time)
+    .def_readonly("end_time", &gqe::utility::event_interval::end_time);
+
+  py::class_<gqe::utility::kernel_event>(py_module, "KernelEvent")
+    .def_readonly("interval", &gqe::utility::kernel_event::interval)
+    .def_readonly("name", &gqe::utility::kernel_event::name);
+
+  py::class_<gqe::utility::memcpy_event>(py_module, "MemcpyEvent")
+    .def_readonly("interval", &gqe::utility::memcpy_event::interval)
+    .def_readonly("kind", &gqe::utility::memcpy_event::kind)
+    .def_readonly("bytes", &gqe::utility::memcpy_event::bytes);
+
+  py::class_<gqe::utility::nvtx_event>(py_module, "NvtxEvent")
+    .def_readonly("interval", &gqe::utility::nvtx_event::interval)
+    .def_readonly("name", &gqe::utility::nvtx_event::name);
+
+  py::class_<gqe::utility::mem_decompress_event>(py_module, "MemDecompressEvent")
+    .def_readonly("interval", &gqe::utility::mem_decompress_event::interval)
+    .def_readonly("source_bytes", &gqe::utility::mem_decompress_event::source_bytes);
+
+  py::class_<gqe::utility::activity_records>(py_module, "ActivityRecords")
+    .def_readonly("kernels", &gqe::utility::activity_records::kernels)
+    .def_readonly("memcopies", &gqe::utility::activity_records::memcopies)
+    .def_readonly("markers", &gqe::utility::activity_records::markers)
+    .def_readonly("mem_decompress", &gqe::utility::activity_records::mem_decompress);
+
   // Catalog
   py::class_<gqe::catalog>(py_module, "Catalog")
     .def(py::init([](lib::base_context* ctx) -> gqe::catalog {
@@ -1089,15 +1244,25 @@ PYBIND11_MODULE(lib, py_module)
   py::class_<gqe::table_statistics_manager>(py_module, "TableStatisticsManager")
     .def("statistics", &gqe::table_statistics_manager::statistics);
   py::class_<gqe::column_traits>(py_module, "ColumnTraits")
-    .def(py::init<std::string const&,
-                  cudf::data_type const&,
-                  std::vector<gqe::column_traits::column_property> const&>())
     .def(py::init<std::string const&, cudf::data_type const&>())
     .def_readwrite("name", &gqe::column_traits::name)
-    .def_readwrite("data_type", &gqe::column_traits::data_type)
-    .def_readwrite("is_unique", &gqe::column_traits::is_unique);
-  py_module.def("register_tables_parquet", &lib::register_tables_parquet);
-  py_module.def("register_tables_in_memory", &lib::register_tables_in_memory);
+    .def_readwrite("data_type", &gqe::column_traits::data_type);
+  py_module.def("register_tables_parquet",
+                &lib::register_tables_parquet,
+                py::arg("catalog"),
+                py::arg("dataset_location"),
+                py::arg("table_definitions"),
+                py::arg("unique_keys") =
+                  std::unordered_map<std::string, std::vector<std::vector<std::string>>>{});
+  py_module.def("register_tables_in_memory",
+                &lib::register_tables_in_memory,
+                py::arg("context"),
+                py::arg("catalog"),
+                py::arg("dataset_location"),
+                py::arg("table_definitions"),
+                py::arg("storage_kind_description"),
+                py::arg("unique_keys") =
+                  std::unordered_map<std::string, std::vector<std::vector<std::string>>>{});
   py_module.def("get_table_stats", &lib::get_table_stats);
 
   // Base column compression statistics for fixed-width value columns.
@@ -1323,10 +1488,12 @@ PYBIND11_MODULE(lib, py_module)
     .def("execute", &lib::context::execute)
     .def("refresh_query_context", &lib::context::refresh_query_context);
 
+#ifdef GQE_ENABLE_MULTI_PROCESS
   py_module.def("mpi_init", &lib::mpi_init);
   py_module.def("mpi_finalize", &lib::mpi_finalize);
   py_module.def("mpi_rank", &lib::mpi_rank);
   py_module.def("mpi_barrier", &lib::mpi_barrier);
+  py_module.def("mpi_bcast_int64", &lib::mpi_bcast_int64, py::arg("value"), py::arg("root") = 0);
 
   py_module.def("initialize_shared_memory", &lib::initialize_shared_memory);
   py_module.def("finalize_shared_memory", &lib::finalize_shared_memory);
@@ -1355,4 +1522,5 @@ PYBIND11_MODULE(lib, py_module)
          py::arg("scheduler_type") = gqe::SCHEDULER_TYPE::ROUND_ROBIN)
     .def("execute", &lib::multi_process_context::execute)
     .def("refresh_query_context", &lib::multi_process_context::refresh_query_context);
+#endif  // GQE_ENABLE_MULTI_PROCESS
 }

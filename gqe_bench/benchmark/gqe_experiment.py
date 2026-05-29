@@ -20,6 +20,7 @@ from database_benchmarking_tools import sql_generator
 from database_benchmarking_tools.experiment import (
     DataInfoId,
     ExperimentConnection,
+    GpuInfoId,
     ParametersId,
     SutInfoId,
 )
@@ -58,6 +59,7 @@ class GqeDataInfoExt:
     secondary_compression_multiplier_threshold: float
     use_cpu_compression: bool
     compression_level: int
+    decompression_backend: str = "default"
     data_info_id: DataInfoId | None = None  # Don't set manually
 
 
@@ -101,6 +103,59 @@ class GqeRunTimeBreakdown:
 
     experiment_id: ExperimentId | None = None  # Don't set manually
     run_number: int | None = None  # Don't set manually
+
+
+@dataclass
+class GqeRunCuptiKernelActivity:
+    _table_name = "gqe_run_cupti_kernel_activity"
+    _table_prefix = "ka_"
+    name: str
+    start_time: int
+    end_time: int
+
+    experiment_id: ExperimentId | None = None  # Don't set manually
+    run_number: int | None = None  # Don't set manually
+    gpu_info_id: GpuInfoId | None = None  # Don't set manually
+
+
+@dataclass
+class GqeRunCuptiMemcpyActivity:
+    _table_name = "gqe_run_cupti_memcpy_activity"
+    _table_prefix = "mca_"
+    memcpy_kind: int
+    bytes: int
+    start_time: int
+    end_time: int
+
+    experiment_id: ExperimentId | None = None  # Don't set manually
+    run_number: int | None = None  # Don't set manually
+    gpu_info_id: GpuInfoId | None = None  # Don't set manually
+
+
+@dataclass
+class GqeRunCuptiMarkerActivity:
+    _table_name = "gqe_run_cupti_marker_activity"
+    _table_prefix = "mra_"
+    name: str
+    start_time: int
+    end_time: int
+
+    experiment_id: ExperimentId | None = None  # Don't set manually
+    run_number: int | None = None  # Don't set manually
+    gpu_info_id: GpuInfoId | None = None  # Don't set manually
+
+
+@dataclass
+class GqeRunCuptiMemDecompressActivity:
+    _table_name = "gqe_run_cupti_mem_decompress_activity"
+    _table_prefix = "mda_"
+    source_bytes: int
+    start_time: int
+    end_time: int
+
+    experiment_id: ExperimentId | None = None  # Don't set manually
+    run_number: int | None = None  # Don't set manually
+    gpu_info_id: GpuInfoId | None = None  # Don't set manually
 
 
 @dataclass
@@ -200,6 +255,81 @@ class GqeExperimentConnection(ExperimentConnection):
     def insert_gqe_run_time_breakdown(self, entry: GqeRunTimeBreakdown) -> GqeRunTimeBreakdownId:
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gqe_run_cupti_activities(
+        self,
+        experiment_id: ExperimentId,
+        run_number: int,
+        gpu_info_id: GpuInfoId,
+        activity_records: gqe_bench.lib.ActivityRecords,
+    ) -> None:
+        """Insert the raw CUPTI activity events of a single run.
+
+        ``gpu_info_id`` attributes every event in ``activity_records`` to the
+        physical GPU that emitted them. Each call writes events from exactly
+        one GPU; in multi-rank runs each rank invokes this method with its
+        own ``gpu_info_id``.
+
+        Must be called inside a transaction managed by the caller; this method
+        does not commit.
+        """
+        sql_generator.insert_many_natural_key(
+            self._cursor,
+            (
+                GqeRunCuptiKernelActivity(
+                    experiment_id=experiment_id,
+                    run_number=run_number,
+                    gpu_info_id=gpu_info_id,
+                    name=k.name,
+                    start_time=k.interval.start_time,
+                    end_time=k.interval.end_time,
+                )
+                for k in activity_records.kernels
+            ),
+        )
+        sql_generator.insert_many_natural_key(
+            self._cursor,
+            (
+                GqeRunCuptiMemcpyActivity(
+                    experiment_id=experiment_id,
+                    run_number=run_number,
+                    gpu_info_id=gpu_info_id,
+                    memcpy_kind=m.kind,
+                    bytes=m.bytes,
+                    start_time=m.interval.start_time,
+                    end_time=m.interval.end_time,
+                )
+                for m in activity_records.memcopies
+            ),
+        )
+        sql_generator.insert_many_natural_key(
+            self._cursor,
+            (
+                GqeRunCuptiMarkerActivity(
+                    experiment_id=experiment_id,
+                    run_number=run_number,
+                    gpu_info_id=gpu_info_id,
+                    name=m.name,
+                    start_time=m.interval.start_time,
+                    end_time=m.interval.end_time,
+                )
+                for m in activity_records.markers
+            ),
+        )
+        sql_generator.insert_many_natural_key(
+            self._cursor,
+            (
+                GqeRunCuptiMemDecompressActivity(
+                    experiment_id=experiment_id,
+                    run_number=run_number,
+                    gpu_info_id=gpu_info_id,
+                    source_bytes=d.source_bytes,
+                    start_time=d.interval.start_time,
+                    end_time=d.interval.end_time,
+                )
+                for d in activity_records.mem_decompress
+            ),
+        )
 
     def insert_gqe_table_stats(self, entry: GqeTableStats) -> GqeTableStatsId:
         sql_generator.insert_or_ignore(self._cursor, entry)

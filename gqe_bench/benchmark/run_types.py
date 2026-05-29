@@ -54,6 +54,12 @@ class EdbInfo:
     sut_info_id: int
     hw_info_id: int
     build_info_id: int
+    # `g_id` for every GPU the benchmark will use, indexed by CUDA device
+    # index. The mapping exists because each rank needs to bind to the correct CUDA device.
+    # Built once in `setup_db` by walking `cuda_index` and
+    # bridging through UUID so the row reflects the right physical
+    # GPU even under `CUDA_VISIBLE_DEVICES` masking.
+    gpu_info_id_by_cuda_index: list[int]
 
 
 @dataclass
@@ -105,6 +111,7 @@ class CatalogContext:
     in_memory_table_secondary_compression_format: str
     in_memory_table_secondary_compression_ratio_threshold: float
     in_memory_table_secondary_compression_multiplier_threshold: float
+    decompression_backend: str
     in_memory_table_use_cpu_compression: bool
     in_memory_table_compression_level: int
 

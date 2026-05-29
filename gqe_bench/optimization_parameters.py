@@ -22,23 +22,16 @@ from __future__ import annotations
 import gqe_bench.lib as lib
 
 
+def parse_decompression_backend(
+    backend_str: str,
+) -> lib.DecompressionBackend:
+    """Convert a decompression backend string to a DecompressionBackend enum value."""
+    return lib.decompression_backend_from_string(backend_str)
+
+
 def parse_compression_format(format_str: str) -> lib.CompressionFormat:
-    """Convert compression format string to enum."""
-    format_map = {
-        "none": lib.CompressionFormat.none,
-        "ans": lib.CompressionFormat.ans,
-        "lz4": lib.CompressionFormat.lz4,
-        "snappy": lib.CompressionFormat.snappy,
-        "gdeflate": lib.CompressionFormat.gdeflate,
-        "deflate": lib.CompressionFormat.deflate,
-        "cascaded": lib.CompressionFormat.cascaded,
-        "zstd": lib.CompressionFormat.zstd,
-        "gzip": lib.CompressionFormat.gzip,
-        "bitcomp": lib.CompressionFormat.bitcomp,
-        "best_compression_ratio": lib.CompressionFormat.best_compression_ratio,
-        "best_decompression_speed": lib.CompressionFormat.best_decompression_speed,
-    }
-    return format_map.get(format_str, lib.CompressionFormat.none)
+    """Convert a compression format string to a CompressionFormat enum value."""
+    return lib.compression_format_from_string(format_str)
 
 
 def from_query_context(parameter, data) -> lib.OptimizationParameters:
@@ -61,6 +54,7 @@ def from_query_context(parameter, data) -> lib.OptimizationParameters:
     params.join_use_mark_join = parameter.join_use_mark_join
     params.in_memory_table_compression_format = parse_compression_format(data.compression_format)
     params.in_memory_table_compression_chunk_size = data.compression_chunk_size
+    params.decompression_backend = parse_decompression_backend(data.decompression_backend)
     params.use_partition_pruning = parameter.use_partition_pruning
     params.zone_map_partition_size = data.zone_map_partition_size
     params.filter_use_like_shift_and = parameter.filter_use_like_shift_and
@@ -99,6 +93,7 @@ def from_catalog_context(cat_ctx) -> lib.OptimizationParameters:
     params.in_memory_table_secondary_compression_multiplier_threshold = (
         cat_ctx.in_memory_table_secondary_compression_multiplier_threshold
     )
+    params.decompression_backend = parse_decompression_backend(cat_ctx.decompression_backend)
     params.in_memory_table_use_cpu_compression = cat_ctx.in_memory_table_use_cpu_compression
     params.in_memory_table_compression_level = cat_ctx.in_memory_table_compression_level
     return params

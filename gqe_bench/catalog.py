@@ -73,11 +73,14 @@ class Catalog:
             table_definitions = CustomTableDefinitions(ddl_file_path)
         else:
             table_definitions = TPCHTableDefinitions(identifier_type, use_opt_char_type)
+        column_defs = table_definitions.query_table_definitions(load_data_of_query)
+        unique_keys = table_definitions.query_unique_keys(load_data_of_query)
         if storage_kind == "parquet_file":
             gqe_bench.lib.register_tables_parquet(
                 self._catalog,
                 dataset,
-                table_definitions.query_table_definitions(load_data_of_query),
+                column_defs,
+                unique_keys,
             )
         elif storage_kind in [
             "pinned_memory",
@@ -93,8 +96,9 @@ class Catalog:
                 self._context._context,
                 self._catalog,
                 dataset,
-                table_definitions.query_table_definitions(load_data_of_query),
+                column_defs,
                 storage_kind,
+                unique_keys,
             )
         else:
             raise ValueError(f"Unrecognized storage kind: {storage_kind}")
@@ -105,11 +109,17 @@ class Catalog:
         self,
         substrait_file: str,
         optimized: bool = True,
-        multiprocess_runtime_context: gqe_bench.lib.MultiProcessRuntimeContext = None,
+        multiprocess_runtime_context=None,
     ) -> gqe_bench.lib.Relation:
+        if multiprocess_runtime_context is not None:
+            return gqe_bench.lib.load_substrait(
+                self._catalog,
+                substrait_file,
+                optimized,
+                multiprocess_runtime_context,
+            )
         return gqe_bench.lib.load_substrait(
             self._catalog,
             substrait_file,
             optimized,
-            multiprocess_runtime_context,
         )

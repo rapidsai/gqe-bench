@@ -27,7 +27,7 @@ def _write(tmp_path, name, text):
 
 
 def test_inline_primary_key_and_unique_constraints(tmp_path):
-    """Inline PRIMARY KEY / UNIQUE on columns are marked unique with the correct datatype."""
+    """Inline PRIMARY KEY / UNIQUE on columns are captured in unique_keys with correct datatypes."""
     ddl = """
     CREATE TABLE t_unique (
         id INT PRIMARY KEY,
@@ -41,20 +41,18 @@ def test_inline_primary_key_and_unique_constraints(tmp_path):
     td = CustomTableDefinitions(path)
     defs = td.definitions["t_unique"]
 
-    # Check unique property
-    assert defs["id"][1] == [gqe_bench.lib.ColumnProperty.unique]
-    assert defs["u"][1] == [gqe_bench.lib.ColumnProperty.unique]
-    assert len(defs["x"]) == 1  # not unique
+    # Unique constraints are now in td.unique_keys, not in the column definition.
+    assert sorted(td.unique_keys["t_unique"]) == sorted([["id"], ["u"]])
+    assert "x" not in [c for ks in td.unique_keys["t_unique"] for c in ks]
 
-    # Check datatypes
-    # defs[column][0] is the datatype string
-    assert defs["id"][0].type_id() == gqe_bench.lib.TypeId.int32
-    assert defs["u"][0].type_id() == gqe_bench.lib.TypeId.string
-    assert defs["x"][0].type_id() == gqe_bench.lib.TypeId.int32
+    # Datatypes live in the plain type map.
+    assert defs["id"].type_id() == gqe_bench.lib.TypeId.int32
+    assert defs["u"].type_id() == gqe_bench.lib.TypeId.string
+    assert defs["x"].type_id() == gqe_bench.lib.TypeId.int32
 
 
 def test_table_level_primary_key_and_unique_constraints(tmp_path):
-    """Table-level PRIMARY KEY(col) and CONSTRAINT ... UNIQUE(col) are marked unique with the correct datatype."""
+    """Table-level PRIMARY KEY(col) and CONSTRAINT ... UNIQUE(col) go into unique_keys."""
     ddl = """
     CREATE TABLE t_pk (
         id INT,
@@ -67,14 +65,12 @@ def test_table_level_primary_key_and_unique_constraints(tmp_path):
     from gqe_bench.table_definition import CustomTableDefinitions
 
     td = CustomTableDefinitions(path)
-    defs = td.definitions["t_pk"]
 
-    assert defs["id"][1] == [gqe_bench.lib.ColumnProperty.unique]
-    assert defs["name"][1] == [gqe_bench.lib.ColumnProperty.unique]
+    assert sorted(td.unique_keys["t_pk"]) == sorted([["id"], ["name"]])
 
-    # Also verify datatypes
-    assert defs["id"][0].type_id() == gqe_bench.lib.TypeId.int32
-    assert defs["name"][0].type_id() == gqe_bench.lib.TypeId.string
+    # Datatypes
+    assert td.definitions["t_pk"]["id"].type_id() == gqe_bench.lib.TypeId.int32
+    assert td.definitions["t_pk"]["name"].type_id() == gqe_bench.lib.TypeId.string
 
 
 def test_multiple_statements_in_one_file(tmp_path):
@@ -90,14 +86,17 @@ def test_multiple_statements_in_one_file(tmp_path):
     assert "t1" in td.definitions
     assert "t2" in td.definitions
 
-    # Also verify query_table_definitions returns ColumnTraits with names and types
+    # t1 has a PK; t2 has none.
+    assert td.unique_keys.get("t1") == [["id"]]
+    assert "t2" not in td.unique_keys
+
+    # query_table_definitions returns ColumnTraits with names and types.
     tables = td.query_table_definitions(0)
     t1_cols = {col.name for col in tables["t1"]}
     t2_cols = {col.name for col in tables["t2"]}
     assert t1_cols == {"id", "v"}
     assert t2_cols == {"k", "x", "d"}
 
-    # Check datatypes through query_table_definitions
     t1_types = {col.name: col.data_type.type_id() for col in tables["t1"]}
     t2_types = {col.name: col.data_type.type_id() for col in tables["t2"]}
     assert t1_types == {"id": gqe_bench.lib.TypeId.int32, "v": gqe_bench.lib.TypeId.string}

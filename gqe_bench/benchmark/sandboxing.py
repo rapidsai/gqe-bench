@@ -31,6 +31,7 @@ from gqe_bench.benchmark.run import (
     clear_queue,
     is_unrecoverable_error,
     print_mp,
+    write_framed_pickle,
 )
 from gqe_bench.benchmark.run_types import QueryError
 
@@ -74,7 +75,7 @@ def run_sandboxed(
 
             print(f"main opening root pipe path named {pipe_path}")
             for worker_pipe in worker_pipes:
-                pickle.dump(run_suite_args.arguments, worker_pipe)
+                write_framed_pickle(worker_pipe, run_suite_args.arguments)
             print("main continuing to execution monitoring")
             monitor_sandbox(process, parameters, pipe, load_all_data, errors, invalid_results, args)
             # we need to do the same in both cases, just give up after one try
@@ -143,6 +144,14 @@ def launch_processes(
     # execute run.py as main of new python process
     run_path = pathlib.Path(run.__file__).resolve()
     is_mp = args.num_ranks > 1
+    if is_mp:
+        from gqe_bench.execute import MULTI_PROCESS_AVAILABLE
+
+        if not MULTI_PROCESS_AVAILABLE:
+            raise RuntimeError(
+                f"--num_ranks {args.num_ranks} requires multi-process support, "
+                "but GQE was built with GQE_ENABLE_MULTI_PROCESS=OFF"
+            )
     cmd = [
         "python3",
         "-u",

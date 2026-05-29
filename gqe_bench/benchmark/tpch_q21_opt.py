@@ -79,9 +79,9 @@ class tpch_q21_opt(Query):
     def root_relation(self, table_defs: TPCHTableDefinitions):
         # `supplier` has columns ["s_suppkey", "s_name"] which satisfies
         # s_nationkey = n_nationkey and n_name = 'SAUDI ARABIA'
-        nation = read("nation", ["n_nationkey", "n_name"], CR(1) == Literal("SAUDI ARABIA")).filter(
-            CR(1) == Literal("SAUDI ARABIA"), [0]
-        )
+        nation = read(
+            "nation", ["n_nationkey", "n_name"], CR(1) == Literal("SAUDI ARABIA"), table_defs
+        ).filter(CR(1) == Literal("SAUDI ARABIA"), [0])
         supplier = read(
             "supplier", ["s_suppkey", "s_name", "s_nationkey"], None, table_defs
         ).broadcast_join(
