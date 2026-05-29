@@ -13,6 +13,11 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+# Defer evaluation of type annotations so that references to multi-process
+# types (e.g. gqe_bench.lib.MultiProcessRuntimeContext) in function signatures
+# don't fail at import time when GQE_ENABLE_MULTI_PROCESS is not defined.
+from __future__ import annotations
+
 import argparse
 import importlib.resources
 import os
@@ -20,14 +25,15 @@ import pickle
 import re
 import sys
 import traceback
-from contextlib import nullcontext
 from dataclasses import asdict, fields
 from typing import BinaryIO, Optional
+from uuid import UUID
 
 import nvtx
 
 import gqe_bench.lib
 from database_benchmarking_tools import experiment as exp
+from database_benchmarking_tools import hardware_info
 from database_benchmarking_tools.experiment import ExperimentDB
 from gqe_bench import Catalog, Context, MultiProcessContext, optimization_parameters
 from gqe_bench.benchmark.gqe_experiment import (
@@ -69,6 +75,32 @@ from gqe_bench.relation import (
 from gqe_bench.table_definition import TPCHTableDefinitions
 
 
+def read_bytes(pipe: BinaryIO, size: int) -> bytes:
+    chunks = []
+    remaining = size
+    while remaining:
+        chunk = pipe.read(remaining)
+        if not chunk:
+            raise EOFError(f"expected {remaining} more bytes from framed pickle pipe")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def read_framed_pickle(pipe: BinaryIO):
+    payload_size = int.from_bytes(read_bytes(pipe, 8), "big")
+    payload = read_bytes(pipe, payload_size)
+    return pickle.loads(payload)
+
+
+def write_framed_pickle(pipe: BinaryIO, data) -> int:
+    payload = pickle.dumps(data)
+    pipe.write(len(payload).to_bytes(8, "big"))
+    pipe.write(payload)
+    pipe.flush()
+    return len(payload)
+
+
 # Extract only the fields that belong to the superclass
 #
 # `asdict(entry)` return all the fields in the object. However, when using
@@ -80,7 +112,7 @@ def upcast_to_super(obj, super_class):
     return super_class(**super_kwargs)
 
 
-def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
+def setup_db(edb: exp.ExperimentDB, num_ranks: int = 1) -> EdbInfo:
     sut_creation_path = importlib.resources.files("gqe_bench.benchmark").joinpath(
         "system_under_test.sql"
     )
@@ -96,7 +128,23 @@ def setup_db(edb: exp.ExperimentDB) -> EdbInfo:
             branch=gqe_bench.lib.libgqe_branch,
         )
     )
-    return EdbInfo(sut_info_id, hw_info_id, build_info_id)
+
+    # Log every host-visible GPU into `gpu_info` so the database
+    # contains the full hardware inventory regardless of how many ranks
+    # this run uses. Each GPU is uniquely identified by its canonical UUID.
+    gpu_query = hardware_info.GpuInfoQuery()
+    gpu_info_id_by_uuid: dict[UUID, exp.GpuInfoId] = {}
+    for nvml_index in range(gpu_query.device_count()):
+        uuid = gpu_query.device_uuid(gpu_query.handle_by_nvml_index(nvml_index))
+        gpu_info_id_by_uuid[uuid] = edb.insert_gpu_info(hw_info_id, uuid)
+
+    # Find the correct GPU info id for each rank's CUDA index via the UUID.
+    gpu_info_id_by_cuda_index: list[exp.GpuInfoId] = [
+        gpu_info_id_by_uuid[hardware_info.cuda_device_uuid(cuda_index)]
+        for cuda_index in range(num_ranks)
+    ]
+
+    return EdbInfo(sut_info_id, hw_info_id, build_info_id, gpu_info_id_by_cuda_index)
 
 
 def parse_bool(value: str) -> bool:
@@ -402,41 +450,22 @@ def run_suite(
     quiet: bool = False,
     pipe=None,
 ):
-    # only send DB to root rank so we will get error if there is a logic mistake
-    if is_root_rank:
-        gqe_host = "localhost"
-        edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
-        with edb_config as edb:
-            _run_suite(
-                cat_ctx,
-                data,
-                scale_factor,
-                parameters,
-                edb,
-                edb_info,
-                cupti_metrics,
-                time_breakdown,
-                errors,
-                invalid_results,
-                repeat,
-                is_mp,
-                multiprocess_runtime_context,
-                validate_results,
-                validate_dir,
-                suite_name,
-                quiet,
-                pipe,
-            )
-    else:
+    # Every rank opens its own SQLite connection to the shared experiment DB.
+    # Root performs the schema-shaping inserts (experiment, run, parameter
+    # rows), while non-root ranks only write their own per-rank CUPTI activity
+    # rows.
+    gqe_host = "localhost"
+    edb_config = ExperimentDB(edb_file, gqe_host).set_connection_type(GqeExperimentConnection)
+    with edb_config as edb:
         _run_suite(
             cat_ctx,
             data,
             scale_factor,
             parameters,
-            None,
+            edb,
             edb_info,
-            None,
-            None,
+            cupti_metrics,
+            time_breakdown,
             errors,
             invalid_results,
             repeat,
@@ -655,6 +684,11 @@ def _run_suite(
         # confirm we refreshed context properly
         pipe_send(pipe, True)
 
+        # Resolve this rank's `gpu_info_id`. Rank R binds CUDA device R, so the MPI rank is a
+        # valid index into `gpu_info_id_by_cuda_index` list.
+        my_rank = gqe_bench.lib.mpi_rank() if is_mp else 0
+        my_gpu_info_id = edb_info.gpu_info_id_by_cuda_index[my_rank]
+
         if is_root_rank:
             with edb.transaction():
                 parameter.sut_info_id = edb_info.sut_info_id
@@ -679,7 +713,6 @@ def _run_suite(
                     Experiment(
                         sut_info_id=edb_info.sut_info_id,
                         parameters_id=parameters_id,
-                        hw_info_id=edb_info.hw_info_id,
                         build_info_id=edb_info.build_info_id,
                         data_info_id=data_info_id,
                         data_info_ext_id=data_info_ext_id,
@@ -687,6 +720,19 @@ def _run_suite(
                         sample_size=repeat,
                     )
                 )
+
+                # Link this experiment to every GPU that ranks 0..N-1 have
+                # bound. Lives inside the same transaction as the parent
+                # `experiment` insert so the row + its GPU links commit
+                # atomically.
+                for cuda_index, gpu_info_id in enumerate(edb_info.gpu_info_id_by_cuda_index):
+                    edb.insert_experiment_gpu(
+                        exp.ExperimentGpu(
+                            experiment_id=experiment_id,
+                            gpu_info_id=gpu_info_id,
+                            cuda_index=cuda_index,
+                        )
+                    )
 
                 table_stats = gqe_bench.lib.get_table_stats(catalog._catalog)
                 for table_name, stats in table_stats.items():
@@ -735,6 +781,16 @@ def _run_suite(
                             )
 
                 print_mp(f"Running {query.identifier}...", is_root_rank and not quiet)
+        else:
+            # Non-root ranks need a placeholder; the real value arrives via
+            # the MPI broadcast below.
+            experiment_id = 0
+
+        # Share the SQLite-assigned experiment_id from root to every rank so
+        # that each rank can write its own per-rank rows (currently CUPTI
+        # activities) tagged with the same id.
+        if is_mp:
+            experiment_id = gqe_bench.lib.mpi_bcast_int64(experiment_id, 0)
 
         """
         This conditional is added to modify the scheduler type to ROUND_ROBIN for query execution in multi-process mode.
@@ -744,69 +800,80 @@ def _run_suite(
 
         out_file = os.path.join(f"{validate_dir}", f"{query.identifier}_out.parquet")
         for count in range(repeat):
-            with edb.transaction() if is_root_rank else nullcontext():
-                with nvtx.annotate(f"Run {query.identifier}"):
-                    try:
-                        print_mp(
-                            f"Starting query {query.identifier} repetition {count}...",
-                            is_root_rank and not quiet,
-                        )
-                        duration_s, stage_durations, metric_values = context.execute(
-                            catalog, query.root_relation, out_file
-                        )
-                    except Exception as error:
-                        err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
-                        err_pack = (
-                            f"{query.identifier} query execution",
-                            parameter,
-                            err_str,
-                        )
-                        print("Error during query execution")
-                        print(err_str)
-                        pipe_send(pipe, False, {QueryError.execution: err_pack})
-                        errors.append(err_pack)
-                        if is_root_rank:
+            with nvtx.annotate(f"Run {query.identifier}"):
+                try:
+                    print_mp(
+                        f"Starting query {query.identifier} repetition {count}...",
+                        is_root_rank and not quiet,
+                    )
+                    (
+                        duration_s,
+                        stage_durations,
+                        metric_values,
+                        activity_records,
+                    ) = context.execute(catalog, query.root_relation, out_file)
+                except Exception as error:
+                    err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+                    err_pack = (
+                        f"{query.identifier} query execution",
+                        parameter,
+                        err_str,
+                    )
+                    print("Error during query execution")
+                    print(err_str)
+                    pipe_send(pipe, False, {QueryError.execution: err_pack})
+                    errors.append(err_pack)
+                    if is_root_rank:
+                        with edb.transaction():
                             edb.insert_failed_run(
                                 exp.FailedRun(
                                     experiment_id=experiment_id, number=count, error_msg=err_str
                                 )
                             )
-                        if is_unrecoverable_error(error):
-                            return
-                        else:
-                            break
-                if validate_results:
-                    # All ranks validate result, alternatively we need to communicate if there is an error
-                    try:
-                        print_mp("Start validation...", is_root_rank and not quiet)
-                        validate_parquet(out_file, query.reference_solution, query.validator)
-                    except Exception as error:
-                        err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
-                        err_pack = (
-                            f"{query.identifier} query validation",
-                            parameter,
-                            err_str,
-                        )
-                        print("Error validating solution")
-                        print(err_str)
-                        pipe_send(pipe, False, {QueryError.validation: err_pack})
-                        invalid_results.append(err_pack)
-                        if is_root_rank:
+                    if is_unrecoverable_error(error):
+                        return
+                    else:
+                        break
+            if validate_results:
+                # All ranks validate result, alternatively we need to communicate if there is an error
+                try:
+                    print_mp("Start validation...", is_root_rank and not quiet)
+                    validate_parquet(out_file, query.reference_solution, query.validator)
+                except Exception as error:
+                    err_str = f"{type(error).__name__}: {error}\n{traceback.format_exc()}"
+                    err_pack = (
+                        f"{query.identifier} query validation",
+                        parameter,
+                        err_str,
+                    )
+                    print("Error validating solution")
+                    print(err_str)
+                    pipe_send(pipe, False, {QueryError.validation: err_pack})
+                    invalid_results.append(err_pack)
+                    if is_root_rank:
+                        with edb.transaction():
                             edb.insert_failed_run(
                                 exp.FailedRun(
                                     experiment_id=experiment_id, number=count, error_msg=err_str
                                 )
                             )
-                        if is_unrecoverable_error(error):
-                            return
-                        else:
-                            break
-                else:
-                    print_mp("Skipping validation...", is_root_rank and not quiet)
-                # Logging on host process creates a small race condition; sending before doing DB insertion
-                # helps order the print messages w/o having to resort to more complicated syncronization.
-                pipe_send(pipe, True)
-                if is_root_rank:
+                    if is_unrecoverable_error(error):
+                        return
+                    else:
+                        break
+            else:
+                print_mp("Skipping validation...", is_root_rank and not quiet)
+            # Logging on host process creates a small race condition; sending before doing DB insertion
+            # helps order the print messages w/o having to resort to more complicated syncronization.
+            pipe_send(pipe, True)
+
+            # Root commits the canonical run row + run-level aggregates first.
+            # Per-rank rows below (CUPTI activities) FK to `run`, so this row
+            # must exist before any rank writes them. Root's transaction also
+            # commits before the barrier so non-root ranks observe the write
+            # under WAL.
+            if is_root_rank:
+                with edb.transaction():
                     edb.insert_run(
                         exp.Run(
                             experiment_id=experiment_id,
@@ -853,6 +920,27 @@ def _run_suite(
                                 merged_io_activity_s=metric_values["merged_io_activity_s"],
                             )
                         )
+
+            # Barrier: non-root ranks wait until root has committed the `run`
+            # row so the FK in `gqe_run_cupti_*_activity` is satisfiable.
+            # @TODO: validate this is really necessary.
+            if is_mp:
+                gqe_bench.lib.mpi_barrier()
+
+            # Each rank persists its own raw CUPTI activity timeline so it can
+            # be post-processed (e.g. recompute custom breakdowns, render
+            # Gantt charts) without re-running the query. `activity_records`
+            # only contains events from this rank's GPU; tagging them with
+            # that GPU's gpu_info_id lets analytics split the timeline per
+            # device.
+            if time_breakdown and activity_records is not None:
+                with edb.transaction():
+                    edb.insert_gqe_run_cupti_activities(
+                        experiment_id=experiment_id,
+                        run_number=count,
+                        gpu_info_id=my_gpu_info_id,
+                        activity_records=activity_records,
+                    )
 
     # Explicit cleanup in correct order to avoid segfault at exit.
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
@@ -905,7 +993,7 @@ def sandbox_run_suite():
 
     # all ranks intake arguments from main
     with open(worker_pipe_path, "r+b", buffering=0) as worker_pipe:
-        run_suite_args = pickle.load(worker_pipe)
+        run_suite_args = read_framed_pickle(worker_pipe)
     # only root has output pipe to main to sync timeouts
     if is_root_rank:
         sandbox_pipe = open(pipe_path, "wb", buffering=0)

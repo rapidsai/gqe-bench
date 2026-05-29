@@ -152,5 +152,9 @@ The provided relations are:
  - `run`: A weak entity of `experiment`, that can be seen as an instantiation of
    the experiment.
  - `build_info`: Describes how the SUT was compiled & built.
- - `hw_info`: Describes the hardware and operating system test bed.
+ - `hw_info`: Describes the host (CPU + OS + driver) test bed.
+ - `gpu_info`: Describes the GPU info. Has a foreign key to `hw_info`,
+   so a host with N GPUs has N `gpu_info` rows.
+ - `experiment_gpu`: Many-to-many junction between `experiment` and `gpu_info`,
+   recording which GPU(s) an experiment ran on.
  - `sut_info`: Describes the system-under-test.

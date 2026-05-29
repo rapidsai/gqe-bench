@@ -72,7 +72,7 @@ class Context:
         catalog: Catalog,
         relation: Relation | gqe_bench.lib.Relation,
         output_path: str | None,
-    ) -> tuple[float, dict]:
+    ) -> tuple[float, list, dict, gqe_bench.lib.ActivityRecords | None]:
         """
         Execute the query plan.
 
@@ -83,7 +83,13 @@ class Context:
             that the behavior is undefined if `output_path` is valid but `relation` does not produce
             an output.
 
-        :return: A tuple containing the execution time in seconds and a dictionary of the specified CUPTI metrics.
+        :return: A 4-tuple ``(duration_s, stage_durations, metric_values, activity_records)``:
+
+            - ``duration_s``: Total query execution time in seconds.
+            - ``stage_durations``: List of ``(stage_name, duration_s)`` tuples.
+            - ``metric_values``: Dict of CUPTI range metrics and time-breakdown values.
+            - ``activity_records``: Raw CUPTI ``ActivityRecords`` captured by the
+              activity profiler when ``time_breakdown=True``; ``None`` otherwise.
         """
         if isinstance(relation, Relation):
             relation = relation._to_cpp()
@@ -101,55 +107,72 @@ class Context:
         self._context.refresh_query_context(optimization_parameters)
 
 
-class MultiProcessContext:
-    def __init__(
-        self,
-        runtime_context: gqe_bench.lib.MultiProcessRuntimeContext,
-        optimization_parameters: gqe_bench.lib.OptimizationParameters,
-        scheduler_type: gqe_bench.lib.scheduler_type = gqe_bench.lib.scheduler_type.ROUND_ROBIN,
-    ):
-        """
-        Create a new multi-process context.
+MULTI_PROCESS_AVAILABLE: bool = hasattr(gqe_bench.lib, "MultiProcessContext")
 
-        :param runtime_context: The multi-process runtime context.
-        :param optimization_parameters: Optimization parameters for query execution.
-        :param scheduler_type: The scheduler type for multi-process execution.
-        """
-        self._context = gqe_bench.lib.MultiProcessContext(
-            runtime_context,
-            optimization_parameters,
-            scheduler_type,
-        )
+if MULTI_PROCESS_AVAILABLE:
 
-    def execute(
-        self,
-        catalog: Catalog,
-        relation: Relation | gqe_bench.lib.Relation,
-        output_path: str | None,
-    ) -> tuple[float, dict]:
-        """
-        Execute the query plan.
+    class MultiProcessContext:
+        def __init__(
+            self,
+            runtime_context: gqe_bench.lib.MultiProcessRuntimeContext,
+            optimization_parameters: gqe_bench.lib.OptimizationParameters,
+            scheduler_type: gqe_bench.lib.scheduler_type = gqe_bench.lib.scheduler_type.ROUND_ROBIN,
+        ):
+            """
+            Create a new multi-process context.
 
-        :param catalog: Catalog to execute the query plan on.
-        :param relation: Root relation for the query plan.
-        :param output_path: Path to write the output of `relation` to a Parquet file if this
-            argument is valid `str`. If this argument is `None`, the output is not written. Note
-            that the behavior is undefined if `output_path` is valid but `relation` does not produce
-            an output.
+            :param runtime_context: The multi-process runtime context.
+            :param optimization_parameters: Optimization parameters for query execution.
+            :param scheduler_type: The scheduler type for multi-process execution.
+            """
+            self._context = gqe_bench.lib.MultiProcessContext(
+                runtime_context,
+                optimization_parameters,
+                scheduler_type,
+            )
 
-        :return: A tuple containing the execution time in seconds and a dictionary of the specified CUPTI metrics.
-        """
-        if isinstance(relation, Relation):
-            relation = relation._to_cpp()
+        def execute(
+            self,
+            catalog: Catalog,
+            relation: Relation | gqe_bench.lib.Relation,
+            output_path: str | None,
+        ) -> tuple[float, list, dict | None, None]:
+            """
+            Execute the query plan.
 
-        return self._context.execute(catalog._catalog, relation, output_path)
+            :param catalog: Catalog to execute the query plan on.
+            :param relation: Root relation for the query plan.
+            :param output_path: Path to write the output of `relation` to a Parquet file if this
+                argument is valid `str`. If this argument is `None`, the output is not written. Note
+                that the behavior is undefined if `output_path` is valid but `relation` does not produce
+                an output.
 
-    def refresh_query_context(
-        self, optimization_parameters: gqe_bench.lib.OptimizationParameters
-    ) -> None:
-        """
-        Refresh the query context with new optimization parameters.
+            :return: A 4-tuple ``(duration_s, stage_durations, metric_values, activity_records)``
+                with the same shape as :py:meth:`Context.execute`. CUPTI activity profiling is
+                not supported in multi-process mode, so ``metric_values`` and ``activity_records``
+                are ``None``.
+            """
+            if isinstance(relation, Relation):
+                relation = relation._to_cpp()
 
-        :param optimization_parameters: New optimization parameters for query execution.
-        """
-        self._context.refresh_query_context(optimization_parameters)
+            return self._context.execute(catalog._catalog, relation, output_path)
+
+        def refresh_query_context(
+            self, optimization_parameters: gqe_bench.lib.OptimizationParameters
+        ) -> None:
+            """
+            Refresh the query context with new optimization parameters.
+
+            :param optimization_parameters: New optimization parameters for query execution.
+            """
+            self._context.refresh_query_context(optimization_parameters)
+
+else:
+
+    class MultiProcessContext:
+        """Stub: multi-process support requires building with GQE_ENABLE_MULTI_PROCESS."""
+
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError(
+                "Multi-process support requires building with GQE_ENABLE_MULTI_PROCESS"
+            )

@@ -69,6 +69,27 @@ class TestConfigToArgs:
         assert result.partitions == [16, 32]
         assert result.repeat == 10
 
+    def test_applies_default_decompression_backend(self):
+        """config_to_args applies default decompress backend config when missing."""
+        config = {
+            "dataset": "/path/to/dataset",
+            "plan": "/path/to/plan",
+            "solution": "/path/to/solution",
+        }
+        result = config_to_args(config)
+        assert result.decompression_backend == BENCHMARK_CONFIG_DEFAULTS["decompression_backend"]
+
+    def test_overrides_decompression_backend(self):
+        """config_to_args stores configured nvCOMP decompress backends."""
+        config = {
+            "dataset": "/path/to/dataset",
+            "plan": "/path/to/plan",
+            "solution": "/path/to/solution",
+            "decompression_backend": ["de", "sm"],
+        }
+        result = config_to_args(config)
+        assert result.decompression_backend == ["de", "sm"]
+
     def test_stores_query_overrides(self):
         """config_to_args stores query_overrides for per-query lookups."""
         config = {

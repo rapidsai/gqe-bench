@@ -109,7 +109,7 @@ class tpch_q18_opt(Query):
         # Step 1: Group By on lineitem - Aggregate quantities by orderkey
         # Input: lineitem [l_orderkey, l_quantity]
         # Output: [l_orderkey, sum_l_quantity] where sum_l_quantity > 300
-        lineitem = read("lineitem", ["l_orderkey", "l_quantity"])
+        lineitem = read("lineitem", ["l_orderkey", "l_quantity"], None, table_defs)
 
         # Perform the group by operation with atomic initialization
         # This aggregates lineitem quantities and filters for > 300

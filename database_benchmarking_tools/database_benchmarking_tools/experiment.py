@@ -18,12 +18,16 @@ import platform
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from uuid import UUID
 
 from database_benchmarking_tools import hardware_info, sql_generator, utility
+
+sqlite3.register_adapter(UUID, str)
 
 type BuildInfoId = int
 type DataInfoId = int
 type ExperimentId = int
+type GpuInfoId = int
 type HwInfoId = int
 type ParametersId = int
 type SutInfoId = int
@@ -66,16 +70,33 @@ class HwInfo:
     cpu_clock_mhz: str | None = None
     cpu_physical_cores: str | None = None
     cpu_logical_cores: str | None = None
-    gpu_product_name: str | None = None
     nvidia_driver_version: str | None = None
     cuda_version: str | None = None
-    gpu_pcie_link_generation: int | None = None
-    gpu_cuda_cores: int | None = None
-    gpu_max_clock_sm_mhz: int | None = None
-    gpu_max_clock_memory_mhz: int | None = None
-    gpu_ecc_errors: int | None = None
     system: str | None = None
     os_kernel_version: str | None = None
+
+
+@dataclass
+class GpuInfo:
+    _table_name = "gpu_info"
+    _table_prefix = "g_"
+    hw_info_id: HwInfoId | None = None
+    uuid: UUID | None = None
+    product_name: str | None = None
+    pcie_link_generation: int | None = None
+    cuda_cores: int | None = None
+    max_clock_sm_mhz: int | None = None
+    max_clock_memory_mhz: int | None = None
+    ecc_errors: int | None = None
+
+
+@dataclass
+class ExperimentGpu:
+    _table_name = "experiment_gpu"
+    _table_prefix = "eg_"
+    experiment_id: ExperimentId | None = None
+    gpu_info_id: GpuInfoId | None = None
+    cuda_index: int | None = None
 
 
 @dataclass
@@ -84,7 +105,6 @@ class Experiment:
     _table_prefix = "e_"
     sut_info_id: SutInfoId | None = None
     parameters_id: ParametersId | None = None
-    hw_info_id: HwInfoId | None = None
     build_info_id: BuildInfoId | None = None
     data_info_id: DataInfoId | None = None
     query_info_id: QueryInfoId | None = None
@@ -166,10 +186,8 @@ class ExperimentConnection:
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_hw_info(self) -> HwInfoId:
-        gpu_id = 0
-
         cpu_info = hardware_info.CpuInfo()
-        gpu_info = hardware_info.GpuInfo()
+        gpu_query = hardware_info.GpuInfoQuery()
 
         entry = HwInfo(
             hostname=utility.get_hostname(self._hostname),
@@ -177,20 +195,40 @@ class ExperimentConnection:
             cpu_model_name=cpu_info.model_name(),
             cpu_clock_mhz=int(cpu_info.cpu_mhz()),
             cpu_physical_cores=cpu_info.cpu_physical_cores(),
-            gpu_product_name=gpu_info.device_product_name(gpu_id),
-            nvidia_driver_version=gpu_info.system_driver_version(),
-            cuda_version=gpu_info.cuda_driver_version(),
-            gpu_pcie_link_generation=gpu_info.pcie_link_generation(gpu_id),
-            gpu_cuda_cores=gpu_info.gpu_cores(gpu_id),
-            gpu_max_clock_sm_mhz=gpu_info.max_sm_clock(gpu_id),
-            gpu_max_clock_memory_mhz=gpu_info.max_memory_clock(gpu_id),
-            gpu_ecc_errors=gpu_info.total_ecc_errors(gpu_id),
+            nvidia_driver_version=gpu_query.system_driver_version(),
+            cuda_version=gpu_query.cuda_driver_version(),
             system=platform.uname().system.lower(),
             os_kernel_version=platform.uname().release,
         )
 
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gpu_info(self, hw_info_id: HwInfoId, gpu_uuid: UUID) -> GpuInfoId:
+        """Insert a `gpu_info` row for the physical GPU with the given UUID.
+
+        UUID is used as the canonical identity of a GPU device. Ways to retrieve the UUID are:
+        - CUDA: cuda_device_uuid(cuda_index)
+        - NVML: nvmlDeviceGetHandleByUUID and nvmlDeviceGetUUID
+        Returns the `g_id` of the inserted (or pre-existing) row.
+        """
+        gpu_query = hardware_info.GpuInfoQuery()
+        handle = gpu_query.handle_by_uuid(gpu_uuid)
+        entry = GpuInfo(
+            hw_info_id=hw_info_id,
+            uuid=gpu_uuid,
+            product_name=gpu_query.device_product_name(handle),
+            pcie_link_generation=gpu_query.pcie_link_generation(handle),
+            cuda_cores=gpu_query.gpu_cores(handle),
+            max_clock_sm_mhz=gpu_query.max_sm_clock(handle),
+            max_clock_memory_mhz=gpu_query.max_memory_clock(handle),
+            ecc_errors=gpu_query.total_ecc_errors(handle),
+        )
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_experiment_gpu(self, entry: ExperimentGpu):
+        sql_generator.insert_natural_key(self._cursor, entry)
 
     def insert_sut_info(self, entry: SutInfo) -> SutInfoId:
         return sql_generator.select_id(self._cursor, entry)

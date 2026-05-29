@@ -278,8 +278,6 @@ def parse_args():
             "zstd",
             "gzip",
             "bitcomp",
-            "best_compression_ratio",
-            "best_decompression_speed",
         ],
         nargs="+",
         default=BENCHMARK_CONFIG_DEFAULTS["compression_format"],
@@ -488,6 +486,19 @@ def parse_args():
         type=str,
         default=BENCHMARK_CONFIG_DEFAULTS["ddl_file_path"],
     )
+    arg_parser.add_argument(
+        "--decompression-backend",
+        help=(
+            "nvCOMP decompression backend. "
+            "'default': use nvCOMP default backend selection. "
+            "'de': force DE decompressor. "
+            "'sm': force SM decompressor. "
+            "Default: default."
+        ),
+        choices=["default", "de", "sm"],
+        nargs="+",
+        default=BENCHMARK_CONFIG_DEFAULTS["decompression_backend"],
+    )
 
     return arg_parser.parse_args()
 
@@ -574,7 +585,7 @@ def main():
     edb_config.create_experiment_db()
     edb_info = None
     with edb_config as edb:
-        edb_info = setup_db(edb)
+        edb_info = setup_db(edb, num_ranks=args.num_ranks)
     print(f"Writing SQLite file to {edb_file}")
 
     handcoded_queries, substrait_queries, custom_substrait_queries = get_queries(
@@ -603,6 +614,7 @@ def main():
             secondary_compression_format,
             secondary_compression_ratio_threshold,
             secondary_compression_multiplier_threshold,
+            decompression_backend,
             use_cpu_compression,
             compression_level,
             compression_chunk_size,
@@ -617,6 +629,7 @@ def main():
             args.secondary_compression_format,
             args.secondary_compression_ratio_threshold,
             args.secondary_compression_multiplier_threshold,
+            args.decompression_backend,
             args.use_cpu_compression,
             args.compression_level,
             args.compression_chunk_size,
@@ -652,6 +665,7 @@ def main():
                 secondary_compression_format=secondary_compression_format,
                 secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
                 secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
+                decompression_backend=decompression_backend,
                 use_cpu_compression=use_cpu_compression,
                 compression_level=compression_level,
                 compression_chunk_size=compression_chunk_size,
@@ -674,6 +688,7 @@ def main():
                     secondary_compression_format,
                     secondary_compression_ratio_threshold,
                     secondary_compression_multiplier_threshold,
+                    decompression_backend,
                     use_cpu_compression,
                     compression_level,
                 )
@@ -694,6 +709,7 @@ def main():
                     secondary_compression_format,
                     secondary_compression_ratio_threshold,
                     secondary_compression_multiplier_threshold,
+                    decompression_backend,
                     use_cpu_compression,
                     compression_level,
                 )
