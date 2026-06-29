@@ -204,10 +204,10 @@ class mark_join_op {
       // Perform read.
       probe_key_type key = *key_ptr;
 
-      auto probing_iter = probing_scheme(key, window_extent);
+      auto probing_iter = probing_scheme.template make_iterator<bucket_size>(key, window_extent);
       bool running      = true;
       while (true) {
-        auto bucket_slots = (storage.data() + *probing_iter)->data();
+        auto bucket_slots = storage.data() + *probing_iter;
 #pragma unroll bucket_size
         for (int32_t i = 0; i < bucket_size; i++) {
           auto mutable_entry = bucket_slots + i;
@@ -303,7 +303,8 @@ class mark_join_op {
       for (int32_t i = 0; i < bucket_size; i++) {
         slot.reset();
         if (index * bucket_size + i < map_capacity) {
-          auto tmp = storage_ref[index][i];
+          // operator[] indexes by bucket-aligned slot offset, not bucket index.
+          auto tmp = storage_ref[index * bucket_size][i];
           if (is_filled(tmp) && (gqe_python::utility::is_marked(tmp.first) ^ is_anti_join)) {
             slot = cuda::std::move(tmp.second);
           }
@@ -320,9 +321,9 @@ class mark_join_op {
 
   hash_map_ref_type map_ref;
   slot_is_filled_type is_filled;
-  cuco::detail::equal_wrapper<typename hash_map_ref_type::key_type,
-                              typename hash_map_ref_type::key_equal>
-    predicate;
+  cuco::detail::
+    equal_wrapper<typename hash_map_ref_type::key_type, typename hash_map_ref_type::key_equal, true>
+      predicate;
 
   cudf::size_type mark_counter;
   cuda::atomic_ref<cudf::size_type, cuda::thread_scope_device> global_mark_counter;

@@ -56,7 +56,9 @@ class tpch_q13_fused(Query):
 
         # Group by c_custkey and calculate count(o_orderkey) as c_count
         # After aggregation, the result contains: c_custkey, c_count
-        grouped_customer_orders = Q13GroupjoinRetrieveRelation(groupjoin_intermediate)
+        grouped_customer_orders = Q13GroupjoinRetrieveRelation(
+            groupjoin_intermediate, table_defs.identifier_type
+        )
 
         # Group by c_count and calculate count(*) as custdist
         # After aggregation, the result contains: c_count, custdist

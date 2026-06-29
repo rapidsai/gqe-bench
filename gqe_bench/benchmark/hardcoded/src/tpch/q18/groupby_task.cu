@@ -420,7 +420,8 @@ __global__ void gqe_python::benchmark::q18::groupby_retrieve_kernel(
       cuda::std::optional<cuda::std::tuple<Identifier, double>> result;
 
       if (index * bucket_size + i < map_capacity) {
-        auto entry = storage_ref[index][i];
+        // operator[] indexes by bucket-aligned slot offset, not bucket index.
+        auto entry = storage_ref[index * bucket_size][i];
 
         if (entry.first != hash_map_ref.empty_key_sentinel()) {
           auto key   = entry.first;

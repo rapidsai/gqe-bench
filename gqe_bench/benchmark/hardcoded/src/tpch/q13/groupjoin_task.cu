@@ -599,15 +599,25 @@ std::shared_ptr<gqe::physical::relation> fused_filter_probe(
 }
 
 std::shared_ptr<gqe::physical::relation> groupjoin_retrieve(
-  std::shared_ptr<gqe::physical::relation> groupjoin_probe)
+  std::shared_ptr<gqe::physical::relation> groupjoin_probe, cudf::data_type identifier_type)
 {
   std::vector<std::shared_ptr<gqe::physical::relation>> input_wrapper = {
     std::move(groupjoin_probe)};
 
   groupjoin_retrieve_generate_tasks retrieve_task_generator{};
 
+  // The retrieve task emits two columns: [c_custkey, c_count]. `c_custkey` carries the hash map's
+  // identifier type, and `c_count` is a count, i.e. `cudf::size_type`. The output schema must be
+  // declared so downstream column-reference expressions (e.g. the following aggregate) can resolve
+  // their column types instead of indexing into an empty type vector.
+  std::vector<cudf::data_type> output_data_types = {
+    identifier_type, cudf::data_type(cudf::type_to_id<cudf::size_type>())};
+
   return std::make_shared<gqe::physical::user_defined_relation>(
-    input_wrapper, retrieve_task_generator, /* last_child_break_pipeline = */ true);
+    input_wrapper,
+    retrieve_task_generator,
+    /* last_child_break_pipeline = */ true,
+    std::move(output_data_types));
 }
 
 }  // namespace q13

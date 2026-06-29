@@ -108,17 +108,16 @@ struct hash_map_instance : public abstract_hash_map {
   using bloom_filter_type = utility::bloom_filter_type<Identifier>;
 
   hash_map_instance(size_t cardinality_estimate, double load_factor)
-    : _hash_map(
-        cardinality_estimate,
-        load_factor,
-        empty_key_sentinel<Identifier>,
-        empty_value_sentinel<Value>(),
-        {},
-        {},
-        {},
-        {},
-        utility::map_allocator_type<Identifier, Value>{
-          utility::map_allocator_instance_type<Identifier, Value>{}, cudf::get_default_stream()})
+    : _hash_map(cardinality_estimate,
+                load_factor,
+                empty_key_sentinel<Identifier>,
+                empty_value_sentinel<Value>(),
+                {},
+                {},
+                {},
+                {},
+                utility::map_allocator_type<Identifier, Value>{},
+                cudf::get_default_stream())
   {
   }
 
@@ -131,8 +130,8 @@ struct bloom_filter_instance : public abstract_bloom_filter {
     : _bloom_filter(bloom_filter_num_blocks,
                     {},
                     {},
-                    utility::bloom_filter_allocator_type{
-                      utility::bloom_filter_allocator_instance_type{}, cudf::get_default_stream()})
+                    utility::bloom_filter_allocator_type{},
+                    cudf::get_default_stream())
   {
   }
 
