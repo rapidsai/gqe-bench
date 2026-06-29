@@ -77,11 +77,12 @@ class fused_probes_op {
     auto n_nationkey_map_empty_key_sentinel_key = n_nationkey_map.empty_key_sentinel();
 
     auto n_nationkey_map_probing_iter =
-      n_nationkey_map_probing_scheme(c_nationkey, n_nationkey_map_window_extent);
+      n_nationkey_map_probing_scheme.template make_iterator<n_nationkey_map_bucket_size>(
+        c_nationkey, n_nationkey_map_window_extent);
     bool running = true;
     while (true) {
       auto n_nationkey_map_bucket_slots =
-        (n_nationkey_map_storage.data() + *n_nationkey_map_probing_iter)->data();
+        n_nationkey_map_storage.data() + *n_nationkey_map_probing_iter;
 #pragma unroll n_nationkey_map_bucket_size
       for (int32_t i = 0; i < n_nationkey_map_bucket_size; i++) {
         auto const n_nationkey_map_entry_value = *(n_nationkey_map_bucket_slots + i);
@@ -95,7 +96,8 @@ class fused_probes_op {
         if (status == cuco::detail::equal_result::EQUAL &&
             nationkey_join_predicate(n_nationkey_map_entry_value)) {
           auto nation_table_row_idx = n_nationkey_map_entry_value.second;
-          slot = {join_orders_lineitem_table_row_idx, nation_table_row_idx, customer_table_row_idx};
+          slot                      = cuda::std::array<cudf::size_type, 3>{
+            join_orders_lineitem_table_row_idx, nation_table_row_idx, customer_table_row_idx};
 
           // n_nationkey_map keys are unique, thus exit probe loop early.
           running = false;
@@ -132,14 +134,13 @@ class fused_probes_op {
     cuda::std::optional<cuda::std::array<cudf::size_type, 3>> slot;
 
     // Perform read.
+    auto const probe_key = is_active ? c_custkey : probe_key_type{};
     auto o_custkey_multimap_probing_iter =
-      is_active
-        ? o_custkey_multimap_probing_scheme(c_custkey, o_custkey_multimap_window_extent)
-        : o_custkey_multimap_probing_scheme(probe_key_type{}, o_custkey_multimap_window_extent);
+      o_custkey_multimap_probing_scheme.template make_iterator<o_custkey_multimap_bucket_size>(
+        probe_key, o_custkey_multimap_window_extent);
     while (true) {
       auto o_custkey_multimap_bucket_slots =
-        is_active ? (o_custkey_multimap_storage.data() + *o_custkey_multimap_probing_iter)->data()
-                  : nullptr;
+        is_active ? o_custkey_multimap_storage.data() + *o_custkey_multimap_probing_iter : nullptr;
 #pragma unroll o_custkey_multimap_bucket_size
       for (int32_t i = 0; i < o_custkey_multimap_bucket_size; i++) {
         slot.reset();
@@ -178,10 +179,12 @@ class fused_probes_op {
   hash_multimap_ref_type o_custkey_multimap;
   hash_map_ref_type n_nationkey_map;
   cuco::detail::equal_wrapper<typename hash_multimap_ref_type::key_type,
-                              typename hash_multimap_ref_type::key_equal>
+                              typename hash_multimap_ref_type::key_equal,
+                              true>
     o_custkey_multimap_predicate;
   cuco::detail::equal_wrapper<typename hash_map_ref_type::key_type,
-                              typename hash_map_ref_type::key_equal>
+                              typename hash_map_ref_type::key_equal,
+                              false>
     n_nationkey_map_predicate;
 };
 

@@ -84,12 +84,14 @@
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <rmm/mr/device/cuda_async_memory_resource.hpp>
-#include <rmm/mr/device/cuda_memory_resource.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
-#include <rmm/mr/device/owning_wrapper.hpp>
-#include <rmm/mr/device/per_device_resource.hpp>
-#include <rmm/mr/device/pool_memory_resource.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
+
+#include <cuda/memory_resource>
+
+#include <optional>
 
 #include <cassert>
 #include <chrono>
@@ -565,21 +567,20 @@ struct context : base_context {
           std::optional<std::vector<std::string>> cupti_metrics = std::nullopt,
           bool time_breakdown                                   = false)
   {
+    using device_accessible_mr = cuda::mr::any_resource<cuda::mr::device_accessible>;
     if (debug_mem_usage) {
-      auto _mr =
-        std::make_unique<rmm::mr::cuda_async_memory_resource>(0);  // set initial pool size to 0
-      _task_manager_ctx = std::make_unique<gqe::task_manager_context>(parameters, std::move(_mr));
-    } else {
-      using upstream_mr = rmm::mr::cuda_memory_resource;
-      using pool_mr     = rmm::mr::pool_memory_resource<upstream_mr>;
-      using wrapper_mr  = rmm::mr::owning_wrapper<pool_mr, upstream_mr>;
-
-      auto upstream = std::make_unique<upstream_mr>();
-      auto mr       = std::make_unique<wrapper_mr>(
-        std::move(upstream),
-        parameters.initial_query_memory,
-        parameters.max_query_memory.value_or(gqe::detail::default_device_memory_pool_size()));
+      // 0 means "do not pre-allocate".
+      auto mr =
+        device_accessible_mr{rmm::mr::cuda_async_memory_resource{std::optional<std::size_t>{0}}};
       _task_manager_ctx = std::make_unique<gqe::task_manager_context>(parameters, std::move(mr));
+    } else {
+      auto const max_pool =
+        parameters.max_query_memory.value_or(gqe::detail::default_device_memory_pool_size());
+      auto upstream_mr = device_accessible_mr{rmm::mr::cuda_memory_resource{}};
+      auto pool_mr     = device_accessible_mr{rmm::mr::pool_memory_resource{
+        upstream_mr, parameters.initial_query_memory, std::make_optional(max_pool)}};
+      _task_manager_ctx =
+        std::make_unique<gqe::task_manager_context>(parameters, std::move(pool_mr));
     }
 
     _query_ctx = std::make_unique<gqe::query_context>(parameters);

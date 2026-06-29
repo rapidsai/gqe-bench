@@ -125,10 +125,10 @@ class groupjoin_op {
       // Perform read.
       probe_key_type key = *key_ptr;
 
-      auto probing_iter = probing_scheme(key, window_extent);
+      auto probing_iter = probing_scheme.template make_iterator<bucket_size>(key, window_extent);
       bool running      = true;
       while (true) {
-        auto bucket_slots = (storage.data() + *probing_iter)->data();
+        auto bucket_slots = storage.data() + *probing_iter;
 #pragma unroll bucket_size
         for (int32_t i = 0; i < bucket_size; i++) {
           auto mutable_entry = bucket_slots + i;
@@ -190,7 +190,8 @@ class groupjoin_op {
       for (int32_t i = 0; i < bucket_size; i++) {
         slot.reset();
         if (index * bucket_size + i < map_capacity) {
-          auto tmp = storage_ref[index][i];
+          // operator[] indexes by bucket-aligned slot offset, not bucket index.
+          auto tmp = storage_ref[index * bucket_size][i];
           if (is_filled(tmp)) {
             slot = cuda::std::move(cuda::std::make_pair(tmp.first, tmp.second));
           }
@@ -205,7 +206,8 @@ class groupjoin_op {
   hash_map_ref_type map_ref;
   slot_is_filled_type is_filled;
   cuco::detail::equal_wrapper<typename hash_map_ref_type::key_type,
-                              typename hash_map_ref_type::key_equal>
+                              typename hash_map_ref_type::key_equal,
+                              false>
     predicate;
 };
 

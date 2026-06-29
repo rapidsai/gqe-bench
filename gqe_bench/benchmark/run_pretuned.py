@@ -21,6 +21,8 @@ import os
 import re
 import sqlite3
 import sys
+from collections import OrderedDict
+from typing import Any
 
 from database_benchmarking_tools.experiment import ExperimentDB
 from database_benchmarking_tools.utility import generate_db_path
@@ -91,6 +93,138 @@ def get_best_parameters_folder(df_folder: str):
     return sorted(best_param_dict.values(), key=lambda x: extract_query_num(x["q_name"]))
 
 
+def _catalog_key(best_parameter: dict[str, Any]) -> tuple[Any, ...]:
+    """Tuple of catalog-affecting columns; rows with the same key share a catalog."""
+    return (
+        best_parameter["d_storage_device_kind"],
+        best_parameter["de_num_row_groups"],
+        best_parameter["d_identifier_type"],
+        best_parameter["d_char_type"],
+        best_parameter["de_zone_map_partition_size"],
+        best_parameter["de_compression_format"],
+        best_parameter["de_compression_chunk_size"],
+        best_parameter["de_compression_ratio_threshold"],
+        best_parameter["de_secondary_compression_format"],
+        best_parameter["de_secondary_compression_ratio_threshold"],
+        best_parameter["de_secondary_compression_multiplier_threshold"],
+        best_parameter["de_decompression_backend"],
+        best_parameter["de_use_cpu_compression"],
+        best_parameter["de_compression_level"],
+        best_parameter["d_scale_factor"],
+    )
+
+
+def _build_data_info(best_parameter: dict[str, Any], scale_factor: float) -> DataInfo:
+    """Build a DataInfo from one best_parameter row."""
+    identifier_type = sql_to_identifier_type(best_parameter["d_identifier_type"])
+    return DataInfo(
+        storage_device_kind=best_parameter["d_storage_device_kind"],
+        format="internal",
+        location=None,
+        not_null=False,
+        identifier_type=identifier_type_to_sql(identifier_type),
+        char_type=best_parameter["d_char_type"],
+        decimal_type="float",
+        scale_factor=scale_factor,
+        num_row_groups=best_parameter["de_num_row_groups"],
+        compression_format=best_parameter["de_compression_format"],
+        compression_ratio_threshold=best_parameter["de_compression_ratio_threshold"],
+        secondary_compression_format=best_parameter["de_secondary_compression_format"],
+        secondary_compression_ratio_threshold=best_parameter[
+            "de_secondary_compression_ratio_threshold"
+        ],
+        secondary_compression_multiplier_threshold=best_parameter[
+            "de_secondary_compression_multiplier_threshold"
+        ],
+        decompression_backend=best_parameter["de_decompression_backend"],
+        use_cpu_compression=best_parameter["de_use_cpu_compression"],
+        compression_level=best_parameter["de_compression_level"],
+        compression_chunk_size=best_parameter["de_compression_chunk_size"],
+        zone_map_partition_size=best_parameter["de_zone_map_partition_size"],
+    )
+
+
+def _build_cat_ctx(
+    best_parameter: dict[str, Any], dataset: str, ddl_file_path: str | None, load_all_data: bool
+) -> CatalogContext:
+    """Build a CatalogContext from one best_parameter row."""
+    identifier_type = sql_to_identifier_type(best_parameter["d_identifier_type"])
+    use_opt_type_for_single_char_col = best_parameter["d_char_type"] == "char"
+    return CatalogContext(
+        dataset,
+        best_parameter["d_storage_device_kind"],
+        best_parameter["de_num_row_groups"],
+        0 if load_all_data else -1,
+        identifier_type,
+        use_opt_type_for_single_char_col,
+        ddl_file_path,
+        best_parameter["de_zone_map_partition_size"],
+        best_parameter["de_compression_format"],
+        best_parameter["de_compression_chunk_size"],
+        best_parameter["de_compression_ratio_threshold"],
+        best_parameter["de_secondary_compression_format"],
+        best_parameter["de_secondary_compression_ratio_threshold"],
+        best_parameter["de_secondary_compression_multiplier_threshold"],
+        best_parameter["de_decompression_backend"],
+        best_parameter["de_use_cpu_compression"],
+        best_parameter["de_compression_level"],
+    )
+
+
+def _build_query_info_ctx(
+    best_parameter: dict[str, Any],
+    plan_dir: str,
+    solution_pattern: str,
+    scale_factor: float,
+    physical_plan_folder: str | None,
+) -> QueryInfoContext:
+    """Build a QueryInfoContext from one best_parameter row."""
+    query_str = best_parameter["q_name"].lstrip("Q")
+    query_source = best_parameter["q_source"]
+    if query_source == "custom_substrait":
+        query_idx = -1
+        substrait_file = os.path.join(plan_dir, f"{query_str}.bin")
+        reference_file = solution_pattern.replace("%d", f"{query_str}")
+    else:
+        query_idx = int(query_str.split("_")[0])
+        reference_file = solution_pattern.replace("%d", f"q{query_idx}")
+        if query_source == "handcoded":
+            substrait_file = None
+        elif query_source == "substrait":
+            substrait_file = os.path.join(plan_dir, f"df_q{query_idx}.bin")
+        else:
+            raise ValueError(f"Invalid query source: {query_source}")
+    return QueryInfoContext(
+        query_idx,
+        query_str,
+        query_source,
+        reference_file,
+        scale_factor,
+        substrait_file,
+        physical_plan_folder,
+    )
+
+
+def _build_gqe_parameter(
+    best_parameter: dict[str, Any], query_info_ctx: QueryInfoContext
+) -> QueryExecutionContext:
+    """Build a QueryExecutionContext from one best_parameter row."""
+    return QueryExecutionContext(
+        best_parameter["p_num_workers"],
+        best_parameter["p_num_partitions"],
+        best_parameter["p_use_overlap_mtx"],
+        best_parameter["p_join_use_hash_map_cache"],
+        best_parameter["p_read_use_zero_copy"],
+        best_parameter["p_join_use_unique_keys"],
+        best_parameter["p_join_use_perfect_hash"],
+        best_parameter["p_join_use_mark_join"],
+        best_parameter["p_use_partition_pruning"],
+        best_parameter["p_filter_use_like_shift_and"],
+        best_parameter["p_aggregation_use_perfect_hash"],
+        query_info_ctx=query_info_ctx,
+    )
+
+
 def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument(
@@ -121,10 +255,8 @@ def main():
     arg_parser.add_argument(
         "--load-all-data",
         "-l",
-        help="Whether to load all data or the data required for each query. Defaults to 0",
-        type=int,
-        choices=[0, 1],
-        default=0,
+        help="Load the full dataset instead of only the columns required for each query.",
+        action="store_true",
     )
     # CUPTI support hasn't been added for multi-process yet. Mark these options as mutually exclusive.
     metrics_group = arg_parser.add_mutually_exclusive_group()
@@ -253,138 +385,60 @@ def main():
     def run_all(edb_info):
         errors_local = []
         invalid_results_local = []
+        # Bucket eligible best_parameters by catalog key so consecutive rows
+        # that share a catalog share a single run_suite call (and therefore a
+        # single data load).
+        buckets: "OrderedDict[tuple, list]" = OrderedDict()
         for best_parameter in best_parameters:
             query_str = best_parameter["q_name"].lstrip("Q")
-            if best_parameter["q_source"] == "custom_substrait":
-                query_idx = -1
-            else:
-                query_idx = int(query_str.split("_")[0])
-
             if args.queries and query_str not in args.queries:
                 print(
                     f"Skipping {best_parameter['q_name']} because it is not in the list of queries to run"
                 )
                 continue
-
-            num_row_groups = best_parameter["de_num_row_groups"]
-            char_type = best_parameter["d_char_type"]
-            use_opt_type_for_single_char_col = char_type == "char"
-            compression_format = best_parameter["de_compression_format"]
-            compression_ratio_threshold = best_parameter["de_compression_ratio_threshold"]
-            secondary_compression_format = best_parameter["de_secondary_compression_format"]
-            secondary_compression_ratio_threshold = best_parameter[
-                "de_secondary_compression_ratio_threshold"
-            ]
-            secondary_compression_multiplier_threshold = best_parameter[
-                "de_secondary_compression_multiplier_threshold"
-            ]
-            decompression_backend = best_parameter["de_decompression_backend"]
-            use_cpu_compression = best_parameter["de_use_cpu_compression"]
-            compression_level = best_parameter["de_compression_level"]
-            compression_chunk_size = best_parameter["de_compression_chunk_size"]
-            zone_map_partition_size = best_parameter["de_zone_map_partition_size"]
-
-            identifier_type = sql_to_identifier_type(best_parameter["d_identifier_type"])
-
-            storage_kind = best_parameter["d_storage_device_kind"]
-            query_source = best_parameter["q_source"]
-
             if best_parameter["d_scale_factor"] != scale_factor:
                 print(
                     f"Skipping {best_parameter['q_name']} because scale factor {best_parameter['d_scale_factor']} does not match input scale factor {scale_factor}"
                 )
                 continue
-
-            data_info = DataInfo(
-                storage_device_kind=storage_kind,
-                format="internal",
-                location=None,  # FIXME: set location as NUMA node, iff set in GQE
-                not_null=False,
-                identifier_type=identifier_type_to_sql(identifier_type),
-                char_type=char_type,
-                decimal_type="float",
-                scale_factor=scale_factor,
-                num_row_groups=num_row_groups,
-                compression_format=compression_format,
-                compression_ratio_threshold=compression_ratio_threshold,
-                secondary_compression_format=secondary_compression_format,
-                secondary_compression_ratio_threshold=secondary_compression_ratio_threshold,
-                secondary_compression_multiplier_threshold=secondary_compression_multiplier_threshold,
-                decompression_backend=decompression_backend,
-                use_cpu_compression=use_cpu_compression,
-                compression_level=compression_level,
-                compression_chunk_size=compression_chunk_size,
-                zone_map_partition_size=zone_map_partition_size,
-            )
-
-            reference_file = args.solution.replace("%d", f"q{query_idx}")
-            if query_source == "handcoded":
-                substrait_file = None
-            elif query_source == "substrait":
-                substrait_file = os.path.join(args.plan, f"df_q{query_idx}.bin")
-            elif query_source == "custom_substrait":
-                substrait_file = os.path.join(args.plan, f"{query_str}.bin")
-                reference_file = args.solution.replace("%d", f"{query_str}")
-            else:
-                raise ValueError(f"Invalid query source: {query_source}")
-
-            query_info_ctx = QueryInfoContext(
-                query_idx,
-                query_str,
-                query_source,
-                reference_file,
-                scale_factor,
-                substrait_file,
-                physical_plan_folder,
-            )
-
-            gqe_parameter = QueryExecutionContext(
-                best_parameter["p_num_workers"],
-                best_parameter["p_num_partitions"],
-                best_parameter["p_use_overlap_mtx"],
-                best_parameter["p_join_use_hash_map_cache"],
-                best_parameter["p_read_use_zero_copy"],
-                best_parameter["p_join_use_unique_keys"],
-                best_parameter["p_join_use_perfect_hash"],
-                best_parameter["p_join_use_mark_join"],
-                best_parameter["p_use_partition_pruning"],
-                best_parameter["p_filter_use_like_shift_and"],
-                best_parameter["p_aggregation_use_perfect_hash"],
-                query_info_ctx=query_info_ctx,
-            )
-
-            if best_parameter["d_scale_factor"] != scale_factor:
+            if best_parameter["q_source"] == "custom_substrait" and not args.load_all_data:
                 print(
-                    f"Skipping {best_parameter['q_name']} because scale factor {best_parameter['d_scale_factor']} does not match input scale factor {scale_factor}"
+                    f"Skipping {best_parameter['q_name']} because custom substrait queries must be run with all data loaded (use --load_all_data flag)"
                 )
                 continue
 
-            if query_source == "custom_substrait" and not args.load_all_data:
-                print(
-                    f"Skipping {best_parameter['q_name']} because custom substrait queries must be run with load_all_data=1"
-                )
-                continue
-            load_all_data = 0 if args.load_all_data else -1
-            cat_ctx = CatalogContext(
-                args.dataset,
-                storage_kind,
-                num_row_groups,
-                load_all_data,
-                identifier_type,
-                use_opt_type_for_single_char_col,
-                args.ddl_file_path,
-                zone_map_partition_size,
-                compression_format,
-                compression_chunk_size,
-                compression_ratio_threshold,
-                secondary_compression_format,
-                secondary_compression_ratio_threshold,
-                secondary_compression_multiplier_threshold,
-                decompression_backend,
-                use_cpu_compression,
-                compression_level,
+            query_info_ctx = _build_query_info_ctx(
+                best_parameter, args.plan, args.solution, scale_factor, physical_plan_folder
             )
-            is_mp = args.num_ranks > 1
+            gqe_parameter = _build_gqe_parameter(best_parameter, query_info_ctx)
+            buckets.setdefault(_catalog_key(best_parameter), []).append(
+                (best_parameter, gqe_parameter)
+            )
+
+        is_mp = args.num_ranks > 1
+        for entries in buckets.values():
+            # All rows in a bucket share the catalog by definition of the key,
+            # so any representative works for cat_ctx / data_info.
+            catalog_params = entries[0][0]
+            cat_ctx = _build_cat_ctx(
+                catalog_params, args.dataset, args.ddl_file_path, args.load_all_data
+            )
+            data_info = _build_data_info(catalog_params, scale_factor)
+
+            # Sort by query_idx so that variants of the same query are
+            # consecutive, minimising data reloads when load_all_data=0.
+            gqe_parameters = [gqe_parameter for _, gqe_parameter in entries]
+            gqe_parameters.sort(key=lambda p: p.query_info_ctx.query_idx)
+
+            print(
+                f"Running {len(gqe_parameters)} queries sharing catalog "
+                f"(num_row_groups={catalog_params['de_num_row_groups']}, "
+                f"compression={catalog_params['de_compression_format']}, "
+                f"storage={catalog_params['d_storage_device_kind']}, "
+                f"identifier={catalog_params['d_identifier_type']}): "
+                f"{[p.query_info_ctx.query_str for p in gqe_parameters]}"
+            )
+
             if is_mp or args.sandboxing:
                 # bind args so child process can call run_suite exactly like this
                 func_sig = inspect.signature(run_suite)
@@ -392,7 +446,7 @@ def main():
                     cat_ctx,
                     data_info,
                     scale_factor,
-                    [gqe_parameter],
+                    gqe_parameters,
                     edb_file,
                     edb_info,
                     args.metrics,
@@ -409,8 +463,8 @@ def main():
                 run_suite_args.apply_defaults()
                 run_sandboxed(
                     run_suite_args,
-                    [gqe_parameter],
-                    load_all_data,
+                    gqe_parameters,
+                    args.load_all_data,
                     scale_factor,
                     errors_local,
                     invalid_results_local,
@@ -421,7 +475,7 @@ def main():
                     cat_ctx,
                     data_info,
                     scale_factor,
-                    [gqe_parameter],
+                    gqe_parameters,
                     edb_file,
                     edb_info,
                     args.metrics,

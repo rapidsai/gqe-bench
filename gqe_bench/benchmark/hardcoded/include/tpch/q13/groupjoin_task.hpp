@@ -19,6 +19,8 @@
 
 #include <gqe/physical/relation.hpp>
 
+#include <cudf/types.hpp>
+
 #include <cstdint>
 #include <memory>
 
@@ -66,11 +68,14 @@ std::shared_ptr<gqe::physical::relation> fused_filter_probe(
  * @brief Create a groupjoin hash map retrieve relation.
  *
  * @param[in] groupjoin_probe The probe relation of the groupjoin.
+ * @param[in] identifier_type The data type of the `c_custkey` identifier column emitted by the
+ * retrieve task. This must match the identifier type used to build the groupjoin hash map so that
+ * the relation reports an accurate output schema to downstream relations.
  *
  * @return The groupjoin retrieve physical relation.
  */
 std::shared_ptr<gqe::physical::relation> groupjoin_retrieve(
-  std::shared_ptr<gqe::physical::relation> groupjoin_probe);
+  std::shared_ptr<gqe::physical::relation> groupjoin_probe, cudf::data_type identifier_type);
 
 }  // namespace q13
 }  // namespace benchmark

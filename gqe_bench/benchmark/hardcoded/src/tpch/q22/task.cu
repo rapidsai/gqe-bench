@@ -194,9 +194,8 @@ struct mark_join_functor {
         {},
         {},
         {},
-        gqe_python::utility::map_allocator_type<identifier_type, cudf::size_type>{
-          gqe_python::utility::map_allocator_instance_type<identifier_type, cudf::size_type>{},
-          main_stream}};
+        gqe_python::utility::map_allocator_type<identifier_type, cudf::size_type>{},
+        main_stream};
 
       // Create bloom filter.
       // Hyperparameters for bloom filter size to achieve best performance.
@@ -207,8 +206,8 @@ struct mark_join_functor {
                                                                    bf_size_factor),
         {},
         {},
-        gqe_python::utility::bloom_filter_allocator_type{
-          gqe_python::utility::bloom_filter_allocator_instance_type{}, main_stream});
+        gqe_python::utility::bloom_filter_allocator_type{},
+        main_stream);
 
       // Insert c_custkey into left anti join map.
       thrust::for_each(thrust::make_counting_iterator<cudf::size_type>(0),

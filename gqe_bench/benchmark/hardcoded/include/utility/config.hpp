@@ -33,8 +33,7 @@ struct is_bitwise_comparable<double> : std::true_type {};
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_scalar.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
-#include <rmm/mr/device/polymorphic_allocator.hpp>
+#include <rmm/mr/polymorphic_allocator.hpp>
 
 #include <cstdlib>
 
@@ -52,19 +51,10 @@ constexpr int warp_leader           = 0;
 constexpr int32_t bucket_size       = 2;
 
 /**
- * @brief Stream-ordered allocator adaptor used for cuco data structures
- *
- * Copied from cudf
- * https://github.com/rapidsai/cudf/blob/branch-25.02/cpp/include/cudf/detail/cuco_helpers.hpp#L32-L43
- *
- * The stream-ordered `rmm::mr::polymorphic_allocator` cannot be used in `cuco`
- * directly since the later expects a standard C++ `Allocator` interface. This
- * allocator helper provides a simple way to handle cuco memory
- * allocation/deallocation with the given `stream` and the rmm default memory
- * resource.
+ * @brief Stream-ordered allocator used for cuco data structures
  */
 template <typename T>
-using cuco_allocator = rmm::mr::stream_allocator_adaptor<rmm::mr::polymorphic_allocator<T>>;
+using cuco_allocator = rmm::mr::polymorphic_allocator<T>;
 template <typename Key, typename T>
 using map_allocator_type = cuco_allocator<cuco::pair<Key, T>>;
 template <typename Key, typename T>
@@ -86,15 +76,15 @@ using map_ref_type =
   typename map_type<Key, T, Hash>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;
 
 template <typename Key, typename T>
-using multimap_type = cuco::experimental::static_multimap<
-  Key,
-  T,
-  cuco::extent<std::size_t>,
-  cuda::thread_scope_device,
-  thrust::equal_to<Key>,
-  cuco::linear_probing<cg_size, cuco::default_hash_function<Key>>,
-  map_allocator_type<Key, T>,
-  cuco::storage<bucket_size>>;
+using multimap_type =
+  cuco::static_multimap<Key,
+                        T,
+                        cuco::extent<std::size_t>,
+                        cuda::thread_scope_device,
+                        thrust::equal_to<Key>,
+                        cuco::linear_probing<cg_size, cuco::default_hash_function<Key>>,
+                        map_allocator_type<Key, T>,
+                        cuco::storage<bucket_size>>;
 template <typename Key, typename T>
 using multimap_ref_type =
   typename multimap_type<Key, T>::template ref_type<cuco::op::find_tag, cuco::op::for_each_tag>;

@@ -13,7 +13,21 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+# gqe_bench.lib statically links gqe's substrait .pb.cc files, which register
+# substrait/*.proto descriptors in the global protobuf descriptor pool at
+# module load time. pyarrow's libarrow_substrait.so registers the same
+# descriptors and aborts the process on duplicate registration. pyarrow only
+# loads libarrow_substrait when `pyarrow.substrait` is imported, and the only
+# importer in pyarrow is pyarrow._dataset which wraps the import in a
+# try/except ImportError. Mask the module before loading lib so the import
+# fails cleanly and libarrow_substrait is never loaded into this process.
+# TODO: Remove once we migrate to CLI. Also, monitor this whenever pyarrow updates in our environment.
+
 import os
+import sys as _sys
+
+_sys.modules.setdefault("pyarrow.substrait", None)
+_sys.modules.setdefault("pyarrow._substrait", None)
 
 # Ensure CUDA enumerates devices by PCI bus ID, matching nvidia-smi ordering.
 # Without this, CUDA defaults to FASTEST_FIRST which can cause

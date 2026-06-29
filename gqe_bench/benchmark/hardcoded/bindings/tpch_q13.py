@@ -73,8 +73,9 @@ class Q13GroupjoinRetrieveRelation(Relation):
     Q13 groupjoin retrieve relation for the groupjoin result.
     """
 
-    def __init__(self, input: Relation):
+    def __init__(self, input: Relation, identifier_type: gqe_bench.lib.DataType):
         self.input = input
+        self.identifier_type = identifier_type
 
     def _to_cpp(self):
-        return gqe_bench.lib.q13_groupjoin_retrieve(self.input._cpp)
+        return gqe_bench.lib.q13_groupjoin_retrieve(self.input._cpp, self.identifier_type)
