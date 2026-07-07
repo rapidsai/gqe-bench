@@ -44,7 +44,7 @@ database_benchmarking_tools = { path = "database_benchmarking_tools" }
 
 [tool.scikit-build]
 cmake.source-dir = "."
-cmake.verbose = true
+build.verbose = true
 install.strip=false
 
 [project.scripts]

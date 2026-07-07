@@ -569,6 +569,8 @@ def _run_suite(
             pipe_send(pipe, False, {QueryError.load_data: err_pack})
             errors.append(err_pack)
             clear_queue(parameters)
+            if catalog is not None:
+                catalog.clear()
             return
         # Typically, we would expect a pipe_send(pipe, True) here, but it will be satisfied by the per-query send below.
 
@@ -603,6 +605,8 @@ def _run_suite(
             #
             # Reference:
             # See https://docs.python.org/3.14/library/gc.html
+            if catalog is not None:
+                catalog.clear()
             catalog = None
             context = None
 
@@ -642,6 +646,8 @@ def _run_suite(
                 print(err_str)
                 pipe_send(pipe, False, {QueryError.load_data: err_pack})
                 errors.append(err_pack)
+                if catalog is not None:
+                    catalog.clear()
                 # Since we failed to load this data set, purge the remaining matching queries.
                 clear_query_from_queue(parameter, parameters)
                 # We can continue processing since this is one query; on next iter we reload data
@@ -831,6 +837,8 @@ def _run_suite(
                                 )
                             )
                     if is_unrecoverable_error(error):
+                        if catalog is not None:
+                            catalog.clear()
                         return
                     else:
                         break
@@ -858,6 +866,8 @@ def _run_suite(
                                 )
                             )
                     if is_unrecoverable_error(error):
+                        if catalog is not None:
+                            catalog.clear()
                         return
                     else:
                         break
@@ -944,6 +954,8 @@ def _run_suite(
 
     # Explicit cleanup in correct order to avoid segfault at exit.
     # Catalog holds a pointer to task_manager_ctx from Context, so it must be destroyed first.
+    if catalog is not None:
+        catalog.clear()
     catalog = None
     context = None
 
