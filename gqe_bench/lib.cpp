@@ -1240,6 +1240,7 @@ PYBIND11_MODULE(lib, py_module)
     }))
     .def("column_names", &gqe::catalog::column_names)
     .def("table_names", &gqe::catalog::table_names)
+    .def("unregister_table", &gqe::catalog::unregister_table)
     .def("statistics", &gqe::catalog::statistics);
   // Table statistics manager
   py::class_<gqe::table_statistics_manager>(py_module, "TableStatisticsManager")

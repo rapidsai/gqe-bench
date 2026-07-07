@@ -35,6 +35,16 @@ class Catalog:
         self._context = context
         self._catalog = gqe_bench.lib.Catalog(context._context)
 
+    def table_names(self) -> list[str]:
+        return list(self._catalog.table_names())
+
+    def unregister_table(self, table_name: str) -> None:
+        self._catalog.unregister_table(table_name)
+
+    def clear(self) -> None:
+        for table_name in self.table_names():
+            self.unregister_table(table_name)
+
     def register_tables(
         self,
         dataset: str,
