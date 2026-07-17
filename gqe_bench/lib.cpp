@@ -485,7 +485,7 @@ std::shared_ptr<gqe::physical::relation> load_substrait(
   if (logical_plan_vector.size() > 1)
     throw std::logic_error("GQE Bench only supports substrait plan with one root");
 
-  std::shared_ptr<gqe::logical::relation> logical_plan = logical_plan_vector[0];
+  std::shared_ptr<gqe::logical::relation> logical_plan = logical_plan_vector[0].relation;
 
   if (optimize) {
     gqe::optimizer::optimization_configuration logical_rule_config(
