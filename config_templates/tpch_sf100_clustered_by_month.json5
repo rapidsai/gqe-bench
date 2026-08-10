@@ -3,60 +3,33 @@
 // Depending on clustering method and scale factor, alter dataset, zone_map_partition_size
 {
   "dataset": "/tpch-sf100-clustered-by-month", // these paths have to exist in your container, or change it!
-  "plan": "/plan",
   "solution": "/solution_sf100/%d.parquet",
   "output": "/output/pbr_output.db3",
   "time_breakdown": false,
 
-  "storage_kind": ["numa_pinned_memory"],
-  "identifier_type": ["int64"],
+  "storage_device_kind": ["numa_pinned_memory"],
   "compression_format": ["ans"], //recommended for good perf on non-gb200
   "secondary_compression_format": ["cascaded"],
-  "read_use_overlap_mtx": [false], // Change to false when running with compression enabled
+  "use_overlap_mtx": [false], // Change to false when running with compression enabled
   "join_use_mark_join": [false],
+  "join_use_perfect_hash": [false, true], // pruned against join_use_hash_map_cache so exactly one is on
+  "join_use_hash_map_cache": [false, true],
+  "join_use_unique_keys": [true],
   "filter_use_like_shift_and": [false],
   "aggregation_use_perfect_hash": [true], // Set to true when using clustered dataset
-  "read_use_filter_pruning": [true],
+  "read_use_zero_copy": [false],
+  "use_ast_jit": [false],
+  "use_partition_pruning": [true],
   "zone_map_partition_size": [1000000], // this is set by clustering method and scale factor
-  "row_groups": [14, 28],
-  "partitions": [4, 8, 16, 32],
-  "workers": [2, 4, 8],
-  "sandboxing": true,
-  "data_timeout": 1200,
-  "query_timeout": 30,
-  "query_source": "both",
-  "load_all_data": false,
+  "num_row_groups": [14, 28],
+  "num_partitions": [4, 8, 16, 32],
+  "num_workers": [2, 4, 8],
+  // A failure only under "decimal" is expected until the engine's decimal support is
+  // complete; one that also reproduces under "double" is a regression.
+  "decimal_type": ["double", "decimal"],
+  "query_source": ["sql", "handcoded"],
 
   "query_overrides": [
-    {
-      "queries": [
-        "1",
-        "2_fused_filter",
-        "3_fused_filter",
-        "4",
-        "6",
-        "7_fused_filter",
-        "8",
-        "10_fused_filter",
-        "10_opt",
-        "13",
-        "13_opt",
-        "13_fused",
-        "14",
-        "16",
-        "16_opt",
-        "17",
-        "18_opt",
-        "19",
-        "20_fused_filter",
-        "21_fused_filter",
-        "21_opt",
-        "22",
-        "22_opt"
-      ],
-      "join_use_perfect_hash": [false, true],
-      "join_use_hash_map_cache": [false, true]
-    },
     {
       "queries": [
         "4",

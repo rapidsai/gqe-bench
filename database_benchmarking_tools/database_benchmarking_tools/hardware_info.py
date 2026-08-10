@@ -13,22 +13,35 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-from uuid import UUID
-
 import pynvml
-from cuda.bindings import runtime as cudart
+from cuda.bindings import driver as cuda
 
-# NVML reports/accepts GPU UUIDs as `"GPU-<uuid>"` (and `"MIG-..."` for MIG
-# instances, which this module does not support).
-# But UUID from cudaGetDeviceProperties doesn't have the prefix.
-# The prefix is stripped and re-added at the NVML boundary so callers only deal in `uuid.UUID`.
-_NVML_GPU_PREFIX = "GPU-"
+# CUDA logical index -> UUID via the driver API. NVML's enumeration is
+# independent of ``CUDA_VISIBLE_DEVICES``, so the NVML index can't be used.
 
 
-# NVML-based wrapper that reads the GPU properties used to populate `gpu_info`.
-# Per-device accessors take an opaque NVML handle from `handle_by_uuid` (or
-# `handle_by_nvml_index`); prefer UUID-based lookup since NVML and CUDA-runtime
-# index spaces can disagree under `CUDA_VISIBLE_DEVICES` or MIG.
+def _uuid_for_cuda_index(cuda_index: int) -> str:
+    (err,) = cuda.cuInit(0)
+    if err != cuda.CUresult.CUDA_SUCCESS:
+        raise RuntimeError(f"cuInit failed: {err}")
+    err, dev = cuda.cuDeviceGet(cuda_index)
+    if err != cuda.CUresult.CUDA_SUCCESS:
+        raise RuntimeError(f"cuDeviceGet({cuda_index}) failed: {err}")
+    err, uuid = cuda.cuDeviceGetUuid(dev)
+    if err != cuda.CUresult.CUDA_SUCCESS:
+        raise RuntimeError(f"cuDeviceGetUuid({cuda_index}) failed: {err}")
+    h = bytes(uuid.bytes).hex()
+    return f"GPU-{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+
+
+# Thin wrapper over NVML used to read the GPU properties stored in the
+# `gpu_info` and `hw_info` dimension tables. Each accessor takes a CUDA device
+# index and returns the corresponding NVML-reported value (product name, UUID,
+# clocks, ECC counters, ...). NVML handles are resolved by UUID (via CUDA's
+# logical-index-to-UUID mapping) so the result matches the device that
+# `cudaSetDevice(gpu_id)` will bind in the engine. Distinct from the
+# `GpuInfo` dataclass in `experiment.py`, which is the table mapping for the
+# rows produced from these queries.
 class GpuInfoQuery:
     def __init__(self):
         pynvml.nvmlInit()
@@ -36,53 +49,45 @@ class GpuInfoQuery:
     def __del__(self):
         pynvml.nvmlShutdown()
 
+    def _handle_for_cuda_index(self, cuda_index: int):
+        return pynvml.nvmlDeviceGetHandleByUUID(_uuid_for_cuda_index(cuda_index))
+
     def cuda_driver_version(self) -> str:
         version = pynvml.nvmlSystemGetCudaDriverVersion_v2()
         return str(version // 1000) + "." + str((version // 10) % 10)
 
-    def device_count(self) -> int:
-        """Return the number of GPUs visible to NVML in this process."""
-        return pynvml.nvmlDeviceGetCount()
-
-    def handle_by_nvml_index(self, nvml_index: int) -> pynvml.c_nvmlDevice_t:
-        """Return the NVML handle for the GPU at the given NVML index."""
-        return pynvml.nvmlDeviceGetHandleByIndex(nvml_index)
-
-    def handle_by_uuid(self, uuid: UUID) -> pynvml.c_nvmlDevice_t:
-        """Return the NVML handle for the GPU with the given UUID.
-        Use this to look up the physical device in NVML regardless of `CUDA_VISIBLE_DEVICES`.
-        """
-        return pynvml.nvmlDeviceGetHandleByUUID(f"{_NVML_GPU_PREFIX}{uuid}")
-
-    def device_product_name(self, handle) -> str:
+    def device_product_name(self, gpu_id: int) -> str:
+        handle = self._handle_for_cuda_index(gpu_id)
         return pynvml.nvmlDeviceGetName(handle)
 
-    def device_uuid(self, handle) -> UUID:
-        nvml_uuid = pynvml.nvmlDeviceGetUUID(handle)
-        if not nvml_uuid.startswith(_NVML_GPU_PREFIX):
-            raise ValueError(f"Unsupported NVML UUID form: {nvml_uuid!r}")
-        return UUID(nvml_uuid.removeprefix(_NVML_GPU_PREFIX))
+    def device_uuid(self, gpu_id: int) -> str:
+        return _uuid_for_cuda_index(gpu_id)
 
-    def gpu_cores(self, handle) -> int:
+    def gpu_cores(self, gpu_id: int) -> int:
+        handle = self._handle_for_cuda_index(gpu_id)
         # This API call needs to check for error since it fails on WSL2
         try:
             return pynvml.nvmlDeviceGetNumGpuCores(handle)
         except pynvml.NVMLError_NotSupported:
             return None
 
-    def max_memory_clock(self, handle) -> int:
+    def max_memory_clock(self, gpu_id: int) -> int:
+        handle = self._handle_for_cuda_index(gpu_id)
         return pynvml.nvmlDeviceGetMaxClockInfo(handle, pynvml.NVML_CLOCK_MEM)
 
-    def max_sm_clock(self, handle) -> int:
+    def max_sm_clock(self, gpu_id: int) -> int:
+        handle = self._handle_for_cuda_index(gpu_id)
         return pynvml.nvmlDeviceGetMaxClockInfo(handle, pynvml.NVML_CLOCK_SM)
 
-    def pcie_link_generation(self, handle) -> int:
+    def pcie_link_generation(self, gpu_id: int) -> int:
+        handle = self._handle_for_cuda_index(gpu_id)
         return pynvml.nvmlDeviceGetCurrPcieLinkGeneration(handle)
 
     def system_driver_version(self) -> str:
         return pynvml.nvmlSystemGetDriverVersion()
 
-    def total_ecc_errors(self, handle) -> int:
+    def total_ecc_errors(self, gpu_id: int) -> int:
+        handle = self._handle_for_cuda_index(gpu_id)
         try:
             corrected = pynvml.nvmlDeviceGetTotalEccErrors(
                 handle,
@@ -97,18 +102,6 @@ class GpuInfoQuery:
             return corrected + uncorrected
         except pynvml.NVMLError_NotSupported:
             return None
-
-
-def cuda_device_uuid(cuda_index: int) -> UUID:
-    """Return the UUID of the GPU at the given CUDA device index, as
-    reported by `cudaGetDeviceProperties`. Equal to `device_uuid` on the
-    same physical device.
-    """
-    err, prop = cudart.cudaGetDeviceProperties(cuda_index)
-    if err != cudart.cudaError_t.cudaSuccess:
-        _, msg = cudart.cudaGetErrorString(err)
-        raise RuntimeError(f"cudaGetDeviceProperties({cuda_index}) failed: {msg.decode()}")
-    return UUID(bytes=bytes(prop.uuid.bytes))
 
 
 class CpuInfo:

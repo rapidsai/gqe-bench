@@ -79,6 +79,12 @@ any questions related to the implementation of the issue, ask them in the issue 
 ### Python coding style
 We generally follow [PEP 8 – Style Guide for Python Code](https://peps.python.org/pep-0008/).
 
+### Package layout
+The `gqe_bench` package lives under `src/` (src-layout) to prevent the
+source tree from shadowing the installed package at test time. See the
+[Python Packaging Authority guidance on src vs flat layout](https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/)
+and [pytest's Good Integration Practices](https://docs.pytest.org/en/stable/explanation/goodpractices.html).
+
 ### C++ coding style
 For high-level design issues like interfaces, class hierarchies, recourse management, error handling etc., we will follow [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines). As an auxiliary repo to GQE, we will also follow [GQE developer guide](https://github.com/rapidsai/gqe/tree/main?tab=contributing-ov-file#developer-guidelines) where relevant.
 
