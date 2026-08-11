@@ -1,0 +1,111 @@
+# Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Physical plan construction and serialization.
+
+Shared infrastructure for building query plans as Relation/Expression trees
+and serializing them to protobuf wire format for gqe-cli.
+"""
+
+from gqe_bench.physical_plan.expression import (
+    AddExpr,
+    AndExpr,
+    BinaryOp,
+    Cast,
+    ColumnReference,
+    DataType,
+    DataTypeId,
+    DateLiteral,
+    DatePartExpr,
+    DateTimeComponent,
+    DecimalLiteral,
+    DivideExpr,
+    EqualExpr,
+    Expression,
+    FixedPointLiteral,
+    GreaterEqualExpr,
+    GreaterExpr,
+    IfThenElseExpr,
+    LessEqualExpr,
+    LessExpr,
+    LikeExpr,
+    Literal,
+    MultiplyExpr,
+    NotEqualExpr,
+    OrExpr,
+    ScalarFunctionKind,
+    SubstrExpr,
+    SubtractExpr,
+)
+from gqe_bench.physical_plan.relation import (
+    AggregateRelation,
+    AggregationKind,
+    BroadcastJoinRelation,
+    BroadcastPolicy,
+    FetchRelation,
+    FilterRelation,
+    JoinType,
+    NullOrder,
+    Order,
+    ProjectRelation,
+    ReadRelation,
+    Relation,
+    ShuffleJoinRelation,
+    ShuffleRelation,
+    SortRelation,
+    UnionAllRelation,
+    UniqueKeysPolicy,
+)
+
+__all__ = [
+    # Types
+    "DataType",
+    # Enums (expression)
+    "BinaryOp",
+    "DataTypeId",
+    "DateTimeComponent",
+    "ScalarFunctionKind",
+    # Enums (relation)
+    "AggregationKind",
+    "BroadcastPolicy",
+    "JoinType",
+    "NullOrder",
+    "Order",
+    "UniqueKeysPolicy",
+    # Expressions
+    "AddExpr",
+    "AndExpr",
+    "Cast",
+    "ColumnReference",
+    "DateLiteral",
+    "DatePartExpr",
+    "DecimalLiteral",
+    "DivideExpr",
+    "EqualExpr",
+    "Expression",
+    "FixedPointLiteral",
+    "GreaterEqualExpr",
+    "GreaterExpr",
+    "IfThenElseExpr",
+    "LessEqualExpr",
+    "LessExpr",
+    "LikeExpr",
+    "Literal",
+    "MultiplyExpr",
+    "NotEqualExpr",
+    "OrExpr",
+    "SubstrExpr",
+    "SubtractExpr",
+    # Relations
+    "AggregateRelation",
+    "BroadcastJoinRelation",
+    "FetchRelation",
+    "FilterRelation",
+    "ProjectRelation",
+    "ReadRelation",
+    "Relation",
+    "ShuffleJoinRelation",
+    "ShuffleRelation",
+    "SortRelation",
+    "UnionAllRelation",
+]

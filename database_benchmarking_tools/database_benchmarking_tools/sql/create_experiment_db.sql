@@ -92,7 +92,7 @@ CREATE TABLE hw_info(
 -- host (`hw_info`) may have N GPUs, and each `gpu_info` row is a child of
 -- exactly one `hw_info` row.
 --
--- The natural identity of a physical GPU is its UUID (`g_uuid`, returned
+-- The natural identity of a physical GPU is its UUID (`g_gpu_uuid`, returned
 -- by `nvmlDeviceGetUUID`).
 CREATE TABLE gpu_info(
   -- Note: g_id is not tied to the GPU properties, it is surrogate key.
@@ -100,7 +100,7 @@ CREATE TABLE gpu_info(
   -- Host this GPU is attached to.
   g_hw_info_id INTEGER NOT NULL,
   -- Canonical GPU UUID; uniquely identifies the underlying physical device.
-  g_uuid TEXT NOT NULL,
+  g_gpu_uuid TEXT NOT NULL,
   -- GPU product name (optional).
   g_product_name TEXT,
   -- PCIe link generation (optional).
@@ -118,7 +118,7 @@ CREATE TABLE gpu_info(
   -- A physical GPU is uniquely identified by its UUID, scoped to the host
   -- it lives on. (UUIDs are globally unique by construction; the host
   -- prefix is included for symmetry with the parent FK.)
-  UNIQUE (g_hw_info_id, g_uuid),
+  UNIQUE (g_hw_info_id, g_gpu_uuid),
   FOREIGN KEY (g_hw_info_id) REFERENCES hw_info(h_id)
 );
 

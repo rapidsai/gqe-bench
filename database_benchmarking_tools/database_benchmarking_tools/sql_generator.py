@@ -47,10 +47,23 @@ def insert_natural_key(cursor: sqlite3.Cursor, entry):
 
 
 def insert_many_natural_key(cursor: sqlite3.Cursor, entries):
-    # Batch version of `insert_natural_key` using `executemany`.
+    """Batch-insert many dataclass entries into a natural-key table.
 
-    # `entries` is any iterable of dataclass instances of the same type.
-    # No `RETURNING` clause (not needed for natural-key tables, and `executemany` doesn't support it).
+    The "many" counterpart to `insert_natural_key`: builds the same
+    `INSERT INTO ... VALUES (...)` statement and pushes the rows through
+    `cursor.executemany` so we issue one SQL prepare per batch instead of
+    one per row. Like `insert_natural_key`, the statement deliberately
+    omits `RETURNING`, which (a) isn't needed because the table has a
+    natural key, and (b) `executemany` cannot consume anyway. Callers
+    that need the inserted ids should use `insert` row by row instead.
+
+    Useful for fact tables (e.g. raw CUPTI activity events) where each run
+    produces thousands of rows of the same shape.
+
+    `entries` may be any iterable; nothing is inserted if it is empty. All
+    entries must be instances of the same dataclass (we read
+    `_table_name` / `_table_prefix` / `fields(...)` from the first one).
+    """
     iterator = iter(entries)
     try:
         first = next(iterator)

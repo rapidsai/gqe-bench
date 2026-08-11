@@ -18,11 +18,8 @@ import platform
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from uuid import UUID
 
 from database_benchmarking_tools import hardware_info, sql_generator, utility
-
-sqlite3.register_adapter(UUID, str)
 
 type BuildInfoId = int
 type DataInfoId = int
@@ -34,19 +31,19 @@ type SutInfoId = int
 type QueryInfoId = int
 
 
-@dataclass
+@dataclass(frozen=True)
 class BuildInfo:
     _table_name = "build_info"
     _table_prefix = "b_"
     version: str | None = None
     revision: str | None = None
-    branch: int | None = None
+    branch: str | None = None
     is_dirty: int | None = None
     commit_timestamp: int | None = None
     compiler_flags: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class DataInfo:
     _table_name = "data_info"
     _table_prefix = "d_"
@@ -60,7 +57,7 @@ class DataInfo:
     scale_factor: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class HwInfo:
     _table_name = "hw_info"
     _table_prefix = "h_"
@@ -76,12 +73,12 @@ class HwInfo:
     os_kernel_version: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class GpuInfo:
     _table_name = "gpu_info"
     _table_prefix = "g_"
     hw_info_id: HwInfoId | None = None
-    uuid: UUID | None = None
+    gpu_uuid: str | None = None
     product_name: str | None = None
     pcie_link_generation: int | None = None
     cuda_cores: int | None = None
@@ -90,7 +87,7 @@ class GpuInfo:
     ecc_errors: int | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExperimentGpu:
     _table_name = "experiment_gpu"
     _table_prefix = "eg_"
@@ -99,7 +96,7 @@ class ExperimentGpu:
     cuda_index: int | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class Experiment:
     _table_name = "experiment"
     _table_prefix = "e_"
@@ -111,7 +108,7 @@ class Experiment:
     sample_size: int | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class Run:
     _table_name = "run"
     _table_prefix = "r_"
@@ -121,7 +118,7 @@ class Run:
     duration_s: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class FailedRun:
     _table_name = "failed_run"
     _table_prefix = "fr_"
@@ -130,14 +127,14 @@ class FailedRun:
     error_msg: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class SutInfo:
     _table_name = "sut_info"
     _table_prefix = "s_"
     name: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class QueryInfo:
     _table_name = "query_info"
     _table_prefix = "q_"
@@ -153,7 +150,8 @@ class ExperimentConnection:
         self._db_path = db_path
         self._hostname = hostname
 
-    def __del__(self):
+    def close(self):
+        """Close the cursor and connection."""
         self._cursor.close()
         self._conn.close()
 
@@ -170,7 +168,7 @@ class ExperimentConnection:
         try:
             yield
             self._conn.commit()
-        except:
+        except BaseException:
             self._conn.rollback()
             raise
 
@@ -204,33 +202,34 @@ class ExperimentConnection:
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)
 
-    def insert_gpu_info(self, hw_info_id: HwInfoId, gpu_uuid: UUID) -> GpuInfoId:
-        """Insert a `gpu_info` row for the physical GPU with the given UUID.
+    def insert_gpu_info(self, hw_info_id: HwInfoId, gpu_index: int) -> GpuInfoId:
+        """Insert a `gpu_info` row for the GPU at the given CUDA device index.
 
-        UUID is used as the canonical identity of a GPU device. Ways to retrieve the UUID are:
-        - CUDA: cuda_device_uuid(cuda_index)
-        - NVML: nvmlDeviceGetHandleByUUID and nvmlDeviceGetUUID
-        Returns the `g_id` of the inserted (or pre-existing) row.
+        ``gpu_index`` is used only to read the GPU properties from NVML on the
+        local host -- it is not stored on the row, since the same physical
+        GPU may carry different CUDA indices in different experiments
+        (``CUDA_VISIBLE_DEVICES`` reordering, MIG, container masking). The
+        per-experiment CUDA index is recorded on ``experiment_gpu`` instead.
+        Returns the ``g_id`` of the inserted (or pre-existing) row.
         """
         gpu_query = hardware_info.GpuInfoQuery()
-        handle = gpu_query.handle_by_uuid(gpu_uuid)
         entry = GpuInfo(
             hw_info_id=hw_info_id,
-            uuid=gpu_uuid,
-            product_name=gpu_query.device_product_name(handle),
-            pcie_link_generation=gpu_query.pcie_link_generation(handle),
-            cuda_cores=gpu_query.gpu_cores(handle),
-            max_clock_sm_mhz=gpu_query.max_sm_clock(handle),
-            max_clock_memory_mhz=gpu_query.max_memory_clock(handle),
-            ecc_errors=gpu_query.total_ecc_errors(handle),
+            gpu_uuid=gpu_query.device_uuid(gpu_index),
+            product_name=gpu_query.device_product_name(gpu_index),
+            pcie_link_generation=gpu_query.pcie_link_generation(gpu_index),
+            cuda_cores=gpu_query.gpu_cores(gpu_index),
+            max_clock_sm_mhz=gpu_query.max_sm_clock(gpu_index),
+            max_clock_memory_mhz=gpu_query.max_memory_clock(gpu_index),
+            ecc_errors=gpu_query.total_ecc_errors(gpu_index),
         )
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)
 
-    def insert_experiment_gpu(self, entry: ExperimentGpu):
+    def insert_experiment_gpu(self, entry: ExperimentGpu) -> None:
         sql_generator.insert_natural_key(self._cursor, entry)
 
-    def insert_sut_info(self, entry: SutInfo) -> SutInfoId:
+    def get_sut_info_id(self, entry: SutInfo) -> SutInfoId:
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_experiment(self, entry: Experiment) -> ExperimentId:
@@ -266,6 +265,7 @@ class ExperimentDB:
 
     def __exit__(self, ex_type, ex_value, ex_traceback):
         self.__conn.commit()
+        self.__conn.close()
         del self.__conn
 
         return False

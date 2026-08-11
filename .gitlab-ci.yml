@@ -1,71 +1,188 @@
 stages:
+  - lint
   - test
 
-code_style:
-  stage: test
+variables:
+  # Build caches on host-mounted runner volumes at fixed absolute paths
+  # (shared with gqe's CI), persisting across pipelines without GitLab cache
+  # tarballs. ccache wraps C/C++/CUDA via gqe's CMAKE_*_COMPILER_LAUNCHER
+  # hooks; sccache wraps rustc via RUSTC_WRAPPER (Rust only).
+  CARGO_HOME: /cargo_home
+  CPM_SOURCE_CACHE: /cpm_cache
+  CCACHE_DIR: /ccache_files
+  SCCACHE_DIR: /sccache_cache
+  RUSTC_WRAPPER: sccache
+  # Long-lived sccache daemon so --show-stats reflects in-memory counters
+  # accurately across the build's rustc invocations.
+  SCCACHE_IDLE_TIMEOUT: "0"
+
+  # CARGO_TARGET_DIR is intentionally unset: gqe drives cargo's --target-dir
+  # via GQE_RUST_TARGET_DIR, so setting it here would decouple cargo's output
+  # from gqe's install paths.
+
+  # scikit-build-core compiles gqe under a fresh /tmp/tmp<X>/build/ each run;
+  # BASEDIR + NOHASHDIR strip that volatile path so ccache hits across runs.
+  CCACHE_BASEDIR: /tmp
+  CCACHE_NOHASHDIR: "1"
+
+  FF_ENABLE_JOB_CLEANUP: "true"
+
+default:
   image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
   before_script:
     - source /conda/bin/activate gqe
-  script:
-    - pre-commit run --all-files --show-diff-on-failure
+
+.mr_rules: &mr_rules
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-tests:
+.deploy_token_rewrite: &deploy_token_rewrite
+  # For https links, the CI does not have access to ssh keys, so we need deploy tokens.
+  # A single token covers all dependencies. See Settings -> CI/CD -> Variables.
+  - git config --global
+      url."https://${GQE_NVCOMP_DEPLOY_USERNAME}:${GQE_NVCOMP_DEPLOY_TOKEN}@gitlab-master.nvidia.com/".insteadOf
+      "https://gitlab-master.nvidia.com/"
+
+.detect_cuda_arch: &detect_cuda_arch
+  # Extract the unique compute_cap values of GPUs with >= 8 GiB VRAM — these
+  # are the architectures we compile for. Small GPUs (e.g. A400 on a
+  # heterogeneous B40 runner) are excluded so we never target them at build time.
+  - |
+    CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap,memory.total --format=csv,noheader,nounits \
+      | awk -F', ' '$2 >= 8192 {gsub(/\./, "", $1); print $1"-real"}' \
+      | sort -u \
+      | paste -sd';')
+    echo "Building for CUDA architectures: ${CUDA_ARCH}"
+
+.select_visible_gpus: &select_visible_gpus
+  # Restrict CUDA_VISIBLE_DEVICES to GPU indices with >= 8 GiB VRAM. This is a
+  # distinct call from .detect_cuda_arch — same filter predicate, different
+  # query (device index vs compute_cap). Needed at runtime so the task manager
+  # doesn't pick up a small GPU that was excluded at build time.
+  # Mirrors the pattern in gqe/.gitlab-ci.yml (PCI_BUS_ID order + 8 GiB filter).
+  - export CUDA_DEVICE_ORDER=PCI_BUS_ID
+  - |
+    CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits \
+      | awk -F', ' '$2 >= 8192 {print $1}' \
+      | paste -sd,)
+    export CUDA_VISIBLE_DEVICES
+    echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+
+code_style:
+  stage: lint
+  needs: []
+  script:
+    - pre-commit run --all-files --show-diff-on-failure
+  <<: *mr_rules
+
+unit_tests:
+  stage: lint
+  needs: []
+  script:
+    - pip install -e ./database_benchmarking_tools
+    # Cheap Python-only install: GQE_BUILD_NVTX_PLUGIN=OFF and
+    # GQE_FETCH_ENGINE=OFF gate off every CMake target.
+    # scikit-build-core still runs CMake configure (it's the declared build
+    # backend), but no compilation happens — this is effectively a Python
+    # package install, just routed through CMake's project() call.
+    # Also catches Python modules that fail to import without the plugin .so.
+    - pip install -e '.[test]' -C cmake.define.GQE_BUILD_NVTX_PLUGIN=OFF
+        -C cmake.define.GQE_FETCH_ENGINE=OFF
+    - pytest src/gqe_bench/tests/ -v
+        --ignore=src/gqe_bench/tests/integration/
+  <<: *mr_rules
+
+.test_template: &test_template
   stage: test
-  image: gitlab-master.nvidia.com:5005/devtech-compute/gqe:latest_x86_64
   before_script:
     - source /conda/bin/activate gqe
+    # `source activate gqe` scrubs several cache env vars set in `variables:`
+    # (CARGO_HOME, CPM_SOURCE_CACHE, RUSTC_WRAPPER); re-export so cargo, CPM,
+    # and sccache see the host-mounted paths.
+    - export CARGO_HOME=/cargo_home CPM_SOURCE_CACHE=/cpm_cache
+    - export CCACHE_DIR=/ccache_files
+    - export SCCACHE_DIR=/sccache_cache RUSTC_WRAPPER=sccache SCCACHE_IDLE_TIMEOUT=0
+    - sccache --start-server || true
+    # Match gqe's CI: enlarge /dev/shm so the boost segment (capped to
+    # GQE_MAX_TASK_MANAGER_MEMORY=1GiB below) fits with headroom.
+    - mount -o remount,size=2G /dev/shm || true
   script:
     - hostname
     - nvidia-smi
-    # Detect the CUDA architecture of GPUs on this runner. We filter to GPUs
-    # with at least 8 GiB VRAM so we don't target small GPUs (e.g. the A400
-    # on the heterogeneous B40 runner) that we never run tests on.
-    - |
-      CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap,memory.total --format=csv,noheader,nounits \
-        | awk -F', ' '$2 >= 8192 {gsub(/\./, "", $1); print $1"-real"}' \
-        | sort -u \
-        | paste -sd';')
-      echo "Building for CUDA architectures: $CUDA_ARCH"
+    - *detect_cuda_arch
+    - *select_visible_gpus
+    - *deploy_token_rewrite
+    - uv pip install --system -e '.[test]'
+        -C cmake.define.GQE_FETCH_ENGINE=ON
+        -C cmake.define.GQE_ENABLE_PUBLIC_BUILD=${GQE_ENABLE_PUBLIC_BUILD}
+        -C cmake.define.CMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}
+    - sccache --show-stats
+    - ccache -s
+    - ln -sfn /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch-sf001
+    - mkdir -p /reference_results
+    - ln -sfn /tpch_scratch/reference_results/sf0.01 /reference_results/sf0.01
+    # Sized for tpch_sweep_CI.json5; bump alongside dataset size and leave
+    # headroom for tmpfs reclamation between consecutive runner.main() calls.
+    - export GQE_MAX_TASK_MANAGER_MEMORY=$((1 * 1024 * 1024 * 1024))
+    # Caps the device pool. Left unset, the engine derives it from 90% of free
+    # device memory, which claims the whole GPU on a shared runner.
+    - export GQE_MAX_QUERY_MEMORY=$((2 * 1024 * 1024 * 1024))
+    - pytest src/gqe_bench/tests/integration/ -v -s -x --tb=long
+        --log-cli-level=INFO
+        --ci-config config_templates/tpch_sweep_CI.json5
+  <<: *mr_rules
+
+# The test jobs are chained sequentially (test_public -> test_private -> test_wheel)
+# while we have a single runner.
+test_public:
+  needs: []
+  variables:
+    GQE_ENABLE_PUBLIC_BUILD: "ON"
+  <<: *test_template
+
+test_private:
+  needs: [test_public]
+  variables:
+    GQE_ENABLE_PUBLIC_BUILD: "OFF"
+  <<: *test_template
+
+# Wheel-build smoke check: builds dist/*.whl via `python -m build`, installs it,
+# verifies artifact resolution, then deletes dist/ before exit. PUBLIC=ON matches
+# the shipping variant. No `artifacts:` block — the wheel exists only to verify
+# the wheel-build path on every MR; tests run from editable installs in
+# test_public / test_private.
+test_wheel:
+  stage: test
+  needs: [test_private]
+  variables:
+    GQE_ENABLE_PUBLIC_BUILD: "ON"
+  before_script:
+    - source /conda/bin/activate gqe
+    # `source activate gqe` scrubs several cache env vars set in `variables:`
+    # (CARGO_HOME, CPM_SOURCE_CACHE, RUSTC_WRAPPER); re-export so cargo, CPM,
+    # and sccache see the host-mounted paths.
+    - export CARGO_HOME=/cargo_home CPM_SOURCE_CACHE=/cpm_cache
     - export CCACHE_DIR=/ccache_files
-    # For https links, the CI does not have access to the ssh keys, so we need to use deploy tokens.
-    # Rather than have multiple deploy tokens for all dependencies, we use a single token for all dependencies, which is stored in the Variables section here: https://gitlab-master.nvidia.com/haog/gqe-python/-/settings/ci_cd.
-    # TODO: Setup runner account for CI.
-    - git config --global url."https://${GQE_NVCOMP_DEPLOY_USERNAME}:${GQE_NVCOMP_DEPLOY_TOKEN}@gitlab-master.nvidia.com/".insteadOf "https://gitlab-master.nvidia.com/"
-    # The *_DEPLOY_* environment variables are set in Settings → CI/CD → Variables
-    # They are created in the Deploy tokens sections of these links:
-    #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe-benchmarking/-/settings/repository
-    #   https://gitlab-master.nvidia.com/Devtech-Compute/gqe/-/settings/repository
-    - conda install -y pytest
-    ##########################################################
-    # First run tests with public build of GQE (default).
-    ##########################################################
-    - conda install -y libnvcomp-dev=5.2.0.10
-    - uv pip install --system . -C cmake.define.CMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}
-    # Run TPC-H parameter sweep.
-    - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
-    # Run all Python tests on TPC-H parameter sweep results.
-    - pytest tests/ -v --database /tmp/gqe_experiment.db3
-    # Run TPC-H pretuned with best parameters from sweep.
-    - gqe-run-pretuned /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment.db3 --time-breakdown -o /tmp/gqe_pretuned.db3
-    # Run only Python SQLite tests on TPC-H pretuned results.
-    - pytest tests/test_experiment_views.py tests/test_experiment_tables.py -v --database /tmp/gqe_pretuned.db3
-    ##########################################################
-    # Repeat tests with private build of GQE (explicitly disable public build).
-    ##########################################################
-    - conda remove -y libnvcomp
-    - uv pip install --system . -C cmake.define.GQE_ENABLE_PUBLIC_BUILD=OFF -C cmake.define.CMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}
-    - rm /tmp/gqe_experiment.db3 /tmp/gqe_pretuned.db3
-    # Run TPC-H parameter sweep.
-    - gqe-run-parameter-sweep --json ./config_templates/tpch_sweep_CI.json5
-    # Run all Python tests on TPC-H parameter sweep results.
-    - pytest tests/ -v --database /tmp/gqe_experiment.db3
-    # Run TPC-H pretuned with best parameters from sweep.
-    - gqe-run-pretuned /tpch_scratch/datasets/sf0.01/sf0.01_id64 /tpch_scratch/substrait_plans/sf0.01 "/tpch_scratch/reference_results/sf0.01/%d.parquet" --swept-sqlite-file /tmp/gqe_experiment.db3 --time-breakdown -o /tmp/gqe_pretuned.db3
-    # Run only Python SQLite tests on TPC-H pretuned results.
-    - pytest tests/test_experiment_views.py tests/test_experiment_tables.py -v --database /tmp/gqe_pretuned.db3
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - export SCCACHE_DIR=/sccache_cache RUSTC_WRAPPER=sccache SCCACHE_IDLE_TIMEOUT=0
+    - sccache --start-server || true
+  script:
+    - hostname
+    - nvidia-smi
+    - *detect_cuda_arch
+    - *select_visible_gpus
+    - *deploy_token_rewrite
+    - pip install build
+    - python -m build --wheel ./database_benchmarking_tools --outdir dist/
+    - python -m build --wheel
+        -C cmake.define.GQE_FETCH_ENGINE=ON
+        -C cmake.define.GQE_ENABLE_PUBLIC_BUILD=${GQE_ENABLE_PUBLIC_BUILD}
+        -C cmake.define.CMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}
+    - sccache --show-stats
+    - ccache -s
+    - pip install --force-reinstall dist/*.whl
+    # Resolves the test extra against the just-built wheels rather than the index.
+    - pip install --find-links dist/ 'gqe-bench[test]'
+    - pytest src/gqe_bench/tests/integration/test_artifact_resolution.py -v -s -x --tb=long
+    - rm -rf dist/
+  <<: *mr_rules

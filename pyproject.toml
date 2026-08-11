@@ -14,11 +14,11 @@
 # the License.
 
 [build-system]
-requires = ["scikit-build-core>=0.3.3", "pybind11"]
+requires = ["scikit-build-core>=0.3.3"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "gqe_bench"
+name = "gqe-bench"
 version = "0.0.1"
 description = "GPU Query Executor (GQE) benchmarking suite"
 license = "Apache-2.0"
@@ -26,30 +26,41 @@ license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "json5",
-    "database-benchmarking-tools",
-    "nvidia-ml-py",
+    "duckdb",
     "pandas",
-    "pyarrow",
-    "nvtx",
-    "sqlglot>=23.0.0"
+    "numpy",
+    "database-benchmarking-tools",
+    "sqlglot>=23.0.0",
+    # Runtime for the CMake-generated physical_plan/*_pb2.py. Their
+    # ValidateProtobufRuntimeVersion call requires the same major version as,
+    # and no older than, the protoc that produced them (conda's libprotobuf).
+    "protobuf>=5.28.3,<6",
+    # pyarrow is omitted intentionally: a pip-installed pyarrow lays down a
+    # second libprotobuf alongside conda's and crashes the dynamic loader.
+    # The GQE container's conda env supplies it; pandas pulls it transitively.
+    # "pyarrow",
 ]
 
-# enable license scanning via BlackDuck
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+gqe-bench = "gqe_bench.runner:main"
+
 [tool.uv]
 managed = true
 
-# override dependency sources
 [tool.uv.sources]
 database_benchmarking_tools = { path = "database_benchmarking_tools" }
 
 [tool.scikit-build]
 cmake.source-dir = "."
 build.verbose = true
-install.strip=false
-
-[project.scripts]
-gqe-run-parameter-sweep = "gqe_bench.benchmark.run_parameter_sweep:main"
-gqe-run-pretuned = "gqe_bench.benchmark.run_pretuned:main"
+install.strip = false
+# src-layout; see CONTRIBUTING.md §Package layout.
+wheel.packages = ["src/gqe_bench"]
+sdist.include = ["**/*.sql"]
+wheel.install-dir = "gqe_bench/_artifacts"
 
 [tool.ruff]
 line-length = 100
@@ -69,4 +80,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"gqe_bench/__init__.py" = ["F401"]  # unused imports in __init__ are intentional
+"src/gqe_bench/__init__.py" = ["F401"]  # unused imports in __init__ are intentional

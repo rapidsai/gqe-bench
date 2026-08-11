@@ -1,16 +1,34 @@
 {
-  "dataset": "/tpch_scratch/datasets/sf0.01/sf0.01_id64",
-  "plan": "/tpch_scratch/substrait_plans/sf0.01",
-  "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
+  "dataset": "/tpch-sf001",
+  "solution": "/reference_results/sf0.01",
   "output": "/tmp/gqe_experiment.db3",
   "time_breakdown": true,
+  "query_source": ["sql", "handcoded"],
+  // Q15 excluded — engine returns 0-column parquet from SQL pipeline (engine
+  // bug, not a CI/config issue). Matches GQE's own exclusion in
+  // gqe/test/integration/flight_sql_tpch_test.cpp:62-63. Remove this list
+  // (or add "15" back) to re-enable once the engine bug is fixed.
+  "queries": ["1", "2", "2_fused_filter", "3", "3_fused_filter", "4", "5", "6",
+              "7", "7_fused_filter", "8", "9", "10", "10_fused_filter", "11", "12",
+              "13", "14", "16", "17", "18", "19", "20", "20_fused_filter", "21", "22"],
 
+  "num_workers": [1, 2],
+  "num_partitions": [8],
   "compression_format": ["none"],
-  "read_use_overlap_mtx": [true], // Change to false when running with compression enabled
+  "use_overlap_mtx": [true], // Change to false when running with compression enabled
   "join_use_mark_join": [false],
+  "join_use_perfect_hash": [false, true], // pruned against join_use_hash_map_cache so exactly one is on
+  "join_use_hash_map_cache": [false, true],
+  "join_use_unique_keys": [true],
   "filter_use_like_shift_and": [false],
   "aggregation_use_perfect_hash": [false], // Set to true when using clustered dataset
-  "read_use_filter_pruning": [false],
+  "read_use_zero_copy": [false],
+  "use_ast_jit": [false],
+  "use_partition_pruning": [false],
+  // A failure only under "decimal" is expected until the engine's decimal support is
+  // complete; one that also reproduces under "double" is a regression.
+  "decimal_type": ["double", "decimal"],
+  "load_all_data": false,
 
   "query_overrides": [
     {
@@ -23,20 +41,13 @@
         "7_fused_filter",
         "8",
         "10_fused_filter",
-        "10_opt",
         "13",
-        "13_opt",
-        "13_fused",
         "14",
         "16",
-        "16_opt",
         "17",
         "19",
         "20_fused_filter",
-        "21_fused_filter",
-        "21_opt",
-        "22",
-        "22_opt"
+        "22"
       ],
       "join_use_perfect_hash": [false],
       "join_use_hash_map_cache": [true]
@@ -76,13 +87,6 @@
         "20"
       ],
       "aggregation_use_perfect_hash": [true]
-    },
-    {
-      "queries": [
-        "18_opt"
-      ],
-      "join_use_perfect_hash": [true],
-      "join_use_hash_map_cache": [false]
     }
   ]
 }

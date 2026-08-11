@@ -1,0 +1,94 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy of
+ * the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ */
+
+// Auto-generated from stages.hpp.in by CMake. Do not edit the generated file.
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+
+namespace gqe_bench {
+
+/**
+ * @brief The pipeline stages observed inside an `execute_plan`
+ * range. The underlying integer is the index into `stages`.
+ */
+enum class stage : std::size_t {
+  /**
+   * @brief `build_task_graph` NVTX range.
+   */
+  build = 0,
+  /**
+   * @brief `execute_task_graph` NVTX range.
+   */
+  execute = 1,
+  /**
+   * @brief `collect_results` NVTX range.
+   */
+  collect = 2,
+};
+
+/**
+ * @brief Constant metadata for one stage.
+ *
+ * The NVTX range names are literals here because they form the contract
+ * with the engine that emits them. The metric names are substituted by
+ * `configure_file` from the CMake-defined values used elsewhere in the
+ * build.
+ */
+struct stage_info {
+  /**
+   * @brief NVTX range name observed by the plugin.
+   */
+  char const* nvtx_range_name;
+
+  /**
+   * @brief Metric name recorded for this stage's per-run row.
+   */
+  char const* metric_name;
+};
+
+/**
+ * @brief Per-stage metadata, indexed by `stage`.
+ */
+inline constexpr std::array<stage_info, 3> stages = {{
+  {"build_task_graph", "@STAGE_BUILD_METRIC@"},
+  {"execute_task_graph", "@STAGE_EXECUTE_METRIC@"},
+  {"collect_results", "@STAGE_COLLECT_METRIC@"},
+}};
+
+/**
+ * @brief Return the `stage_info` for `s`. Every `stage` value indexes into
+ * `stages`.
+ */
+constexpr stage_info const& info_for(stage s) noexcept
+{
+  return stages[static_cast<std::size_t>(s)];
+}
+
+/**
+ * @brief NVTX range name for the outer range that wraps the stages.
+ */
+inline constexpr char const* k_execute_plan_range = "execute_plan";
+
+/**
+ * @brief Name of the NVTX domain the engine emits its ranges into.
+ *
+ * Matches `gqe::utility::gqe_nvtx_domain::name`. Read by `nvtx_domain_filter.cpp`,
+ * which drops ranges in any other domain before they reach CUPTI.
+ *
+ * TODO: only the domain filter uses this. If that workaround is removed and nothing
+ * else has come to depend on this constant, remove it too.
+ */
+inline constexpr char const* k_gqe_nvtx_domain = "GQE";
+
+}  // namespace gqe_bench
