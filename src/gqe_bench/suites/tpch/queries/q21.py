@@ -49,6 +49,7 @@ limit
 from gqe_bench.physical_plan.expression import ColumnReference as CR
 from gqe_bench.physical_plan.expression import Literal
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import LEGACY_TASKGRAPH_EXECUTION_BACKEND
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
@@ -73,7 +74,11 @@ def _build_supplier(schema: TpchTableSchema) -> Relation:
     )
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q21 (suppliers who kept orders waiting)."""
     supplier = _build_supplier(schema)
 

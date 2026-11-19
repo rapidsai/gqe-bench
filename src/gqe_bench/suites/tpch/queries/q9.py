@@ -10,10 +10,18 @@ from gqe_bench.physical_plan.expression import (
     LikeExpr,
 )
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q9 (product type profit measure)."""
     partsupp = schema.read("partsupp", ["ps_suppkey", "ps_partkey", "ps_supplycost"])
 
@@ -85,8 +93,13 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
         perfect_hashing=True,
     )
 
+    order_year = DatePartExpr(CR(1), "year")
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        join5 = join5.project([CR(0), CR(1), CR(2), order_year])
+        order_year = CR(3)
+
     agg = join5.aggregate(
-        [CR(0), DatePartExpr(CR(1), "year")],
+        [CR(0), order_year],
         [("sum", CR(2))],
         perfect_hashing=False,
     )

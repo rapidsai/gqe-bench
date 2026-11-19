@@ -52,6 +52,10 @@ from gqe_bench.physical_plan.expression import (
     ColumnReference as CR,
 )
 from gqe_bench.physical_plan.relation import Relation
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
@@ -64,7 +68,11 @@ def _country_code_filter() -> "Expression":  # noqa: F821
     return condition
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q22 (global sales opportunity)."""
     # customer: c_custkey, substring(c_phone, 0, 2), c_acctbal
     customer = schema.read("customer", ["c_custkey", "c_phone", "c_acctbal"], None)
@@ -78,7 +86,15 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
     pos_balance_customers = filtered_customers.filter(
         CR(2) > DecimalLiteral("0", schema.decimal_column_type), [2]
     )
-    avg_acctbal = pos_balance_customers.aggregate([], [("avg", CR(0))], perfect_hashing=False)
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        # Hand-coded physical plans bypass the SQL optimizer's AVG decomposition.
+        avg_acctbal = pos_balance_customers.aggregate(
+            [],
+            [("sum", CR(0)), ("count_all", CR(0))],
+            perfect_hashing=False,
+        ).project([CR(0) / CR(1)])
+    else:
+        avg_acctbal = pos_balance_customers.aggregate([], [("avg", CR(0))], perfect_hashing=False)
 
     if schema.is_fixed_point:
         decimal128_type = schema.decimal128_type()

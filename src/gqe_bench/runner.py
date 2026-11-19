@@ -27,12 +27,16 @@ from gqe_bench.logger import configure_logging
 from gqe_bench.recording import (
     SweepContext,
     insert_data_dimensions,
+    next_run_number,
+    promote_run,
+    query_info_id_for,
     record_experiment,
-    replace_run_with_failure,
+    record_run_failure,
+    record_storage_stats,
     setup_db,
 )
 from gqe_bench.resources import ArtifactMissing
-from gqe_bench.schema import DataLoadGroup
+from gqe_bench.schema import QUERY_NAME_PREFIX, DataLoadGroup
 from gqe_bench.session import LOAD_ALL_COLUMNS, GqeSession, QueryFailed, RestartRequired
 from gqe_bench.suites import get_suite
 from gqe_bench.suites.base import Suite
@@ -58,38 +62,76 @@ def _run_group(
     with sweep.db_mgr as edb:
         dims = insert_data_dimensions(edb, group.data_info)
 
+        # Compression is decided at write time, so the engine's storage
+        # statistics describe this load and do not vary across the parameter
+        # combinations below. Read them once here and attribute them to each
+        # distinct query, rather than re-reading per experiment.
+        storage_stats = session.read_storage_stats()
+        stats_recorded: set[int] = set()
+
         while group.queries:
             query, qp = group.queries.pop(0)
             logger.info("Running %s...", query.name)
             logger.info("Parameters: %s", qp)
             exp_id = record_experiment(edb, dims, query, qp, sweep)
+
+            if storage_stats is not None:
+                qi_id = query_info_id_for(edb, exp_id)
+                if qi_id not in stats_recorded:
+                    rows = record_storage_stats(edb, dims, qi_id, *storage_stats)
+                    stats_recorded.add(qi_id)
+                    logger.debug("Recorded %d column-stats rows for %s", rows, query.name)
+
             edb.commit()
 
-            for run_num in range(sweep.repeat):
-                logger.info("Starting %s repetition %d...", query.name, run_num)
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=True) as tmp:
-                        output_path = Path(tmp.name)
-                        session.execute_query(query, output_path, exp_id, qp)
-                        if query.reference_file is not None:
-                            logger.info("Validating result...")
-                            validate_parquet(output_path, query.reference_file, query.name)
-                    logger.info("Run %d: ok", run_num)
-                except ValidationFailed as e:
-                    logger.warning("Run %d: validation failed: %s", run_num, e)
-                    replace_run_with_failure(edb, exp_id, run_num, str(e))
-                    edb.commit()
-                    break
-                except RestartRequired as e:
-                    logger.warning("Run %d: restart required: %s", run_num, e)
-                    replace_run_with_failure(edb, exp_id, run_num, str(e))
-                    edb.commit()
-                    raise
-                except QueryFailed as e:
-                    logger.warning("Run %d: query failed: %s", run_num, e)
-                    replace_run_with_failure(edb, exp_id, run_num, str(e))
-                    edb.commit()
-                    break
+            # Continue numbering after any runs the experiment already has.
+            base_run = next_run_number(edb, exp_id)
+            # Default for RestartRequired from start_profile; the loop below
+            # rebinds it once a repetition is running.
+            run_num = base_run
+            # The label carries exp_id (a query recurs across parameter sets) and
+            # decimal_type (it recurs across representations too), and uses
+            # QUERY_NAME_PREFIX so the report name matches query_info.q_name
+            # (recording.py).
+            label = f"{QUERY_NAME_PREFIX}{query.name}_{group.data_info.decimal_type}_e{exp_id}"
+            try:
+                with session.profile(label):
+                    for run_num in range(base_run, base_run + sweep.repeat):
+                        logger.info("Starting %s repetition %d...", query.name, run_num)
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=True) as tmp:
+                                output_path = Path(tmp.name)
+                                session.execute_query(query, output_path, exp_id, run_num, qp)
+                                if query.reference_file is not None:
+                                    logger.info("Validating result...")
+                                    validate_parquet(output_path, query.reference_file, query.name)
+                            # Swap the plugin's pending failed_run row for a run row
+                            # now that the result is validated.
+                            duration_s = promote_run(edb, exp_id, run_num)
+                            if duration_s is not None:
+                                logger.info("Run %d: ok (%.4fs)", run_num, duration_s)
+                            elif sweep.records_timing:
+                                logger.warning("Run %d: passed but was not recorded", run_num)
+                            else:
+                                logger.info("Run %d: ok (not timed)", run_num)
+                            edb.commit()
+                        except ValidationFailed as e:
+                            logger.warning("Run %d: validation failed: %s", run_num, e)
+                            record_run_failure(edb, exp_id, run_num, str(e))
+                            edb.commit()
+                            break
+                        except QueryFailed as e:
+                            logger.warning("Run %d: query failed: %s", run_num, e)
+                            record_run_failure(edb, exp_id, run_num, str(e))
+                            edb.commit()
+                            break
+            except RestartRequired as e:
+                # Can arrive from start_profile too, not just the repeat loop,
+                # so run_num must already be bound either way (seeded above).
+                logger.warning("Run %d: restart required: %s", run_num, e)
+                record_run_failure(edb, exp_id, run_num, str(e))
+                edb.commit()
+                raise
 
             logger.info("Parameter sets remaining: %d", len(group.queries))
 
@@ -144,42 +186,41 @@ def main() -> None:
             env = os.environ | sweep.env
 
             while groups:
+                group = groups[0]
                 try:
-                    with GqeSession(args, env, schema_ddl, tables) as session:
-                        while groups:
-                            group = groups[0]
-                            logger.info(
-                                "=== Data config (%d remaining) ===\n  %s",
-                                len(groups),
-                                group.data_info,
-                            )
+                    with GqeSession(
+                        args, env, schema_ddl, tables, data_info=group.data_info
+                    ) as session:
+                        logger.info(
+                            "=== Data config (%d remaining) ===\n  %s",
+                            len(groups),
+                            group.data_info,
+                        )
 
-                            try:
-                                # load_all_data registers every table with every
-                                # column; otherwise project to the columns this
-                                # group's queries read (narrowed schema + skipped
-                                # unreferenced tables).
-                                if args.load_all_data:
-                                    required = LOAD_ALL_COLUMNS
-                                    logger.info("Loading all %d tables", len(tables))
-                                else:
-                                    # Distinct queries only; keyed on Query since names repeat across sources.
-                                    unique_queries = list(
-                                        dict.fromkeys(q for q, _ in group.queries)
-                                    )
-                                    required = suite.required_columns(unique_queries, args.schema)
-                                    logger.info(
-                                        "Loading data: %d of %d tables referenced",
-                                        len(required),
-                                        len(tables),
-                                    )
-                                session.load_data(required, group.data_info)
-                            except RestartRequired:
-                                groups.pop(0)
-                                raise
-
-                            _run_group(session, group, suite, sweep)
+                        try:
+                            # load_all_data registers every table with every
+                            # column; otherwise project to the columns this
+                            # group's queries read (narrowed schema + skipped
+                            # unreferenced tables).
+                            if args.load_all_data:
+                                required = LOAD_ALL_COLUMNS
+                                logger.info("Loading all %d tables", len(tables))
+                            else:
+                                # Distinct queries only; keyed on Query since names repeat across sources.
+                                unique_queries = list(dict.fromkeys(q for q, _ in group.queries))
+                                required = suite.required_columns(unique_queries, args.schema)
+                                logger.info(
+                                    "Loading data: %d of %d tables referenced",
+                                    len(required),
+                                    len(tables),
+                                )
+                            session.load_data(required)
+                        except RestartRequired:
                             groups.pop(0)
+                            raise
+
+                        _run_group(session, group, suite, sweep)
+                        groups.pop(0)
 
                 except RestartRequired as e:
                     logger.warning("Restart required (%s); restarting server...", e)

@@ -44,6 +44,21 @@ def _format_stdin_for_log(stdin_data: str | bytes | None) -> str:
     return f"\n    stdin: {stdin_data}"
 
 
+def _sql_literal(value: bool | int | float | str) -> str:
+    """Render a SET value as the SQL literal of its Python type.
+
+    gqe-cli types the session option by the literal, so e.g. a boolean must be written as
+    ``TRUE``, not ``1``.
+    """
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, int | float):
+        return repr(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    raise TypeError(f"unsupported SET value type {type(value).__name__}: {value!r}")
+
+
 class GqeCliError(RuntimeError):
     """Raised when a gqe-cli invocation fails."""
 
@@ -171,6 +186,10 @@ class GqeCli:
         """Drop a table from the server (no-op if it doesn't exist)."""
         self.prepare(QuerySource.SQL, f"DROP TABLE IF EXISTS {table_name}").execute()
 
-    def set_optimization_parameter(self, name: str, value: object) -> None:
-        """Set an engine optimization parameter on this session via SQL ``SET``."""
-        self.prepare(QuerySource.SQL, f"SET {name} TO {value}").execute()
+    def set_optimization_parameter(self, name: str, value: bool | int | float | str) -> None:
+        """Set an engine optimization parameter on this session via SQL ``SET``.
+
+        gqe-cli sends the value typed by its SQL literal, and fails if the engine rejects the
+        option (unknown name or wrongly typed value), which raises GqeCliError here.
+        """
+        self.prepare(QuerySource.SQL, f"SET {name} TO {_sql_literal(value)}").execute()

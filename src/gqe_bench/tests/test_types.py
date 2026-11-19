@@ -83,6 +83,17 @@ class TestSweepFieldsConsistency:
         for field_name in QUERY_PARAMS_MAPPING.sweep_fields:
             assert field_name in field_names, f"QueryParams missing field: {field_name}"
 
+    def test_old_query_parameter_row_defaults_execution_backend(self) -> None:
+        """Default rows from databases created before execution_backend to legacy."""
+        row = {
+            f"p_{name}": QUERY_PARAMS_MAPPING.field_default(name)
+            for name in QUERY_PARAMS_MAPPING.sweep_fields
+            if name != "execution_backend"
+        }
+        extracted = QUERY_PARAMS_MAPPING.extract(row)
+        assert "execution_backend" not in extracted
+        assert QueryParams(**extracted).execution_backend == "legacy_task_graph"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

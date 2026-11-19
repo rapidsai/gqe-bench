@@ -57,6 +57,7 @@ def make_query(**overrides: object) -> Query:
 def make_query_params(**overrides: object) -> QueryParams:
     """Create a QueryParams (sweep variant) with sensible defaults."""
     defaults = dict(
+        execution_backend="legacy_task_graph",
         num_workers=1,
         num_partitions=4,
         use_overlap_mtx=False,

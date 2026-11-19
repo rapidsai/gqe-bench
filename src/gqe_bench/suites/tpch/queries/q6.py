@@ -9,10 +9,18 @@ from gqe_bench.physical_plan.expression import (
     DecimalLiteral,
 )
 from gqe_bench.physical_plan.relation import Relation
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q6 (forecasting revenue change)."""
     dec_type = schema.decimal_column_type
     lit_05 = DecimalLiteral("0.05", dec_type)
@@ -47,4 +55,9 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
     )
 
     # sum(l_extendedprice * l_discount) as revenue
-    return lineitem.aggregate([], [("sum", CR(1) * CR(0))], perfect_hashing=True)
+    revenue = CR(1) * CR(0)
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        lineitem = lineitem.project([CR(0), CR(1), revenue])
+        revenue = CR(2)
+
+    return lineitem.aggregate([], [("sum", revenue)], perfect_hashing=True)

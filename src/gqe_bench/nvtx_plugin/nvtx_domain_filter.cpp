@@ -117,6 +117,15 @@ std::atomic<bool> g_announced{false};
 std::atomic<nvtxDomainHandle_t> g_forwarded_domain{nullptr};
 
 /**
+ * @brief Number of domains created under the name `k_gqe_nvtx_domain`.
+ *
+ * `g_forwarded_domain` holds the most recent one, so a count below two means every
+ * existing "GQE" domain is the forwarded one and a push against any other domain
+ * cannot be a "GQE" push.
+ */
+std::atomic<unsigned> g_gqe_domains_created{0};
+
+/**
  * @brief Per-thread record of whether each open push was forwarded, so the matching pop
  * is forwarded or dropped identically.
  *
@@ -140,7 +149,19 @@ nvtxDomainHandle_t NVTX_API filtered_domain_create_a(char const* name)
   nvtxDomainHandle_t const handle =
     g_cupti.domain_create_a ? g_cupti.domain_create_a(name) : nullptr;
   if (name && std::strcmp(name, k_gqe_nvtx_domain) == 0) {
-    g_forwarded_domain.store(handle, std::memory_order_release);
+    // Only one handle is forwarded, so a second "GQE" domain would strand every range
+    // pushed against the first.
+    g_gqe_domains_created.fetch_add(1, std::memory_order_relaxed);
+    nvtxDomainHandle_t const previous =
+      g_forwarded_domain.exchange(handle, std::memory_order_acq_rel);
+    if (previous != nullptr && previous != handle) {
+      GQE_BENCH_LOG_WARN(
+        "nvtx filter: domain '{}' re-created with a different handle (was {:#x}, now {:#x}); "
+        "ranges pushed against the previous handle will no longer be forwarded",
+        name,
+        reinterpret_cast<std::uintptr_t>(previous),
+        reinterpret_cast<std::uintptr_t>(handle));
+    }
     GQE_BENCH_LOG_INFO("nvtx filter: forwarding domain '{}'", name);
   }
   return handle;
@@ -180,11 +201,85 @@ void NVTX_API filtered_range_end(nvtxDomainHandle_t domain, nvtxRangeId_t id)
   if (g_cupti.range_end) { g_cupti.range_end(domain, id); }
 }
 
+/**
+ * @brief The ASCII message of a push, or null if it carries none.
+ */
+char const* push_message_ascii(nvtxEventAttributes_t const* attr)
+{
+  if (attr && attr->messageType == NVTX_MESSAGE_TYPE_ASCII) { return attr->message.ascii; }
+  return nullptr;
+}
+
+/**
+ * @brief Whether `name` is one of the range names the plugin records timings for.
+ *
+ * The engine emits many other ranges (storage reads, operator steps) that the plugin
+ * never observes, so dropping those loses nothing. Dropping one of these does.
+ */
+bool is_timed_range(char const* name)
+{
+  if (!name) return false;
+  if (std::strcmp(name, k_execute_plan_range) == 0) return true;
+  for (auto const& s : stages) {
+    if (std::strcmp(name, s.nvtx_range_name) == 0) return true;
+  }
+  return false;
+}
+
+/**
+ * @brief Warn once that pushes in the forwarded domain are being dropped because CUPTI's
+ * `range_push_ex` was never captured.
+ */
+void report_no_push_impl()
+{
+  static std::atomic<bool> reported{false};
+  if (reported.exchange(true, std::memory_order_relaxed)) { return; }
+  GQE_BENCH_LOG_WARN(
+    "nvtx filter: dropping pushes in domain '{}', CUPTI's range_push_ex was never "
+    "captured; recorded timings will be incomplete",
+    k_gqe_nvtx_domain);
+}
+
+/**
+ * @brief Warn once about a dropped push that an observer would have claimed, pushed
+ * against a "GQE" domain whose handle was never stored.
+ *
+ * Returns on the "GQE" domain count before inspecting the message, so the cost on the
+ * dropped-push path is one relaxed load until a second "GQE" domain exists.
+ */
+void report_unforwarded_push(nvtxDomainHandle_t domain, nvtxEventAttributes_t const* attr)
+{
+  static std::atomic<bool> reported{false};
+  if (g_gqe_domains_created.load(std::memory_order_relaxed) <= 1 ||
+      reported.load(std::memory_order_relaxed)) {
+    return;
+  }
+  char const* const name = push_message_ascii(attr);
+  if (is_timed_range(name) && !reported.exchange(true, std::memory_order_relaxed)) {
+    GQE_BENCH_LOG_WARN(
+      "nvtx filter: dropped observed range '{}' in domain {:#x}, which is not the "
+      "forwarded domain {:#x}; recorded timings will be incomplete",
+      name,
+      reinterpret_cast<std::uintptr_t>(domain),
+      reinterpret_cast<std::uintptr_t>(g_forwarded_domain.load(std::memory_order_acquire)));
+  }
+}
+
 int NVTX_API filtered_range_push_ex(nvtxDomainHandle_t domain, nvtxEventAttributes_t const* attr)
 {
   bool const forward = is_forwarded_domain(domain);
   t_push_forwarded.push_back(forward);
   if (forward && g_cupti.range_push_ex) { return g_cupti.range_push_ex(domain, attr); }
+
+  // Everything past the return above is dropped. Reaching here with `forward` set means
+  // CUPTI's push implementation was never captured. Ranges outside the observed set are
+  // dropped by design and are not reported.
+  if (forward) {
+    report_no_push_impl();
+  } else {
+    report_unforwarded_push(domain, attr);
+  }
+
   // Report this thread's nesting depth so a caller inspecting the return value still
   // observes a monotonic, self-consistent value.
   return static_cast<int>(t_push_forwarded.size()) - 1;

@@ -1,6 +1,6 @@
 {
   "dataset": "/tpch_scratch/datasets/sf0.01/sf0.01_id64",
-  "solution": "/tpch_scratch/reference_results/sf0.01/%d.parquet",
+  "solution": "/tpch_scratch/reference_results/sf0.01",
   "output": "/tmp/gqe_experiment_multigpu.db3",
   "validate_dir": "/tmp/gqe_results",
   "log_level": "QUIET", // because of CI output cutoff limit
@@ -19,7 +19,7 @@
   "num_partitions": [8],
   "num_workers": [1],
 
-  "storage_device_kind": ["boost_shared_memory"],
+  "storage_device_kind": ["shared_segment_memory"],
   "compression_format": ["none"],
   // A failure only under "decimal" is expected until the engine's decimal support is
   // complete; one that also reproduces under "double" is a regression.

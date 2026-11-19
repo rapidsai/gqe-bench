@@ -10,10 +10,18 @@ from gqe_bench.physical_plan.expression import (
     Literal,
 )
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q10 (returned item reporting)."""
     orders = schema.read(
         "orders",
@@ -76,9 +84,14 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
 
     # agg: "n_name", "c_custkey", "c_name", "c_acctbal", "c_phone",
     #      "c_address", "c_comment", "revenue"
+    revenue = CR(0) * (DecimalLiteral("1", schema.decimal_column_type) - CR(1))
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        j3 = j3.project([CR(i) for i in range(9)] + [revenue])
+        revenue = CR(9)
+
     agg = j3.aggregate(
         [CR(2), CR(3), CR(4), CR(5), CR(6), CR(7), CR(8)],
-        [("sum", CR(0) * (DecimalLiteral("1", schema.decimal_column_type) - CR(1)))],
+        [("sum", revenue)],
         perfect_hashing=False,
     )
 

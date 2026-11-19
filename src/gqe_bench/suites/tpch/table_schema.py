@@ -73,9 +73,6 @@ def _build_table_schemas(id_type: DataType) -> dict[str, dict[str, DataType]]:
         ``INT8`` instead of ``VARCHAR``. Rationale: fixed-width keys for
         perfect-hash group-by. Remove when gqe supports perfect-hash on
         non-fixed-width keys (gqe#161).
-      - ``l_linenumber`` / ``ps_availqty`` declared ``INT32`` instead of
-        ``BIGINT``. Rationale: storage shrink; values fit in INT32 by spec.
-        Remove if/when storage cost is no longer a concern.
     """
     return {
         "part": {

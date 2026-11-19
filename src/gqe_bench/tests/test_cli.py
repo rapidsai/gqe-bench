@@ -83,6 +83,46 @@ class TestGqeCliCommands:
             cli.load_table("lineitem", Path("/data/lineitem"))
         assert b"COPY lineitem FROM" in mock.call_args[1]["input"]
 
+    @pytest.mark.parametrize(
+        ("value", "literal"),
+        [
+            (True, b"TRUE"),
+            (False, b"FALSE"),
+            (4, b"4"),
+            (1.5, b"1.5"),
+            ("lz4", b"'lz4'"),
+            ("/data/it's here", b"'/data/it''s here'"),
+        ],
+    )
+    def test_set_optimization_parameter_literal(self, value: object, literal: bytes) -> None:
+        """Values are written as SQL literals of their type, which gqe-cli sends typed."""
+        cli = GqeCli(Path("/bin/cli"), "http://host:1234")
+        with patch("gqe_bench.cli.subprocess.run", side_effect=_mock_run_ok) as mock:
+            cli.set_optimization_parameter("opt", value)
+        assert mock.call_args[1]["input"] == b"SET opt TO " + literal
+
+    def test_set_optimization_parameter_rejects_unsupported_type(self) -> None:
+        cli = GqeCli(Path("/bin/cli"), "http://host:1234")
+        with pytest.raises(TypeError, match="unsupported SET value type NoneType"):
+            cli.set_optimization_parameter("opt", None)  # type: ignore[arg-type]
+
+    def test_set_optimization_parameter_rejected_raises(self) -> None:
+        """gqe-cli exits non-zero when the engine rejects an option."""
+
+        def rejected_run(*args: object, **kwargs: object) -> MagicMock:
+            result = MagicMock()
+            result.returncode = 1
+            result.stderr = (
+                b'Error: "SET num_wrokers TO 4 was rejected by the server '
+                b'(unknown option name, sent as int64)"\n'
+            )
+            return result
+
+        cli = GqeCli(Path("/bin/cli"), "http://host:1234")
+        with patch("gqe_bench.cli.subprocess.run", side_effect=rejected_run):
+            with pytest.raises(GqeCliError, match="SET num_wrokers TO 4 was rejected"):
+                cli.set_optimization_parameter("num_wrokers", 4)
+
     def test_nonzero_returncode_raises(self) -> None:
         def fail_run(*args: object, **kwargs: object) -> MagicMock:
             result = MagicMock()

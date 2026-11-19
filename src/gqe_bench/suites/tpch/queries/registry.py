@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def lookup(query_name: str) -> Callable[[TpchTableSchema, float], Relation]:
+def lookup(query_name: str) -> Callable[[TpchTableSchema, float, str], Relation]:
     """Return the build_plan function for a handcoded TPC-H query."""
     module_name = f"gqe_bench.suites.tpch.queries.q{query_name}"
     try:

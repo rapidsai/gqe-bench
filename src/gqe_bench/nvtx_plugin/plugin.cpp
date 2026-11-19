@@ -24,6 +24,7 @@
 
 #include "log.hpp"
 #include "nvtx_injection.hpp"
+#include "run_context.hpp"
 #include <nvtx_plugin/env.hpp>
 #include <nvtx_plugin/stages.hpp>
 
@@ -32,6 +33,7 @@
 #include <errno.h>  // program_invocation_short_name
 #include <generated_nvtx_meta.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -39,6 +41,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
 
@@ -65,15 +68,50 @@ char const* extract_push_name(CUpti_NvtxData const* data)
       params->core.eventAttrib->messageType == NVTX_MESSAGE_TYPE_ASCII) {
     return params->core.eventAttrib->message.ascii;
   }
+  // Observers are matched by name, so a range whose message is not ASCII (a registered
+  // string, for instance) cannot be matched and goes unobserved.
+  static std::atomic<bool> reported{false};
+  if (!reported.exchange(true, std::memory_order_relaxed)) {
+    GQE_BENCH_LOG_WARN(
+      "cupti_callback: push has no ASCII message (messageType={}); it cannot be matched "
+      "to an observer and its timing is not recorded",
+      params->core.eventAttrib ? static_cast<int>(params->core.eventAttrib->messageType) : -1);
+  }
   return nullptr;
+}
+
+/**
+ * @brief NVTX mark that GQE's task manager emits once per query, after `execute_task_graph`,
+ * when `GQE_TRACK_QUERY_MEMORY` is set. Its unsigned 64-bit payload is the peak query-pool bytes.
+ */
+constexpr std::string_view k_query_memory_peak_mark = "query_memory_peak_bytes";
+
+/**
+ * @brief Record a recognized GQE metric mark as a counter of the current run.
+ *
+ * The value lands in `run_context::counter_values`, which the rank-counter path writes to
+ * `gqe_run_ext`. Marks outside an observed `execute_plan` range, with a non-ASCII message, or
+ * with a payload other than an unsigned 64-bit integer are ignored.
+ */
+void record_metric_mark(CUpti_NvtxData const* data)
+{
+  auto& ctx = t_run_context;
+  if (!ctx.in_execute_plan) return;
+  auto const* params = static_cast<nvtxDomainMarkEx_params const*>(data->functionParams);
+  auto const* attrib = params->core.eventAttrib;
+  if (!attrib || attrib->messageType != NVTX_MESSAGE_TYPE_ASCII || !attrib->message.ascii) return;
+  if (attrib->message.ascii != k_query_memory_peak_mark) return;
+  if (attrib->payloadType != NVTX_PAYLOAD_TYPE_UNSIGNED_INT64) return;
+  ctx.counter_values[std::string{k_query_memory_peak_mark}] =
+    static_cast<double>(attrib->payload.ullValue);
 }
 
 /**
  * @brief CUPTI subscription entry point.
  *
  * Dispatches `nvtxDomainRangePushEx` and `nvtxDomainRangePop` callbacks
- * to the matching observer, if any. The thread-local observer stack
- * carries one entry per push (possibly null) so push/pop stays balanced
+ * to the matching observer, if any, and records metric marks from `nvtxDomainMarkEx`. The
+ * thread-local observer stack carries one entry per push (possibly null) so push/pop stays balanced
  * even when NVTX ranges that no observer claims are interleaved.
  */
 void CUPTIAPI cupti_callback(void* /*userdata*/,
@@ -102,6 +140,8 @@ void CUPTIAPI cupti_callback(void* /*userdata*/,
       range_observer* observer = t_observer_stack.back();
       t_observer_stack.pop_back();
       if (observer) observer->on_pop();
+    } else if (cbid == CUPTI_CBID_NVTX_nvtxDomainMarkEx) {
+      record_metric_mark(nvtx_data);
     }
   } catch (std::exception const& e) {
     GQE_BENCH_LOG_ERROR("cupti_callback: caught exception: {}", e.what());

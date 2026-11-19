@@ -3,11 +3,11 @@
 // Depending on clustering method and scale factor, alter dataset, zone_map_partition_size
 {
   "dataset": "/tpch-sf1000-clustered-by-month", // these paths have to exist in your container, or change it!
-  "solution": "/solution_sf1k/%d.parquet",
+  "solution": "/solution_sf1k",
   "output": "/output/pbr_output.db3",
   "time_breakdown": false,
 
-  "storage_device_kind": ["numa_pinned_memory"],
+  "storage_device_kind": ["shared_segment_memory"],
   "compression_format": ["lz4"], // uses decomp engine on GB200
   "use_cpu_compression": [true], //slows down comp speed but great IO
   "compression_level": [12],

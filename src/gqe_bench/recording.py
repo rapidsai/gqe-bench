@@ -16,9 +16,11 @@
 """Experiment database setup and recording.
 
 Creates the SQLite experiment database, inserts system/data/query
-dimension rows, and records experiment + failed-run entries. Schema
+dimension rows, and records experiment + run entries. Schema
 metadata (table definitions, column mappings, type classes) comes
-from schema.py -- this module only handles writes.
+from schema.py -- this module only handles writes. The assumed-fail
+run lifecycle (``promote_run`` / ``record_run_failure``) is documented
+in ``sql/system_under_test.sql``.
 
 Plugin protocol:
     Env-var name constants (``GQE_BENCH_DB_ENV``,
@@ -39,14 +41,17 @@ Plugin protocol:
 
 import dataclasses
 import importlib.resources
+import logging
 import os
 import socket
 from argparse import Namespace
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import pandas as pd
+
 import database_benchmarking_tools.experiment as exp
-from database_benchmarking_tools import sql_generator
+from database_benchmarking_tools import hardware_info, sql_generator
 from database_benchmarking_tools.experiment import ExperimentConnection, ExperimentDB
 from database_benchmarking_tools.utility import generate_db_path
 from gqe_bench._agg_protocol_sizes import K_HEADER_BYTES, K_SLOT_BYTES
@@ -59,6 +64,9 @@ from gqe_bench._artifacts import (
     GQE_BENCH_SHM_SIZE_ENV,
     GQE_BENCH_TIME_BREAKDOWN_ENV,
     PLUGIN,
+    STAGE_BUILD_METRIC,
+    STAGE_EXECUTE_METRIC,
+    UNVALIDATED_RUN_MSG,
 )
 from gqe_bench._build_info import GIT_BRANCH, GIT_IS_DIRTY, GIT_REVISION
 from gqe_bench.schema import (
@@ -70,6 +78,8 @@ from gqe_bench.schema import (
     QueryParams,
     get_tables,
 )
+
+logger = logging.getLogger(__name__)
 
 _SUT_NAME = "gqe"
 # --log-level values translated to spdlog level names for the plugin. Total over
@@ -102,6 +112,8 @@ def _make_insert_class(table_name: str) -> type:
 
 _GqeParameters = _make_insert_class("gqe_parameters")
 _GqeDataInfoExt = _make_insert_class("gqe_data_info_ext")
+_GqeTableStats = _make_insert_class("gqe_table_stats")
+_GqeColumnStats = _make_insert_class("gqe_column_stats")
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -128,6 +140,15 @@ class _GqeConnection(ExperimentConnection):
         sql_generator.insert_or_ignore(self._cursor, entry)
         return sql_generator.select_id(self._cursor, entry)
 
+    def insert_gqe_table_stats(self, entry: _GqeTableStats) -> int:
+        """Insert or ignore a gqe_table_stats row; return its id."""
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_gqe_column_stats(self, entry: _GqeColumnStats) -> None:
+        """Insert or ignore a gqe_column_stats row."""
+        sql_generator.insert_or_ignore(self._cursor, entry)
+
 
 class SystemIds(NamedTuple):
     """System-level dimension-row IDs (system-under-test, hardware, build)."""
@@ -135,6 +156,13 @@ class SystemIds(NamedTuple):
     sut_info_id: int
     hw_info_id: int
     build_info_id: int
+
+
+class NumaBinding(NamedTuple):
+    """One NUMA node that the gqe-bench process is bound to, and in which role."""
+
+    numa_info_id: int
+    role: str  # 'cpu' or 'memory'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -179,6 +207,13 @@ class SweepContext:
                        ``query_info.suite`` for every experiment.
         repeat:        Per-experiment run count. Controls ``range(repeat)`` in
                        the runner loop and ``experiment.sample_size`` in the DB.
+        records_timing: Whether the plugin writes run rows. False under
+                       ``--nsys``, where nsys owns NVTX routing instead, so
+                       an unrecorded run is expected, not a fault.
+        numa_bindings: NUMA nodes this process is bound to, by role. Read once
+                       at setup, since the binding does not change during a
+                       sweep, and recorded for every experiment as
+                       ``experiment_numa`` rows. Empty on a host without NUMA.
     """
 
     db_mgr: ExperimentDB
@@ -187,6 +222,8 @@ class SweepContext:
     env: dict[str, str]
     suite_name: str
     repeat: int
+    records_timing: bool
+    numa_bindings: tuple[NumaBinding, ...] = ()
 
     def __enter__(self) -> "SweepContext":
         return self
@@ -204,6 +241,33 @@ class SweepContext:
         return False
 
 
+def _read_numa_bindings(edb: ExperimentConnection, hw_id: int) -> tuple[NumaBinding, ...]:
+    """Insert the host's NUMA nodes and return the ones this process is bound to.
+
+    The binding is read from this process. The server is always its child and inherits the
+    binding. GQE may later change the CPU affinity of its own threads, which this does not capture.
+    """
+    topology = hardware_info.NumaTopology()
+    nodes = topology.nodes()
+    numa_info_ids = edb.insert_numa_topology(hw_id, nodes)
+    bindings = []
+    for role, node_indexes in (
+        ("cpu", topology.cpu_nodes(nodes)),
+        ("memory", topology.memory_nodes(nodes)),
+    ):
+        for node_index in node_indexes:
+            numa_info_id = numa_info_ids.get(node_index)
+            if numa_info_id is None:
+                logger.warning(
+                    "Not recording NUMA node %d in the %s binding because it has no numa_info row",
+                    node_index,
+                    role,
+                )
+                continue
+            bindings.append(NumaBinding(numa_info_id, role))
+    return tuple(bindings)
+
+
 def _build_plugin_env(db_path: str, args: Namespace) -> dict[str, str]:
     """Build the authoritative env dict for libgqe_bench.so subprocesses.
 
@@ -219,12 +283,25 @@ def _build_plugin_env(db_path: str, args: Namespace) -> dict[str, str]:
     fast path when ``num_gpus == 1`` and the shm segment carries a
     single slot. The actual segment is created/unlinked by
     ``GqeSession.__enter__`` / ``__exit__`` around the server lifetime.
+
+    ``--nsys`` is the exception: every key is still set, so the parent shell
+    cannot supply any of them, but every value is empty. An empty
+    ``LD_PRELOAD`` means no plugin is looked up or loaded, and the run
+    records no timing rows: only one profiler can own NVTX routing, and the
+    plugin yields it to the outer one.
     """
+    profiled = args.nsys is not None
+    if profiled:
+        logger.warning(
+            "--nsys is set: the gqe_bench NVTX plugin is disabled, so this run "
+            "produces profiles but records no timing data"
+        )
+
     num_ranks = max(int(args.num_gpus), 1)
     shm_name = f"/gqe_bench_agg_{os.getpid()}"
     shm_size = K_HEADER_BYTES + num_ranks * K_SLOT_BYTES
-    return {
-        "LD_PRELOAD": str(PLUGIN.require()),
+    env = {
+        "LD_PRELOAD": "" if profiled else str(PLUGIN.require()),
         GQE_BENCH_DB_ENV: db_path,
         GQE_BENCH_TIME_BREAKDOWN_ENV: "1" if args.time_breakdown else "",
         GQE_BENCH_CUPTI_METRICS_ENV: ",".join(args.cupti_metrics) if args.cupti_metrics else "",
@@ -233,6 +310,7 @@ def _build_plugin_env(db_path: str, args: Namespace) -> dict[str, str]:
         GQE_BENCH_SHM_SIZE_ENV: str(shm_size),
         GQE_BENCH_LOG_LEVEL_ENV: _SPDLOG_LEVELS[args.log_level],
     }
+    return dict.fromkeys(env, "") if profiled else env
 
 
 def setup_db(args: Namespace) -> SweepContext:
@@ -282,6 +360,7 @@ def setup_db(args: Namespace) -> SweepContext:
         gpu_info_ids = [
             edb.insert_gpu_info(hw_id, cuda_index) for cuda_index in range(args.num_gpus)
         ]
+        numa_bindings = _read_numa_bindings(edb, hw_id)
         edb.commit()
 
     return SweepContext(
@@ -291,6 +370,8 @@ def setup_db(args: Namespace) -> SweepContext:
         env=_build_plugin_env(db_path, args),
         suite_name=args.suite_name,
         repeat=args.repeat,
+        records_timing=not args.nsys,
+        numa_bindings=numa_bindings,
     )
 
 
@@ -362,6 +443,15 @@ def record_experiment(
             )
         )
 
+    for binding in sweep.numa_bindings:
+        edb.insert_experiment_numa(
+            exp.ExperimentNuma(
+                experiment_id=experiment_id,
+                numa_info_id=binding.numa_info_id,
+                role=binding.role,
+            )
+        )
+
     return experiment_id
 
 
@@ -370,13 +460,13 @@ def delete_run_data(
     experiment_id: int,
     run_number: int,
 ) -> None:
-    """Remove run + associated profiling rows for the given (experiment_id, run_number).
+    """Remove the profiling rows the plugin committed for (experiment_id, run_number).
 
     Used on query failure to clean up rows the plugin committed before
     Python observed the validation/execution failure. DELETEs against all
     plugin-written tables are harmless no-ops if the plugin didn't write for
-    this run. Activity tables FK to ``run``, so they must be deleted before
-    ``run``.
+    this run. No failure path runs after ``promote_run``, so the ``run``
+    DELETE is defensive only.
     """
     edb._cursor.execute(
         "DELETE FROM gqe_run_ext WHERE re_experiment_id = ? AND re_run_number = ?",
@@ -412,28 +502,216 @@ def delete_run_data(
     )
 
 
-def record_failed_run(
+def next_run_number(edb: ExperimentConnection, experiment_id: int) -> int:
+    """Return one past the highest run number recorded for ``experiment_id``.
+
+    Seeds the runner's repeat loop so run numbers continue rather than
+    collide when the experiment already has runs. The union covers both
+    specializations of the run entity.
+
+    A fresh experiment yields 0, which is currently every experiment:
+    ``setup_db`` deletes an existing output database, so a run can only
+    pre-exist once a resume/append mode does.
+    """
+    edb._cursor.execute(
+        "SELECT COALESCE(MAX(n), -1) + 1 FROM ("
+        "  SELECT r_number AS n FROM run WHERE r_experiment_id = ?1"
+        "  UNION ALL"
+        "  SELECT fr_number AS n FROM failed_run WHERE fr_experiment_id = ?1"
+        ")",
+        (experiment_id,),
+    )
+    return edb._cursor.fetchone()[0]
+
+
+# One gqe_column_stats row is emitted per (column, part). The part names are the
+# established ones, kept so older and newer sweep DBs stay comparable:
+#
+#   value             fixed-width columns, from the unprefixed size columns
+#   offset / char     string columns, one row each, from offsets_ / chars_
+#
+# A column is either a string column or a fixed-width one, so it contributes
+# exactly one of these groups and sizes never double-count.
+_STRING_PARTS: tuple[tuple[str, str], ...] = (("offset", "offsets_"), ("char", "chars_"))
+_VALUE_PARTS: tuple[tuple[str, str], ...] = (("value", ""),)
+
+# Suffixes of a compression block, and the gqe_column_stats column each feeds.
+# The engine's "row group" is a slice here.
+_BLOCK_TO_COLUMN: tuple[tuple[str, str], ...] = (
+    ("compressed_size", "compressed_bytes"),
+    ("uncompressed_size", "uncompressed_bytes"),
+    ("num_compressed_row_groups", "compressed_slices"),
+    ("primary_compressed_size", "primary_compressed_bytes"),
+    ("secondary_compressed_size", "secondary_compressed_bytes"),
+    ("num_primary_compressed_row_groups", "num_primary_compressed_slices"),
+    ("num_secondary_compressed_row_groups", "num_secondary_compressed_slices"),
+)
+
+
+def query_info_id_for(edb: _GqeConnection, experiment_id: int) -> int:
+    """Return the query_info id an experiment was recorded against.
+
+    ``record_experiment`` inserts query_info itself and returns only the
+    experiment id; gqe_table_stats is keyed on the query_info id, so read it
+    back rather than duplicating the name-prefixing rules here.
+    """
+    edb._cursor.execute("SELECT e_query_info_id FROM experiment WHERE e_id = ?", (experiment_id,))
+    return int(edb._cursor.fetchone()[0])
+
+
+def record_storage_stats(
+    edb: _GqeConnection,
+    dims: DataDimensions,
+    query_info_id: int,
+    table_stats: pd.DataFrame,
+    column_stats: pd.DataFrame,
+) -> int:
+    """Record engine storage statistics for the data currently loaded.
+
+    ``table_stats`` / ``column_stats`` are the engine's ``_gqe_table_stats`` and
+    ``_gqe_column_stats`` as returned by ``GqeSession.read_storage_stats``.
+    Returns the number of gqe_column_stats rows written.
+
+    Tables with no row groups are skipped: they hold no data in memory and so
+    carry no compression statistics.
+    """
+    written = 0
+    for _, t in table_stats.iterrows():
+        num_slices = int(t["num_row_groups"])
+        if num_slices == 0:
+            continue
+        ts_id = edb.insert_gqe_table_stats(
+            _GqeTableStats(
+                data_info_ext_id=dims.data_info_ext_id,
+                query_info_id=query_info_id,
+                table_name=str(t["table_name"]),
+                columns=int(t["num_columns"]),
+                rows=int(t["num_rows"]),
+                row_groups=num_slices,
+            )
+        )
+        cols = column_stats[column_stats["table_name"] == t["table_name"]]
+        for _, c in cols.iterrows():
+            # Sizes that do not apply to a column's layout come back null, so a
+            # non-null offsets_ size is what marks a string column.
+            if not pd.isna(c.get("offsets_compressed_size")):
+                parts = _STRING_PARTS
+            elif not pd.isna(c.get("compressed_size")):
+                parts = _VALUE_PARTS
+            else:
+                continue
+            for part, prefix in parts:
+                edb.insert_gqe_column_stats(
+                    _GqeColumnStats(
+                        gqe_table_stats_id=ts_id,
+                        column_name=str(c["column_name"]),
+                        column_part=part,
+                        slices=num_slices,
+                        **{dest: int(c[f"{prefix}{src}"]) for src, dest in _BLOCK_TO_COLUMN},
+                    )
+                )
+                written += 1
+    return written
+
+
+def record_run_failure(
     edb: ExperimentConnection,
     experiment_id: int,
     run_number: int,
     error_msg: str,
 ) -> None:
-    """Insert a FailedRun record for a query that errored or failed validation."""
-    edb.insert_failed_run(
-        exp.FailedRun(
-            experiment_id=experiment_id,
-            number=run_number,
-            error_msg=error_msg,
-        )
+    """Record the observed failure for this attempt as its ``failed_run`` row.
+
+    Deletes the plugin's profiling rows, then writes ``error_msg`` over the
+    pending ``failed_run`` row — or inserts one if the plugin never wrote.
+    """
+    delete_run_data(edb, experiment_id, run_number)
+    edb._cursor.execute(
+        "INSERT INTO failed_run (fr_experiment_id, fr_number, fr_error_msg) "
+        "VALUES (?, ?, ?) "
+        "ON CONFLICT (fr_experiment_id, fr_number) "
+        "DO UPDATE SET fr_error_msg = excluded.fr_error_msg",
+        (experiment_id, run_number, error_msg),
     )
 
 
-def replace_run_with_failure(
+# Cross-rank (NULL gpu_info_id) stage rows, committed by the plugin in the
+# same transaction as the pending failed_run row.
+_STAGE_TOTAL_SQL = """
+SELECT COUNT(*), SUM(re_metric_value)
+  FROM gqe_run_ext
+  JOIN gqe_metric_info ON m_id = re_metric_info_id
+ WHERE re_experiment_id = ? AND re_run_number = ?
+   AND re_gpu_info_id IS NULL
+   AND m_name IN (?, ?)
+"""
+
+
+def promote_run(
     edb: ExperimentConnection,
     experiment_id: int,
     run_number: int,
-    error_msg: str,
-) -> None:
-    """Replace any plugin-committed ``run`` row for this attempt with a failure record."""
-    delete_run_data(edb, experiment_id, run_number)
-    record_failed_run(edb, experiment_id, run_number, error_msg)
+) -> float | None:
+    """Promote the plugin's pending ``failed_run`` row into a ``run`` row.
+
+    The confirmation step of the run lifecycle (see
+    ``sql/system_under_test.sql``), called after result validation.
+    Computes ``r_duration_s`` (build + execute) from the plugin's stage
+    rows, then swaps the pending row for a ``run`` row, keyed on the
+    sentinel message so a real
+    failure record is never promoted. Delete-before-insert satisfies the
+    ``prevent_repeat_run`` trigger; both statements run in the caller's
+    open transaction. Returns the duration in seconds, or None without
+    writing if the plugin recorded nothing for this attempt.
+    """
+    cur = edb._cursor
+    cur.execute(
+        "SELECT 1 FROM failed_run "
+        "WHERE fr_experiment_id = ? AND fr_number = ? AND fr_error_msg = ?",
+        (experiment_id, run_number, UNVALIDATED_RUN_MSG),
+    )
+    if cur.fetchone() is None:
+        logger.debug(
+            "promote_run: no pending failed_run for experiment %d run %d (profiling inactive)",
+            experiment_id,
+            run_number,
+        )
+        return None
+    cur.execute(
+        _STAGE_TOTAL_SQL,
+        (experiment_id, run_number, STAGE_BUILD_METRIC, STAGE_EXECUTE_METRIC),
+    )
+    stage_count, total_s = cur.fetchone()
+    if stage_count != 2 or total_s is None:
+        # The plugin commits the pending row and the stage rows atomically,
+        # so this indicates schema/constant drift. Leave the pessimistic
+        # record standing rather than promote with a fabricated duration.
+        logger.error(
+            "promote_run: expected 2 stage rows for experiment %d run %d, found %d; "
+            "leaving the pending failed_run in place",
+            experiment_id,
+            run_number,
+            stage_count,
+        )
+        return None
+    cur.execute(
+        "DELETE FROM failed_run WHERE fr_experiment_id = ? AND fr_number = ? AND fr_error_msg = ?",
+        (experiment_id, run_number, UNVALIDATED_RUN_MSG),
+    )
+    if cur.rowcount != 1:
+        # Unreachable while the plugin and this process alternate writes;
+        # bail toward the pessimistic record rather than trip the
+        # prevent_repeat_run trigger on the INSERT below.
+        logger.error(
+            "promote_run: pending failed_run for experiment %d run %d "
+            "changed underneath the promotion; not promoted",
+            experiment_id,
+            run_number,
+        )
+        return None
+    cur.execute(
+        "INSERT INTO run (r_experiment_id, r_number, r_nvtx_marker, r_duration_s) "
+        "VALUES (?, ?, NULL, ?)",
+        (experiment_id, run_number, total_s),
+    )
+    return total_s

@@ -10,10 +10,18 @@ from gqe_bench.physical_plan.expression import (
     ColumnReference as CR,
 )
 from gqe_bench.physical_plan.relation import Relation
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q1 (pricing summary report)."""
     lineitem = schema.read(
         "lineitem",
@@ -45,17 +53,43 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
             ]
         )
 
+    tax_factor = one + CR(6)
+    discounted_price = CR(3) * (one - CR(1))
+    charge = discounted_price * tax_factor
+    shipdate_condition = CR(0) <= DateLiteral("1998-09-02")
+    returnflag, linestatus = CR(4), CR(5)
+    discount, quantity, extendedprice = CR(1), CR(2), CR(3)
+    is_qep = execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND
+    if is_qep:
+        # Materialize the discounted price once and derive the charge from it, rather than
+        # evaluating extendedprice * (1 - discount) a second time inside the charge expression.
+        lineitem = lineitem.project(
+            [CR(0), CR(1), CR(2), CR(3), CR(4), CR(5), CR(6), discounted_price]
+        )
+        lineitem = lineitem.project(
+            [CR(0), CR(1), CR(2), CR(3), CR(4), CR(5), CR(6), CR(7), CR(7) * tax_factor]
+        )
+        # Filter on l_shipdate and keep only the columns the aggregate reads, dropping
+        # l_shipdate and l_tax. The filter follows the projections because a QEP projection
+        # over masked input nulls the rejected rows, and the perfect-hash aggregate rejects
+        # nullable input.
+        lineitem = lineitem.filter(shipdate_condition, [1, 2, 3, 4, 5, 7, 8])
+        discount, quantity, extendedprice = CR(0), CR(1), CR(2)
+        returnflag, linestatus = CR(3), CR(4)
+        discounted_price = CR(5)
+        charge = CR(6)
+
     agg = lineitem.aggregate(
-        [CR(4), CR(5)],
+        [returnflag, linestatus],
         [
-            ("sum", CR(2)),
-            ("sum", CR(3)),
-            ("sum", CR(3) * (one - CR(1))),
-            ("sum", CR(3) * (one - CR(1)) * (one + CR(6))),
-            ("sum", CR(1)),
-            ("count_all", CR(1)),
+            ("sum", quantity),
+            ("sum", extendedprice),
+            ("sum", discounted_price),
+            ("sum", charge),
+            ("sum", discount),
+            ("count_all", discount),
         ],
-        CR(0) <= DateLiteral("1998-09-02"),
+        None if is_qep else shipdate_condition,
         perfect_hashing=True,
     )
 

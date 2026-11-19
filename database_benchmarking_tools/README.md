@@ -157,4 +157,17 @@ The provided relations are:
    so a host with N GPUs has N `gpu_info` rows.
  - `experiment_gpu`: Many-to-many junction between `experiment` and `gpu_info`,
    recording which GPU(s) an experiment ran on.
+ - `numa_info`: Describes one NUMA node of a host. Has a foreign key to
+   `hw_info`, so a host with N NUMA nodes has N `numa_info` rows. A node with no
+   CPUs (`n_cpu_count = 0`) is either a memory-only node, such as CXL memory, or
+   an empty node with no memory (`n_memory_total_mb = 0`), such as the 32
+   GPU-related nodes of a GB200 host.
+ - `experiment_numa`: Many-to-many junction between `experiment` and
+   `numa_info`, recording the NUMA nodes an experiment was bound to. The role
+   column distinguishes the nodes whose CPUs the process may use (`cpu`, as in
+   `numactl --cpunodebind`) from the nodes whose memory it may allocate from
+   (`memory`, as in `--membind`). An unbound process lists all nodes.
+ - `experiment_numa_binding`: A view that aggregates `experiment_numa` to one
+   row per experiment and role. Its `nodes` column lists the node indices in
+   ascending order, such as `0,1`.
  - `sut_info`: Describes the system-under-test.

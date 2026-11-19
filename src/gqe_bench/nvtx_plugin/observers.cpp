@@ -63,7 +63,7 @@ void execute_plan_observer::on_push(CUpti_NvtxData const* /*cbdata*/)
 
   if (_shm->is_rank_zero()) {
     if (!_writer.has_value()) { _writer.emplace(_db_path, _shm->total_ranks()); }
-    ctx.experiment_id = requested;
+    ctx.request = run_request{requested, _shm->requested_run_number()};
   }
 }
 
@@ -76,10 +76,10 @@ void execute_plan_observer::on_pop()
   // Every rank publishes its own contribution. Rank 0 (the only rank with
   // ``_writer``) then gathers all ranks and commits.
   _shm->publish_self(ctx);
-  if (!_writer.has_value() || !ctx.experiment_id) return;
-  std::int64_t const exp_id = *ctx.experiment_id;
-  ctx.experiment_id.reset();
-  _writer->write_run(_shm->gather_run(), exp_id);
+  if (!_writer.has_value() || !ctx.request) return;
+  run_request const request = *ctx.request;
+  ctx.request.reset();
+  _writer->write_run(_shm->gather_run(), request.experiment_id, request.run_number);
 }
 
 stage_observer::stage_observer(stage s) : _stage(s) {}

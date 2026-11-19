@@ -68,10 +68,12 @@ See `config_templates/tpch_sweep_CI.json5` for the canonical, tested example. A 
   "output": "results.db3",
   "queries": ["1", "2", "3", "2_fused_filter", "3_fused_filter", "11"],
   "query_source": ["sql", "handcoded"],
+  "execution_backend": ["legacy_task_graph", "qep_task_graph"],
   "num_partitions": [1, 2, 4, 8],
   "num_workers": [1],
   "repeat": 6,
-  "storage_device_kind": ["boost_shared_memory"],
+  "storage_device_kind": ["shared_segment_memory"],
+  "shmem_policy": ["single_arena_unplaced", "per_node_arenas_bound_overflow"],
 
   "query_overrides": [
     {
@@ -89,7 +91,13 @@ See `config_templates/tpch_sweep_CI.json5` for the canonical, tested example. A 
 
 The `query_overrides` section is a list of override objects. Each object has a `queries` field containing a list of query strings (matched exactly) that the overrides apply to. When an override specifies a parameter, it replaces the global config value for that query. Parameters not specified in any override inherit from the global config. If a query matches multiple override entries, their values are merged (keeping unique values).
 
-Override-able parameters: `num_partitions`, `num_workers`, `use_overlap_mtx`, `join_use_hash_map_cache`, `read_use_zero_copy`, `join_use_unique_keys`, `join_use_perfect_hash`, `join_use_mark_join`, `use_partition_pruning`, `filter_use_like_shift_and`, `aggregation_use_perfect_hash`, `use_ast_jit`.
+Override-able parameters: `execution_backend`, `num_partitions`, `num_workers`, `use_overlap_mtx`, `join_use_hash_map_cache`, `read_use_zero_copy`, `join_use_unique_keys`, `join_use_perfect_hash`, `join_use_mark_join`, `use_partition_pruning`, `filter_use_like_shift_and`, `aggregation_use_perfect_hash`, `use_ast_jit`, `use_late_materialization`, `join_materialization_threshold`.
+
+`execution_backend` selects the backend GQE uses to execute a query. The currently supported values are `legacy_task_graph` (the default) and `qep_task_graph`. The `qep_task_graph` backend currently supports one GPU only.
+
+`shmem_policy` selects the shared memory allocation policy at server startup (default: `single_arena_unplaced`). Use a list in JSON5 or `--shmem-policy <name> [<name> ...]` on the command line to sweep policies. Names are passed unchanged to GQE, which validates them. Each data load group starts a fresh server; the queries and parameter sets within that group share the server and loaded data. This also resets the server's memory pools between groups.
+
+The output DB records policy separately from storage kind, in `gqe_data_info_ext.de_shmem_policy`. Policy is recorded even for `parquet_file` storage because the server still creates shared memory. Best-parameter views retain the selected row's policy for pretuned replay.
 
 Validation runs when `solution` (a reference-results directory) is set; omit it to skip validation.
 
@@ -106,17 +114,17 @@ When both sources are listed, each query runs under every source it supports and
 
 ### Pretuned Mode
 
-A sweep explores a grid of parameters; pretuned mode replays only the best parameter set per query, read from a prior sweep's `.db3`:
+A sweep explores a grid of parameters; pretuned mode replays the best parameter set per query and decimal representation, read from a prior sweep's `.db3`:
 
 ```bash
 gqe-bench --dataset <dataset> --solution <reference_dir> --swept-sqlite prior_sweep.db3 --output pretuned.db3
 ```
 
-The mode is selected by `--swept-sqlite`, which accepts a single `.db3` or a directory of them. Sweep dimensions (partition counts, optimization flags, etc.) come from the DB and cannot be set on the command line in this mode; `--queries` and `--query-source` still filter which results are replayed.
+The mode is selected by `--swept-sqlite`, which accepts a single `.db3` or a directory of them. Sweep dimensions (partition counts, optimization flags, etc.) come from the DB and cannot be set on the command line in this mode; `--queries` and `--query-source` still filter which results are replayed. Pretuned mode configures the server using the GPU count recorded in the input experiments; all supplied databases must use the same GPU count.
 
 ### Output
 
-Results are written to a SQLite `.db3` at the `--output` path: one `experiment` per (query, parameter set), a `run` row per repetition, and a `failed_run` row for any run that errors or fails validation. GQE-specific views summarize the sweep — `gqe_best_parameters` (lowest average duration per query), `gqe_run_parameters`, `failed_experiments`, and others. The full schema is in `src/gqe_bench/sql/system_under_test.sql`.
+Results are written to a SQLite `.db3` at the `--output` path: one `experiment` per (query, parameter set), a `run` row per repetition, and a `failed_run` row for any run that errors or fails validation. GQE-specific views summarize the sweep — `gqe_best_parameters` (lowest average duration per query and decimal representation), `gqe_run_parameters`, `failed_experiments`, and others. The full schema is in `src/gqe_bench/sql/system_under_test.sql`.
 
 The `build_info` row identifies the GQE engine that produced the results — commit, branch, and whether the checkout had uncommitted changes — so a `.db3` can be traced back to the engine build it came from.
 
@@ -239,6 +247,10 @@ The plugin captures in three modes, of which the two CUPTI modes are independent
 
 The stages are fixed: `build_task_graph`, `execute_task_graph`, and `collect_results`, wrapped by an outer `execute_plan` range. Only the execute stage drives the capturers; the other two are pure timing.
 
+### Nsight Systems
+
+`--nsys` runs the engine under Nsight Systems. Nsight Systems takes over the NVTX injection the plugin would otherwise claim, so the plugin is not loaded: `--time-breakdown` and `--cupti-metrics` have no effect and the `.db3` receives no `run` rows. The output is one `.nsys-rep` per experiment in `--nsys-output-dir` (default: cwd), named `{prefix}_Q{query}_{decimal_type}_e{experiment}_{n}` where the prefix comes from `--nsys-prefix` and `{n}` is nsys's `%n`, the lowest integer the directory does not already hold, so a re-run adds reports beside the earlier ones rather than replacing them. Arguments nsys rejects fail when the configuration is parsed, before any data is loaded.
+
 ### Multi-GPU aggregation
 
 Ranks coordinate through a shared-memory segment they all attach to before the first run. Each rank publishes its own per-run data there. Rank 0 owns the database connection, gathers every rank's contribution, and commits one transaction per run.
@@ -284,7 +296,7 @@ The `*_pb2.py` modules are pre-compiled at build time from the `.proto` files in
 
 Each proto is staged under its Python package path before compilation, with its imports rewritten to match, so the generated modules import each other as `from gqe_bench.physical_plan import data_type_pb2` rather than by bare module name.
 
-The `protobuf` pin in `pyproject.toml` follows the compiler that produced the modules. Generated code rejects a runtime of a different major version, or one older than the compiler.
+The `protobuf` runtime is deliberately not declared in `pyproject.toml`. Generated code rejects a runtime of a different major version, or one older than the compiler, so the runtime has to follow the `libprotobuf` that provides `protoc`. Only the GQE conda environment can keep those two true at once, and it pins them as a pair; a range declared here would let pip replace conda's runtime and silently break the match.
 
 ### NVTX range names come from GQE
 

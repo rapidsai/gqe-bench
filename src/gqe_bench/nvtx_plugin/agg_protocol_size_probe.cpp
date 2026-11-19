@@ -34,8 +34,11 @@ int main(int argc, char* argv[])
   std::fprintf(out, "K_HEADER_BYTES = %zu\n", sizeof(gqe_bench::agg_header));
   std::fprintf(out, "K_SLOT_BYTES = %zu\n", sizeof(gqe_bench::agg_slot));
   std::fprintf(out,
-               "K_HEADER_REQUEST_OFFSET = %zu\n",
+               "K_HEADER_EXPERIMENT_ID_OFFSET = %zu\n",
                offsetof(gqe_bench::agg_header, requested_experiment_id));
+  std::fprintf(out,
+               "K_HEADER_RUN_NUMBER_OFFSET = %zu\n",
+               offsetof(gqe_bench::agg_header, requested_run_number));
   std::fclose(out);
   return 0;
 }

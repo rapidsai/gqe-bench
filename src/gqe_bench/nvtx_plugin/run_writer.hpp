@@ -31,10 +31,11 @@ namespace gqe_bench {
  * resolved per-rank `gpu_info_id` lookups. Used only on rank 0.
  *
  * `write_run` commits one run's worth of rows in a single
- * `BEGIN IMMEDIATE` / `COMMIT` transaction: one `run` row, one
- * aggregated row per stage, and the per-rank counter / breakdown / activity
- * rows for every rank. The per-run input is provided as a plain value
- * type, so this class has no dependency on shared memory or NVTX.
+ * `BEGIN IMMEDIATE` / `COMMIT` transaction: one pending `failed_run` row
+ * (see `k_unvalidated_run_msg`), one aggregated row per stage, and the
+ * per-rank counter / breakdown / activity rows for every rank. The
+ * per-run input is provided as a plain value type, so this class has no
+ * dependency on shared memory or NVTX.
  *
  * Construction either succeeds fully (DB opened, statements prepared,
  * `gpu_info_id`s resolved) or throws. There is no half-constructed state.
@@ -67,7 +68,7 @@ class run_writer {
   /**
    * @brief Commit one run's rows in a single transaction.
    *
-   * Writes one `run` row with the cross-rank total duration, one
+   * Writes one pending `failed_run` row (see `k_unvalidated_run_msg`), one
    * aggregated row per stage (with NULL `gpu_info_id` to mark the cross-rank
    * reduction), and the per-rank counter / breakdown / activity rows for
    * every rank. Rolls back on any SQLite error encountered partway
@@ -75,8 +76,11 @@ class run_writer {
    *
    * @param[in] g             Per-run data gathered from all ranks.
    * @param[in] experiment_id Foreign-key value for the `run` row.
+   * @param[in] run_num       Run number posted by the harness.
    */
-  void write_run(agg_protocol::gathered_run const& g, std::int64_t experiment_id);
+  void write_run(agg_protocol::gathered_run const& g,
+                 std::int64_t experiment_id,
+                 std::int64_t run_num);
 
  private:
   /**
@@ -103,18 +107,10 @@ class run_writer {
   void resolve_gpu_info_ids();
 
   /**
-   * @brief Compute the next `r_number` for `exp_id` as one past the
-   * maximum already used in `run` or `failed_run`.
-   *
-   * @throw std::runtime_error On SQLite failure or unexpected non-row
-   *                           result.
+   * @brief Insert the pending `failed_run` row carrying
+   * `k_unvalidated_run_msg`, for the harness to promote after validation.
    */
-  std::int64_t next_run_number(std::int64_t exp_id);
-
-  /**
-   * @brief Insert one row into `run` with NULL `r_nvtx_marker`.
-   */
-  void write_run_row(std::int64_t exp_id, std::int64_t run_num, double duration_s);
+  void write_pending_run_row(std::int64_t exp_id, std::int64_t run_num);
 
   /**
    * @brief Insert one `gqe_run_ext` row per stage using the
@@ -189,14 +185,9 @@ class run_writer {
   std::vector<std::int64_t> _gpu_info_ids;
 
   /**
-   * @brief Statement returning the next `r_number` for an experiment.
+   * @brief `INSERT INTO failed_run` statement for the pending row.
    */
-  sqlite3_stmt* _next_run_number_stmt = nullptr;
-
-  /**
-   * @brief `INSERT INTO run` statement.
-   */
-  sqlite3_stmt* _insert_run_stmt = nullptr;
+  sqlite3_stmt* _insert_pending_run_stmt = nullptr;
 
   /**
    * @brief `INSERT INTO gqe_run_ext` statement.

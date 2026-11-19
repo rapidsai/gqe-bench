@@ -26,6 +26,7 @@ from gqe_bench.physical_plan.expression import (
     GreaterEqualExpr,
     GreaterExpr,
     IfThenElseExpr,
+    IsNullExpr,
     LessEqualExpr,
     LessExpr,
     LikeExpr,
@@ -40,6 +41,7 @@ from gqe_bench.physical_plan.expression import (
 from gqe_bench.physical_plan.relation import (
     AggregateRelation,
     AggregationKind,
+    BoundedHashAggregateRelation,
     BroadcastJoinRelation,
     BroadcastPolicy,
     FetchRelation,
@@ -87,6 +89,7 @@ __all__ = [
     "GreaterEqualExpr",
     "GreaterExpr",
     "IfThenElseExpr",
+    "IsNullExpr",
     "LessEqualExpr",
     "LessExpr",
     "LikeExpr",
@@ -98,6 +101,7 @@ __all__ = [
     "SubtractExpr",
     # Relations
     "AggregateRelation",
+    "BoundedHashAggregateRelation",
     "BroadcastJoinRelation",
     "FetchRelation",
     "FilterRelation",

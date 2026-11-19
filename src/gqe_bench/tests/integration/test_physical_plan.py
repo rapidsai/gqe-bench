@@ -33,6 +33,7 @@ from gqe_bench.physical_plan.expression import (
     Expression,
     FixedPointLiteral,
     IfThenElseExpr,
+    IsNullExpr,
     LikeExpr,
     Literal,
     SubstrExpr,
@@ -53,15 +54,16 @@ from gqe_bench.physical_plan.relation import (
 
 _pp_pb2 = proto.physical_plan
 _expr_pb2 = proto.expression
-_result_pb2 = proto.result
 
 
 class TestEnumAlignment:
     """Verify Python enum values match proto definitions."""
 
     def test_data_type_id_matches_proto(self) -> None:
+        enum = proto.data_type.DataType.DESCRIPTOR.fields_by_name["type_id"].enum_type
         for member in DataTypeId:
-            proto_val = getattr(_result_pb2, member.name, None)
+            proto_member = enum.values_by_name.get(member.name)
+            proto_val = proto_member.number if proto_member is not None else None
             assert proto_val is not None, f"DataTypeId.{member.name} not in proto"
             assert (
                 member.value == proto_val
@@ -96,6 +98,14 @@ class TestExpressionRoundtrip:
         msg = cr.to_proto()
         assert msg.column_reference.column_idx == 5
         parsed = _expr_pb2.Expression.FromString(cr.serialize())
+        assert parsed == msg
+
+    def test_is_null(self) -> None:
+        expr = IsNullExpr(ColumnReference(2))
+        msg = expr.to_proto()
+        assert msg.WhichOneof("expr") == "is_null"
+        assert msg.is_null.input.column_reference.column_idx == 2
+        parsed = _expr_pb2.Expression.FromString(expr.serialize())
         assert parsed == msg
 
     def test_literal_int32(self) -> None:
@@ -275,6 +285,28 @@ class TestRelationRoundtrip:
         parsed = _pp_pb2.PhysicalRelation.FromString(agg.serialize())
         assert parsed == msg
 
+    def test_bounded_hash_aggregate_relation(self) -> None:
+        r = ReadRelation(
+            "t", ["a", "b"], [DataType(DataTypeId.INT64), DataType(DataTypeId.FLOAT64)]
+        )
+        agg = r.bounded_hash_aggregate([0], [("sum", 1)], 1_500_000, 0.7)
+        msg = SerializationContext().emit(agg)
+        bha = msg.bounded_hash_aggregate
+        assert list(bha.key_indices) == [0]
+        assert bha.values[0].aggregation_kind == AggregationKind.SUM
+        assert bha.values[0].value_index == 1
+        assert bha.group_count_bound == 1_500_000
+        assert bha.desired_load_factor == pytest.approx(0.7)
+        parsed = _pp_pb2.PhysicalRelation.FromString(agg.serialize())
+        assert parsed == msg
+
+    def test_bounded_hash_aggregate_defaults_are_unset(self) -> None:
+        r = ReadRelation("t", ["a"], [DataType(DataTypeId.INT32)])
+        agg = r.bounded_hash_aggregate([0], [("count_all", None)], 10)
+        bha = SerializationContext().emit(agg).bounded_hash_aggregate
+        assert not bha.values[0].HasField("value_index")
+        assert not bha.HasField("desired_load_factor")
+
     def test_sort_relation(self) -> None:
         r = ReadRelation("t", ["a"], [DataType(DataTypeId.INT32)])
         s = r.sort([(ColumnReference(0), "descending", "before")])
@@ -374,6 +406,36 @@ class TestQueryRegistry:
 
         assert callable(lookup("3_fused_filter"))
 
+    def test_bounded_hash_aggregate_variant_plan(self) -> None:
+        """Q18's bounded-hash-aggregate variant sizes the map from |orders| at the SF."""
+        from gqe_bench.suites.tpch.queries import lookup
+        from gqe_bench.suites.tpch.table_schema import TpchTableSchema
+
+        plan = lookup("18_bha")(TpchTableSchema("int64"), 100.0, "qep_task_graph")
+        msg = SerializationContext().emit(plan)
+        parsed = _pp_pb2.PhysicalRelation.FromString(plan.serialize())
+        assert parsed == msg
+
+        def find_bha(rel: _pp_pb2.PhysicalRelation) -> _pp_pb2.PhysicalRelation | None:
+            if rel.HasField("bounded_hash_aggregate"):
+                return rel
+            for field, value in rel.ListFields():
+                if field.message_type == rel.DESCRIPTOR:
+                    found = find_bha(value)
+                    if found is not None:
+                        return found
+                for child in ("child", "left", "right"):
+                    sub = getattr(value, child, None)
+                    if isinstance(sub, _pp_pb2.PhysicalRelation) and sub.ByteSize() > 0:
+                        found = find_bha(sub)
+                        if found is not None:
+                            return found
+            return None
+
+        found = find_bha(msg)
+        assert found is not None
+        assert found.bounded_hash_aggregate.group_count_bound == 150_000_000
+
     def test_lookup_nonexistent_raises(self) -> None:
         from gqe_bench.suites.tpch.queries import lookup
 
@@ -409,6 +471,7 @@ class TestTpchSuiteResolveContent:
             "int64",
             load_all_data=True,
             decimal_type="double",
+            execution_backend="legacy_task_graph",
         )
         msg = _pp_pb2.PhysicalRelation.FromString(content)
         assert msg.ByteSize() > 0
@@ -589,6 +652,7 @@ class TestDecimalTypeSelectsPlanShape:
                 "int64",
                 load_all_data=True,
                 decimal_type=decimal_type,
+                execution_backend="legacy_task_graph",
             )
 
         assert content("double") != content("decimal")

@@ -24,6 +24,7 @@ INSERT INTO sut_info(s_id, s_name) VALUES (2717457836325482278, 'gqe');
 CREATE TABLE gqe_parameters(
   p_id INTEGER PRIMARY KEY,
   p_sut_info_id INTEGER NOT NULL,
+  p_execution_backend TEXT NOT NULL DEFAULT 'legacy_task_graph',
   p_num_workers INTEGER NOT NULL DEFAULT 1,
   p_num_partitions INTEGER NOT NULL DEFAULT 8,
   p_use_overlap_mtx INTEGER NOT NULL DEFAULT 1,
@@ -36,6 +37,8 @@ CREATE TABLE gqe_parameters(
   p_join_use_unique_keys INTEGER NOT NULL DEFAULT 1,
   p_join_use_perfect_hash INTEGER NOT NULL DEFAULT 0,
   p_join_use_mark_join INTEGER NOT NULL DEFAULT 1,
+  p_use_late_materialization INTEGER NOT NULL DEFAULT 1,
+  p_join_materialization_threshold REAL NOT NULL DEFAULT 0.1,
   p_use_partition_pruning INTEGER NOT NULL DEFAULT 0,
   p_filter_use_like_shift_and INTEGER NOT NULL DEFAULT 1,
   p_aggregation_use_perfect_hash INTEGER NOT NULL DEFAULT 0,
@@ -43,6 +46,7 @@ CREATE TABLE gqe_parameters(
   -- Each parameter combination should be unique within the experiment database.
   UNIQUE (
     p_sut_info_id,
+    p_execution_backend,
     p_num_workers,
     p_num_partitions,
     p_use_overlap_mtx,
@@ -51,6 +55,8 @@ CREATE TABLE gqe_parameters(
     p_join_use_unique_keys,
     p_join_use_perfect_hash,
     p_join_use_mark_join,
+    p_use_late_materialization,
+    p_join_materialization_threshold,
     p_use_partition_pruning,
     p_filter_use_like_shift_and,
     p_aggregation_use_perfect_hash,
@@ -66,6 +72,7 @@ CREATE TABLE gqe_parameters(
 CREATE TABLE gqe_data_info_ext(
   de_id INTEGER PRIMARY KEY,
   de_data_info_id INTEGER NOT NULL,
+  de_shmem_policy TEXT NOT NULL DEFAULT 'single_arena_unplaced',
   de_num_row_groups INTEGER NOT NULL DEFAULT 14,
   de_compression_format TEXT NOT NULL DEFAULT 'none',
   de_compression_chunk_size INTEGER NOT NULL DEFAULT 131072,
@@ -79,6 +86,7 @@ CREATE TABLE gqe_data_info_ext(
   de_compression_level INTEGER NOT NULL DEFAULT 10,
   UNIQUE (
     de_data_info_id,
+    de_shmem_policy,
     de_num_row_groups,
     de_compression_format,
     de_compression_chunk_size,
@@ -292,6 +300,32 @@ CREATE TABLE gqe_run_cupti_mem_decompress_activity (
   FOREIGN KEY (mda_gpu_info_id) REFERENCES gpu_info(g_id)
 );
 
+-- Run lifecycle (assumed-fail protocol)
+--
+-- The NVTX plugin records every run pessimistically: a `failed_run` row
+-- carrying the UNVALIDATED_RUN_MSG sentinel (see cmake/codegen.cmake),
+-- committed atomically with the run's `gqe_run_ext` / profiling rows. After
+-- result validation succeeds, the Python harness promotes that row into a
+-- `run` row.
+--
+-- The harness is the single source of both run-keyed values. It assigns run
+-- numbers in its repeat loop and posts them to the plugin through the shm
+-- header alongside the experiment id. It derives `r_duration_s` (build +
+-- execute) from the stage rows at promotion.
+--
+-- Consequences:
+--
+--   * A harness killed mid-run (e.g. Slurm walltime) leaves the pessimistic
+--     `failed_run` in place, so an unvalidated run never counts as a trial in
+--     the views below; the experiment surfaces in `gqe_flakey_experiments`.
+--   * During a live sweep, the in-flight run transiently appears in
+--     `failed_run` with the sentinel message.
+--   * The `gqe_run_*` satellite tables' FKs reference `run`, which exists
+--     only after promotion; before it (and permanently, for runs whose
+--     harness died) those rows are pending against the `failed_run` side of
+--     the specialization. SQLite does not enforce FKs on the writing
+--     connections, but a manual PRAGMA foreign_key_check will report these.
+--
 -- GQE unioned run + failed_run view
 --
 -- This view is an intermediary used to generate other views, where all run info is desired.
@@ -350,6 +384,7 @@ CREATE VIEW _gqe_data_base_view AS
       q_suite,
       q_source,
       e_sample_size,
+      p_execution_backend,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -358,6 +393,8 @@ CREATE VIEW _gqe_data_base_view AS
       p_join_use_unique_keys,
       p_join_use_perfect_hash,
       p_join_use_mark_join,
+      p_use_late_materialization,
+      p_join_materialization_threshold,
       p_use_partition_pruning,
       p_filter_use_like_shift_and,
       p_aggregation_use_perfect_hash,
@@ -371,6 +408,7 @@ CREATE VIEW _gqe_data_base_view AS
       d_decimal_type,
       d_scale_factor,
       de_data_info_id,
+      de_shmem_policy,
       de_num_row_groups,
       de_compression_format,
       de_compression_chunk_size,
@@ -399,6 +437,7 @@ CREATE VIEW _gqe_data_base_view AS
       q_name,
       q_suite,
       e_sample_size,
+      p_execution_backend,
       p_num_workers,
       p_num_partitions,
       p_use_overlap_mtx,
@@ -407,6 +446,8 @@ CREATE VIEW _gqe_data_base_view AS
       p_join_use_unique_keys,
       p_join_use_perfect_hash,
       p_join_use_mark_join,
+      p_use_late_materialization,
+      p_join_materialization_threshold,
       p_use_partition_pruning,
       p_filter_use_like_shift_and,
       p_aggregation_use_perfect_hash,
@@ -420,6 +461,7 @@ CREATE VIEW _gqe_data_base_view AS
       d_char_type,
       d_decimal_type,
       de_data_info_id,
+      de_shmem_policy,
       de_num_row_groups,
       de_compression_format,
       de_compression_chunk_size,
@@ -432,7 +474,7 @@ CREATE VIEW _gqe_data_base_view AS
       de_use_cpu_compression,
       de_compression_level;
 
--- Best GQE optimization parameters per query.
+-- Best GQE optimization parameters per query and per decimal type.
 --
 -- The parameters that result in the lowest average query duration. These
 -- parameters are gathered along with statistics over their query duration.
@@ -444,12 +486,15 @@ CREATE VIEW gqe_best_parameters AS
       JOIN (
         SELECT
           q_name,
+          d_decimal_type,
           min(r_avg_duration_s) AS min_duration
           FROM
             _gqe_data_base_view
          GROUP BY
-      q_name
+      q_name,
+      d_decimal_type
       ) AS min_data ON _gqe_data_base_view.q_name = min_data.q_name
+          AND _gqe_data_base_view.d_decimal_type IS min_data.d_decimal_type
           AND r_avg_duration_s = min_duration
    ORDER BY _gqe_data_base_view.q_suite,
             CAST(rtrim(substr(_gqe_data_base_view.q_name, 2, 2), '_') AS INTEGER),
@@ -458,25 +503,32 @@ CREATE VIEW gqe_best_parameters AS
             _gqe_data_base_view.e_id
             ;
 
--- Best GQE optimization parameters per query with successful runs.
+-- Best GQE optimization parameters per query and per decimal type with successful runs.
 --
 -- The same as best_parameters but excludes experiments where all runs did not validate
 CREATE VIEW gqe_best_parameters_validated AS
   SELECT
+    (SELECT count(*)
+       FROM experiment_gpu
+      WHERE eg_experiment_id = _gqe_data_base_view.e_id) AS num_gpus,
     _gqe_data_base_view.*
     FROM
       _gqe_data_base_view
       JOIN (
         SELECT
           q_name,
+          d_decimal_type,
           min(r_avg_duration_s) AS min_duration
           FROM
             _gqe_data_base_view
           WHERE (successful_trials+1) = e_sample_size
          GROUP BY
-      q_name
+      q_name,
+      d_decimal_type
       ) AS min_data ON _gqe_data_base_view.q_name = min_data.q_name
+          AND _gqe_data_base_view.d_decimal_type IS min_data.d_decimal_type
           AND r_avg_duration_s = min_duration
+   WHERE (_gqe_data_base_view.successful_trials+1) = _gqe_data_base_view.e_sample_size
    ORDER BY _gqe_data_base_view.q_suite,
             CAST(rtrim(substr(_gqe_data_base_view.q_name, 2, 2), '_') AS INTEGER),
             ltrim(substr(_gqe_data_base_view.q_name, 4), '_'),

@@ -24,6 +24,21 @@
 namespace gqe_bench {
 
 /**
+ * @brief Keys the harness posted for the current run.
+ */
+struct run_request {
+  /**
+   * @brief Experiment the run is recorded under.
+   */
+  std::int64_t experiment_id;
+
+  /**
+   * @brief Run number within the experiment.
+   */
+  std::int64_t run_number;
+};
+
+/**
  * @brief Per-thread state populated by the observers during one
  * `execute_plan` range. Observer instances are process-global, so
  * per-range state cannot live on observer members.
@@ -37,7 +52,7 @@ struct run_context {
   /**
    * @brief Populated on rank 0 only; empty elsewhere.
    */
-  std::optional<int64_t> experiment_id;
+  std::optional<run_request> request;
 
   /**
    * @brief Per-stage push timestamp.
@@ -68,18 +83,18 @@ struct run_context {
   cupti::activity_records activity_records{};
 
   /**
-   * @brief CUPTI Range Profiler counter values keyed by metric name.
+   * @brief Counter values keyed by name: CUPTI range-profiler metrics and GQE metric marks.
    */
   std::unordered_map<std::string, double> counter_values{};
 
   /**
    * @brief Clear per-range state. Callers set `in_execute_plan` and may
-   * populate `experiment_id` afterward.
+   * populate `request` afterward.
    */
   void reset() noexcept
   {
     in_execute_plan = false;
-    experiment_id.reset();
+    request.reset();
     stage_starts.fill({});
     stage_durations.fill({});
     breakdown_valid  = false;

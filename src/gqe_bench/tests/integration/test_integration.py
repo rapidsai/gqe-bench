@@ -25,6 +25,7 @@ Usage:
     pytest gqe_bench/tests/test_integration.py -v
 """
 
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -91,6 +92,56 @@ class TestRunnerMain:
             pytest.skip(f"Dataset not found: {_CI_DATASET}")
         _, config_path = ci_config
         _run_main(config_path)
+
+    def test_execution_backends(
+        self,
+        tmp_path: Path,
+        ci_config: tuple[dict[str, Any], Path],
+    ) -> None:
+        """Verify each QEP CI handcoded query against its reference result through both backends."""
+        if not _has_ci_dataset():
+            pytest.skip(f"Dataset not found: {_CI_DATASET}")
+
+        config = dict(ci_config[0])
+        output = tmp_path / "execution_backends.db3"
+        config.update(
+            {
+                "output": str(output),
+                "queries": ["1", "3", "5", "6", "9", "10", "12", "13"],
+                "query_source": ["handcoded"],
+                "execution_backend": ["legacy_task_graph", "qep_task_graph"],
+                "num_gpus": 1,
+                "num_workers": [1],
+                "num_partitions": [8],
+                "use_overlap_mtx": [True],
+                "join_use_hash_map_cache": [False],
+                "read_use_zero_copy": [False],
+                "join_use_unique_keys": [True],
+                "join_use_perfect_hash": [True],
+                "join_use_mark_join": [False],
+                "use_partition_pruning": [False],
+                "filter_use_like_shift_and": [False],
+                "aggregation_use_perfect_hash": [False],
+                "use_ast_jit": [False],
+                "decimal_type": ["double"],
+                "repeat": 1,
+                "time_breakdown": False,
+                "query_overrides": [],
+            }
+        )
+        config_path = tmp_path / "execution_backends.json5"
+        config_path.write_text(json.dumps(config))
+
+        _run_main(config_path)
+
+        with sqlite3.connect(output) as conn:
+            backends = {
+                row[0]
+                for row in conn.execute("SELECT DISTINCT p_execution_backend FROM gqe_parameters")
+            }
+            failed = conn.execute("SELECT COUNT(*) FROM failed_run").fetchone()[0]
+        assert backends == {"legacy_task_graph", "qep_task_graph"}
+        assert failed == 0
 
     def test_run_number_contiguous(
         self,

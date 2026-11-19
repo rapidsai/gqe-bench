@@ -428,6 +428,12 @@ std::int32_t agg_protocol::requested_experiment_id() const noexcept
     std::memory_order_acquire);
 }
 
+std::int32_t agg_protocol::requested_run_number() const noexcept
+{
+  return std::atomic_ref<std::int32_t>{header()->requested_run_number}.load(
+    std::memory_order_acquire);
+}
+
 void agg_protocol::fill_scalar_fields(agg_slot& slot, run_context const& ctx) noexcept
 {
   using ns_t       = std::chrono::nanoseconds;
@@ -470,6 +476,12 @@ void agg_protocol::fill_scalar_fields(agg_slot& slot, run_context const& ctx) no
     ++n;
   }
   slot.num_counters = n;
+  if (ctx.counter_values.size() > k_max_counters) {
+    GQE_BENCH_LOG_WARN("Dropped {} of {} counters for this run; a slot holds at most {}",
+                       ctx.counter_values.size() - k_max_counters,
+                       ctx.counter_values.size(),
+                       k_max_counters);
+  }
 }
 
 void agg_protocol::publish(cupti::activity_records activity, std::uint64_t& own_gen)
@@ -615,7 +627,6 @@ agg_protocol::gathered_run agg_protocol::gather_run()
   g.stages.build_s     = seconds(mins[b], maxes[b]);
   g.stages.execute_s   = seconds(mins[ex], maxes[ex]);
   g.stages.collect_s   = seconds(r0.stage_starts_ns[co], r0.stage_ends_ns[co]);
-  g.stages.total_s     = g.stages.build_s + g.stages.execute_s;
 
   return g;
 }

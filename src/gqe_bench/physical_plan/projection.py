@@ -17,6 +17,7 @@ from gqe_bench.physical_plan.expression import (
     Expression,
     FixedPointLiteral,
     IfThenElseExpr,
+    IsNullExpr,
     LikeExpr,
     Literal,
     SubstrExpr,
@@ -57,7 +58,7 @@ def _remap(expression: Expression, full: list[str], loaded: list[str]) -> None:
     elif isinstance(expression, _BinaryExpr):
         _remap(expression.lhs, full, loaded)
         _remap(expression.rhs, full, loaded)
-    elif isinstance(expression, (Cast, LikeExpr, SubstrExpr, DatePartExpr)):
+    elif isinstance(expression, (Cast, IsNullExpr, LikeExpr, SubstrExpr, DatePartExpr)):
         _remap(expression.input, full, loaded)
     elif isinstance(expression, IfThenElseExpr):
         _remap(expression.if_expr, full, loaded)

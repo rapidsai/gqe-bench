@@ -8,10 +8,15 @@ from gqe_bench.physical_plan.expression import (
     DateLiteral,
 )
 from gqe_bench.physical_plan.relation import Relation
+from gqe_bench.schema import LEGACY_TASKGRAPH_EXECUTION_BACKEND
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q4 (order priority checking)."""
     orders = schema.read(
         "orders",

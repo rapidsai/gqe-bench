@@ -3,11 +3,11 @@
 // Depending on clustering method and scale factor, alter dataset, zone_map_partition_size
 {
   "dataset": "/tpch-sf100-clustered-by-month", // these paths have to exist in your container, or change it!
-  "solution": "/solution_sf100/%d.parquet",
+  "solution": "/solution_sf100",
   "output": "/output/pbr_output.db3",
   "time_breakdown": false,
 
-  "storage_device_kind": ["numa_pinned_memory"],
+  "storage_device_kind": ["shared_segment_memory"],
   "compression_format": ["ans"], //recommended for good perf on non-gb200
   "secondary_compression_format": ["cascaded"],
   "use_overlap_mtx": [false], // Change to false when running with compression enabled

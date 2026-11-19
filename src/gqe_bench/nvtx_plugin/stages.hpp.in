@@ -81,6 +81,13 @@ constexpr stage_info const& info_for(stage s) noexcept
 inline constexpr char const* k_execute_plan_range = "execute_plan";
 
 /**
+ * @brief `fr_error_msg` sentinel on the pending `failed_run` row the plugin
+ * commits per run; the harness promotes it into a `run` row after result
+ * validation. See the "Run lifecycle" comment in `sql/system_under_test.sql`.
+ */
+inline constexpr char const* k_unvalidated_run_msg = "@UNVALIDATED_RUN_MSG@";
+
+/**
  * @brief Name of the NVTX domain the engine emits its ranges into.
  *
  * Matches `gqe::utility::gqe_nvtx_domain::name`. Read by `nvtx_domain_filter.cpp`,

@@ -6,10 +6,18 @@ from decimal import Decimal
 from gqe_bench.physical_plan.expression import ColumnReference as CR
 from gqe_bench.physical_plan.expression import DecimalLiteral, Literal
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q11 (important stock identification).
 
     The HAVING threshold is the spec's ``0.0001 / scale_factor``; the
@@ -44,9 +52,14 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
     # scale from the value rather than the schema's -2, which would round a
     # fraction this small to zero.
     fraction_literal = DecimalLiteral(fraction_value, schema.decimal_column_type.type_id)
-    global_sum = partsupp.aggregate([], [("sum", CR(1) * CR(2))], perfect_hashing=True)
+    value = CR(1) * CR(2)
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        partsupp = partsupp.project([CR(0), CR(1), CR(2), value])
+        value = CR(3)
 
-    partsupp = partsupp.aggregate([CR(0)], [("sum", CR(1) * CR(2))], perfect_hashing=True)
+    global_sum = partsupp.aggregate([], [("sum", value)], perfect_hashing=True)
+
+    partsupp = partsupp.aggregate([CR(0)], [("sum", value)], perfect_hashing=True)
 
     # FRACTION = 0.0001 / SF
     # having sum > [FRACTION] * global_sum

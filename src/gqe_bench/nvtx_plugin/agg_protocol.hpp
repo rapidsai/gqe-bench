@@ -32,6 +32,7 @@
 #include <optional>
 #include <string>
 #include <sys/mman.h>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -46,11 +47,14 @@ namespace gqe_bench {
 constexpr std::size_t k_max_counter_name_len = 48;
 
 /**
- * @brief Maximum number of CUPTI counter values stored per slot. Counter
- * values are reduced per-rank by the range profiler's `stop()`, so the
- * cap is the count of metrics requested via the metrics env var.
+ * @brief Maximum number of counter values stored per slot.
+ *
+ * A slot carries the CUPTI range-profiler metrics requested via the metrics env var and GQE metric
+ * marks such as `query_memory_peak_bytes`. A GPU can report more hardware metrics per pass than
+ * any sweep is expected to request, so the cap is set well above that, at about 14 KiB of counters
+ * per slot. Counters beyond the cap are dropped with a warning when the slot is filled.
  */
-constexpr std::size_t k_max_counters = 16;
+constexpr std::size_t k_max_counters = 256;
 
 /**
  * @brief Per-slot payload capacity in bytes. Larger event sets are split
@@ -65,12 +69,17 @@ struct counter_entry {
   char name[k_max_counter_name_len];
   double value;
 };
-static_assert(sizeof(counter_entry) == 56, "counter_entry layout drift");
+static_assert(sizeof(counter_entry) == sizeof(counter_entry::name) + sizeof(counter_entry::value),
+              "counter_entry must have no padding; order members by descending alignment");
 
 /**
  * @brief Header at the start of the shared-memory segment.
+ *
+ * Over-aligned to keep its size a multiple of `agg_slot`'s alignment. This
+ * is needed because `agg_protocol::slots()` obtains the slot array by
+ * reinterpret-casting `base + sizeof(agg_header)`.
  */
-struct agg_header {
+struct alignas(std::atomic_ref<std::uint64_t>::required_alignment) agg_header {
   /**
    * @brief Attach-barrier counter; accessed via `atomic_ref<uint32_t>`.
    *
@@ -88,8 +97,17 @@ struct agg_header {
    * rank 0 records the run.
    */
   std::int32_t requested_experiment_id;
+
+  /**
+   * @brief Per-run run number slot.
+   *
+   * Posted by the harness before `requested_experiment_id` and valid
+   * whenever that field is non-zero.
+   */
+  std::int32_t requested_run_number;
 };
-static_assert(sizeof(agg_header) == 8, "agg_header layout drift");
+static_assert(std::is_standard_layout_v<agg_header>,
+              "agg_header must be standard-layout for offsetof in agg_protocol_size_probe");
 
 /**
  * @brief Per-rank slot in the shared-memory segment.
@@ -218,7 +236,23 @@ struct agg_slot {
   agg_slot& operator=(agg_slot const&) = delete;
   agg_slot& operator=(agg_slot&&)      = delete;
 };
-static_assert(sizeof(agg_slot) == 4195344, "agg_slot layout drift");
+static_assert(std::is_standard_layout_v<agg_slot>,
+              "agg_slot must be standard-layout for offsetof and the cast in slots()");
+
+// Slots begin at `sizeof(agg_header)` into the page-aligned mapping, so the
+// header's size decides whether each one lands on agg_slot's alignment.
+static_assert(sizeof(agg_header) % alignof(agg_slot) == 0,
+              "agg_header size must be a multiple of agg_slot's alignment");
+
+// atomic_ref faults on an under-aligned referent rather than tearing.
+static_assert(alignof(agg_slot) >= std::atomic_ref<std::uint64_t>::required_alignment,
+              "agg_slot is under-aligned for its atomic members");
+static_assert(offsetof(agg_slot, gen) % std::atomic_ref<std::uint64_t>::required_alignment == 0,
+              "agg_slot::gen is under-aligned for atomic_ref");
+static_assert(offsetof(agg_slot, consumed_gen) %
+                  std::atomic_ref<std::uint64_t>::required_alignment ==
+                0,
+              "agg_slot::consumed_gen is under-aligned for atomic_ref");
 
 static_assert(std::atomic_ref<std::uint32_t>::is_always_lock_free,
               "atomic_ref<uint32_t> must be lock-free for shm use");
@@ -254,10 +288,6 @@ class agg_protocol {
      * @brief Rank-0 collect-stage duration in seconds.
      */
     double collect_s;
-    /**
-     * @brief `build_s + execute_s`.
-     */
-    double total_s;
   };
 
   /**
@@ -377,6 +407,13 @@ class agg_protocol {
    * value is the experiment_id rank 0 records this run under.
    */
   [[nodiscard]] std::int32_t requested_experiment_id() const noexcept;
+
+  /**
+   * @brief Acquire-load the run number slot from the header.
+   *
+   * Only meaningful when `requested_experiment_id()` returned non-zero.
+   */
+  [[nodiscard]] std::int32_t requested_run_number() const noexcept;
 
   /**
    * @brief Return a reference to rank `r`'s slot in the segment.
