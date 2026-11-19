@@ -1,0 +1,77 @@
+{
+  "dataset": "/tpch_scratch/datasets/sf0.01/sf0.01_id64",
+  "solution": "/tpch_scratch/reference_results/sf0.01",
+  "output": "/tmp/gqe_experiment_multigpu.db3",
+  "validate_dir": "/tmp/gqe_results",
+  "log_level": "QUIET", // because of CI output cutoff limit
+  "time_breakdown": false,
+
+  "use_overlap_mtx": [false],
+  "join_use_hash_map_cache": [true, false],
+  "read_use_zero_copy": [false],
+  "join_use_unique_keys": [true],
+  "join_use_perfect_hash": [true],
+  "join_use_mark_join": [true, false],
+  "use_partition_pruning": [true, false],
+  "filter_use_like_shift_and": [true],
+  "aggregation_use_perfect_hash": [false],
+  "use_ast_jit": [false],
+  "num_partitions": [8],
+  "num_workers": [1],
+
+  "storage_device_kind": ["shared_segment_memory"],
+  "compression_format": ["none"],
+  // A failure only under "decimal" is expected until the engine's decimal support is
+  // complete; one that also reproduces under "double" is a regression.
+  "decimal_type": ["double", "decimal"],
+
+  "query_overrides": [
+    {
+      "queries": [
+        "1",
+        "2_fused_filter",
+        "3_fused_filter",
+        "4",
+        "6",
+        "7_fused_filter",
+        "8",
+        "10_fused_filter",
+        "13",
+        "14",
+        "16",
+        "17",
+        "19",
+        "20_fused_filter",
+        "22"
+      ],
+      "join_use_perfect_hash": [false],
+      "join_use_hash_map_cache": [true]
+    },
+    {
+      "queries": [
+        "2",
+        "9",
+        "13",
+        "14",
+        "16",
+        "20"
+      ],
+      "filter_use_like_shift_and": [true]
+    },
+    {
+      "queries": [
+        "1",
+        "2",
+        "3",
+        "6",
+        "11",
+        "15",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "aggregation_use_perfect_hash": [true]
+    }
+  ]
+}

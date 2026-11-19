@@ -1,0 +1,70 @@
+// This is a config that was used in Feb. 2026 for a PBR request on RTX 4500
+// Most configurations are valid regardless of dataset
+// Depending on clustering method and scale factor, alter dataset, zone_map_partition_size
+{
+  "dataset": "/tpch-sf100-clustered-by-month", // these paths have to exist in your container, or change it!
+  "solution": "/solution_sf100",
+  "output": "/output/pbr_output.db3",
+  "time_breakdown": false,
+
+  "storage_device_kind": ["shared_segment_memory"],
+  "compression_format": ["ans"], //recommended for good perf on non-gb200
+  "secondary_compression_format": ["cascaded"],
+  "use_overlap_mtx": [false], // Change to false when running with compression enabled
+  "join_use_mark_join": [false],
+  "join_use_perfect_hash": [false, true], // pruned against join_use_hash_map_cache so exactly one is on
+  "join_use_hash_map_cache": [false, true],
+  "join_use_unique_keys": [true],
+  "filter_use_like_shift_and": [false],
+  "aggregation_use_perfect_hash": [true], // Set to true when using clustered dataset
+  "read_use_zero_copy": [false],
+  "use_ast_jit": [false],
+  "use_partition_pruning": [true],
+  "zone_map_partition_size": [1000000], // this is set by clustering method and scale factor
+  "num_row_groups": [14, 28],
+  "num_partitions": [4, 8, 16, 32],
+  "num_workers": [2, 4, 8],
+  // A failure only under "decimal" is expected until the engine's decimal support is
+  // complete; one that also reproduces under "double" is a regression.
+  "decimal_type": ["double", "decimal"],
+  "query_source": ["sql", "handcoded"],
+
+  "query_overrides": [
+    {
+      "queries": [
+        "4",
+        "16",
+        "20",
+        "21",
+        "22"
+      ],
+      "join_use_mark_join": [false, true]
+    },
+    {
+      "queries": [
+        "2",
+        "9",
+        "13",
+        "14",
+        "16",
+        "20"
+      ],
+      "filter_use_like_shift_and": [false, true]
+    },
+    {
+      "queries": [
+        "1",
+        "2",
+        "3",
+        "6",
+        "11",
+        "15",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "aggregation_use_perfect_hash": [false, true]
+    }
+  ]
+}

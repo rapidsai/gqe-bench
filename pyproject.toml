@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved. SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License. You may obtain a copy of
+# the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations under
+# the License.
+
+[build-system]
+requires = ["scikit-build-core>=0.3.3"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "gqe-bench"
+version = "0.0.1"
+description = "GPU Query Executor (GQE) benchmarking suite"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "json5",
+    "duckdb",
+    "pandas",
+    "numpy",
+    "database-benchmarking-tools",
+    "sqlglot>=23.0.0",
+    # protobuf is omitted intentionally: the generated physical_plan/*_pb2.py
+    # reject a runtime that disagrees with the protoc that compiled them, so it
+    # must come from conda, which pins it together with libprotobuf.
+    # "protobuf",
+    # pyarrow is omitted intentionally: a pip-installed pyarrow lays down a
+    # second libprotobuf alongside conda's and crashes the dynamic loader.
+    # The GQE container's conda env supplies it; pandas pulls it transitively.
+    # "pyarrow",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+gqe-bench = "gqe_bench.runner:main"
+
+[tool.uv]
+managed = true
+
+[tool.uv.sources]
+database_benchmarking_tools = { path = "database_benchmarking_tools" }
+
+[tool.scikit-build]
+cmake.source-dir = "."
+build.verbose = true
+install.strip = false
+# src-layout; see CONTRIBUTING.md §Package layout.
+wheel.packages = ["src/gqe_bench"]
+sdist.include = ["**/*.sql"]
+wheel.install-dir = "gqe_bench/_artifacts"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort (import sorting)
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E731",   # lambda assignment
+    "F541",   # f-string missing placeholders
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/gqe_bench/__init__.py" = ["F401"]  # unused imports in __init__ are intentional
