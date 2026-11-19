@@ -13,8 +13,15 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+import logging
+import os
+import re
+from typing import NamedTuple
+
 import pynvml
 from cuda.bindings import driver as cuda
+
+logger = logging.getLogger(__name__)
 
 # CUDA logical index -> UUID via the driver API. NVML's enumeration is
 # independent of ``CUDA_VISIBLE_DEVICES``, so the NVML index can't be used.
@@ -122,3 +129,147 @@ class CpuInfo:
 
     def cpu_physical_cores(self) -> int:
         return int(self._info.get("cpu cores", -1))
+
+    def cpu_sockets(self) -> int | None:
+        """Number of physical CPU packages, or None when not reported.
+
+        /proc/cpuinfo repeats "physical id" once per logical CPU, so the socket
+        count is the number of distinct values it takes. Parsed here rather than
+        from self._info, which keeps only the last value of each key. The field
+        is absent on some architectures, notably arm64.
+        """
+        sockets = set()
+        try:
+            with open("/proc/cpuinfo", "r") as f:
+                for line in f:
+                    key, _, value = line.partition(":")
+                    if key.strip() == "physical id":
+                        sockets.add(value.strip())
+        except OSError:
+            return None
+        return len(sockets) or None
+
+
+def parse_cpu_list(text: str) -> set[int]:
+    """Parse a kernel CPU or node list such as ``0-3,8`` into a set of integers."""
+    result = set()
+    for part in text.strip().split(","):
+        if not part:
+            continue
+        first, _, last = part.partition("-")
+        result.update(range(int(first), int(last or first) + 1))
+    return result
+
+
+class NumaNode(NamedTuple):
+    index: int
+    memory_total_mb: int
+    cpus: frozenset[int]
+
+
+# Matches the bind policy that `numa_maps` prints for a mapping, such as `bind:0` or `bind:0-1`.
+_BIND_POLICY = re.compile(r"^bind:([0-9,-]+)$")
+
+
+class NumaTopology:
+    """Reads the NUMA topology of the host and the NUMA binding of the calling process.
+
+    The topology comes from sysfs. The binding is read from the effective state of the process
+    rather than parsed from a `numactl` command line, so a binding set by any launcher is seen.
+
+    The binding has the following limits.
+
+    - The CPU binding is per node. A node counts as bound if the process may run on any of its
+      CPUs, so `taskset -c 0-3` and `numactl --cpunodebind=0` both yield node 0. A cpuset cgroup
+      limit on CPUs is included, because the kernel applies it to the affinity mask.
+    - The memory binding recognizes only the `bind` policy, as set by `numactl --membind`. Other
+      policies such as `interleave` and `preferred` are reported as every node, the same as an
+      unbound process.
+    - A cpuset cgroup limit on memory nodes, such as `docker run --cpuset-mems`, does not change
+      the memory policy and is not seen.
+    - The binding describes the calling process. A child process inherits it, but a thread that
+      later sets its own affinity, or a memory range bound with `mbind`, is not seen.
+
+    `nodes` scans sysfs on every call. Pass its result to `cpu_nodes` and `memory_nodes` so that
+    the topology and the binding describe the same snapshot.
+    """
+
+    def __init__(
+        self,
+        sysfs_root: str = "/sys/devices/system/node",
+        proc_root: str = "/proc",
+    ):
+        self._sysfs_root = sysfs_root
+        self._proc_root = proc_root
+
+    def nodes(self) -> list[NumaNode]:
+        """Scan sysfs for the nodes present on this host, sorted by index.
+
+        Returns an empty list if the system is not NUMA-aware. A node whose `meminfo` or `cpulist`
+        cannot be read or parsed is skipped with a warning.
+        """
+        try:
+            entries = os.listdir(self._sysfs_root)
+        except OSError:
+            return []
+
+        nodes = []
+        for entry in entries:
+            match = re.fullmatch(r"node(\d+)", entry)
+            if match is None:
+                continue
+            node_dir = os.path.join(self._sysfs_root, entry)
+            try:
+                with open(os.path.join(node_dir, "meminfo")) as meminfo:
+                    memory_total_kb = next(
+                        int(fields[3])
+                        for fields in (line.split() for line in meminfo)
+                        if len(fields) >= 4 and fields[2] == "MemTotal:"
+                    )
+                with open(os.path.join(node_dir, "cpulist")) as cpulist:
+                    cpus = parse_cpu_list(cpulist.read())
+            except (OSError, StopIteration, ValueError) as error:
+                # StopIteration means that `meminfo` has no MemTotal line.
+                logger.warning(
+                    "Skipping NUMA node %s because %s cannot be parsed: %r",
+                    match.group(1),
+                    node_dir,
+                    error,
+                )
+                continue
+            nodes.append(NumaNode(int(match.group(1)), memory_total_kb // 1024, frozenset(cpus)))
+        return sorted(nodes)
+
+    def cpu_nodes(self, nodes: list[NumaNode]) -> list[int]:
+        """Return the nodes that own a CPU the calling process may run on.
+
+        `nodes` is the result of `nodes()`. Returns an empty list if the platform has no affinity
+        API.
+        """
+        try:
+            affinity = os.sched_getaffinity(0)
+        except (AttributeError, OSError):
+            return []
+        return [node.index for node in nodes if node.cpus & affinity]
+
+    def memory_nodes(self, nodes: list[NumaNode]) -> list[int]:
+        """Return the nodes the calling process may allocate memory from.
+
+        `nodes` is the result of `nodes()`. A process without a `bind` policy may allocate from
+        any node, so every node in `nodes` is returned.
+
+        The policy is taken from the first mapping in `numa_maps`. That mapping is the executable
+        image, which no allocator binds individually. It therefore shows the process-wide policy
+        even when the process has bound later mappings itself.
+        """
+        all_nodes = [node.index for node in nodes]
+        try:
+            with open(os.path.join(self._proc_root, "self", "numa_maps")) as numa_maps:
+                first_mapping = numa_maps.readline().split()
+        except OSError:
+            return all_nodes
+        if len(first_mapping) >= 2:
+            match = _BIND_POLICY.match(first_mapping[1])
+            if match is not None:
+                return sorted(parse_cpu_list(match.group(1)))
+        return all_nodes

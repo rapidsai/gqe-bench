@@ -69,23 +69,34 @@ class TestExperimentViews:
 
     def test_gqe_best_parameters_row_count(self, db_cursor: sqlite3.Cursor) -> None:
         db_cursor.execute(
-            "SELECT COUNT(DISTINCT q_name) FROM experiment "
-            "JOIN query_info ON experiment.e_query_info_id = query_info.q_id"
+            "SELECT COUNT(*) FROM ("
+            "SELECT q_name, d_decimal_type FROM _gqe_data_base_view "
+            "GROUP BY q_name, d_decimal_type)"
         )
         expected = db_cursor.fetchone()[0]
         assert expected > 0
-        db_cursor.execute("SELECT COUNT(*) FROM gqe_best_parameters")
+        db_cursor.execute(
+            "SELECT COUNT(*) FROM ("
+            "SELECT q_name, d_decimal_type FROM gqe_best_parameters "
+            "GROUP BY q_name, d_decimal_type)"
+        )
         actual = db_cursor.fetchone()[0]
         assert actual == expected
 
     def test_gqe_best_parameters_validated_row_count(self, db_cursor: sqlite3.Cursor) -> None:
         db_cursor.execute(
-            "SELECT COUNT(DISTINCT q_name) FROM experiment "
-            "JOIN query_info ON experiment.e_query_info_id = query_info.q_id"
+            "SELECT COUNT(*) FROM ("
+            "SELECT q_name, d_decimal_type FROM _gqe_data_base_view "
+            "WHERE (successful_trials+1) = e_sample_size "
+            "GROUP BY q_name, d_decimal_type)"
         )
         expected = db_cursor.fetchone()[0]
         assert expected > 0
-        db_cursor.execute("SELECT COUNT(*) FROM gqe_best_parameters_validated")
+        db_cursor.execute(
+            "SELECT COUNT(*) FROM ("
+            "SELECT q_name, d_decimal_type FROM gqe_best_parameters_validated "
+            "GROUP BY q_name, d_decimal_type)"
+        )
         actual = db_cursor.fetchone()[0]
         assert actual == expected
 

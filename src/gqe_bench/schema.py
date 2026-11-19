@@ -174,8 +174,15 @@ VIEW_BEST_PARAMS_VALIDATED = "gqe_best_parameters_validated"
 Q_NAME = _column("query_info", "name")
 Q_SOURCE = _column("query_info", "source")
 SCALE_FACTOR = _column("data_info", "scale_factor")
+DECIMAL_TYPE = _column("data_info", "decimal_type")
 AVG_DURATION = "r_avg_duration_s"  # computed alias in _gqe_data_base_view
+NUM_GPUS = "num_gpus"  # computed alias in gqe_best_parameters_validated
 QUERY_NAME_PREFIX = "Q"  # q_name is stored prefixed; bare everywhere else
+LEGACY_TASKGRAPH_EXECUTION_BACKEND = "legacy_task_graph"
+QEP_TASKGRAPH_EXECUTION_BACKEND = "qep_task_graph"
+EXECUTION_BACKENDS = frozenset(
+    {LEGACY_TASKGRAPH_EXECUTION_BACKEND, QEP_TASKGRAPH_EXECUTION_BACKEND}
+)
 
 
 class TableMapping:
@@ -249,9 +256,31 @@ class TableMapping:
             return False
         return name.startswith("use_") or "_use_" in name
 
+    def field_py_type(self, name: str) -> type:
+        """Return the Python type of a sweep field: ``bool`` for boolean flags, else by SQLite type."""
+        if self.is_bool_field(name):
+            return bool
+        sql_type = self.field_type(name)
+        if sql_type not in _SQLITE_TYPE_MAP:
+            raise ValueError(f"Unmapped SQLite type '{sql_type}' for field '{name}'")
+        return _SQLITE_TYPE_MAP[sql_type]
+
     def extract(self, row: dict[str, Any]) -> dict[str, Any]:
-        """Extract sweep field values from a DB row into dataclass kwargs."""
-        return {f: row[self._col_map[f]] for f in self._sweep_fields}
+        """Extract present sweep field values from a DB row into dataclass kwargs.
+
+        SQLite stores boolean flags as INTEGER 0/1, so they are converted back to ``bool``.
+        The engine rejects ``SET <flag> TO 1`` for a boolean option.
+        """
+        values: dict[str, Any] = {}
+        for field in self._sweep_fields:
+            column = self._col_map[field]
+            if column not in row:
+                continue
+            value = row[column]
+            if value is not None and self.is_bool_field(field):
+                value = bool(value)
+            values[field] = value
+        return values
 
     def to_insert_kwargs(self, source: object, **extra: Any) -> dict[str, Any]:
         """Build insertion kwargs for this table from a dataclass.
@@ -267,13 +296,35 @@ class TableMapping:
 def _query_validated_params(db_path: Path) -> list[dict[str, Any]]:
     """Query best validated parameters from a single .db3 file.
 
+    For databases whose stored view predates the ``num_gpus`` column, derive
+    it from the underlying ``experiment_gpu`` rows. Databases without that
+    table cannot be selected because their GPU cardinality is unknown.
+
     Query names are returned bare -- ``QUERY_NAME_PREFIX`` is removed here so
     callers never see the stored form. Databases written before the prefix
     existed hold bare names and pass through unchanged.
     """
     with contextlib.closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(f"SELECT * FROM {VIEW_BEST_PARAMS_VALIDATED}").fetchall()
+        view_columns = {
+            row["name"] for row in conn.execute(f"PRAGMA table_info({VIEW_BEST_PARAMS_VALIDATED})")
+        }
+        if NUM_GPUS in view_columns:
+            rows = conn.execute(f"SELECT * FROM {VIEW_BEST_PARAMS_VALIDATED}").fetchall()
+        elif conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'experiment_gpu'"
+        ).fetchone():
+            rows = conn.execute(
+                f"""
+                SELECT (SELECT count(*)
+                          FROM experiment_gpu
+                         WHERE eg_experiment_id = validated.e_id) AS {NUM_GPUS},
+                       validated.*
+                  FROM {VIEW_BEST_PARAMS_VALIDATED} AS validated
+                """
+            ).fetchall()
+        else:
+            rows = []
     params = [dict(r) for r in rows]
     for row in params:
         row[Q_NAME] = row[Q_NAME].removeprefix(QUERY_NAME_PREFIX)
@@ -283,15 +334,22 @@ def _query_validated_params(db_path: Path) -> list[dict[str, Any]]:
 def query_best_parameters(db_paths: list[Path]) -> list[dict[str, Any]]:
     """Query best validated parameters across one or more .db3 files.
 
-    Each file is queried individually. When multiple files contain the
-    same query, the result with the lowest average duration wins.
+    All candidates must have the same GPU count. When multiple files contain
+    the same query and decimal type, the result with the lowest average
+    duration wins.
     """
-    best: dict[str, dict[str, Any]] = {}
+    best: dict[tuple[str, Any], dict[str, Any]] = {}
+    gpu_counts: set[int] = set()
     for db_path in db_paths:
         for row in _query_validated_params(db_path):
-            name = row[Q_NAME]
-            if name not in best or row[AVG_DURATION] < best[name][AVG_DURATION]:
-                best[name] = row
+            gpu_counts.add(row[NUM_GPUS])
+            key = (row[Q_NAME], row[DECIMAL_TYPE])
+            if key not in best or row[AVG_DURATION] < best[key][AVG_DURATION]:
+                best[key] = row
+    if len(gpu_counts) > 1:
+        raise ValueError(
+            f"Pretuned input contains multiple GPU counts: {', '.join(map(str, sorted(gpu_counts)))}"
+        )
     return list(best.values())
 
 
@@ -320,15 +378,10 @@ def _ddl_fields_with_defaults(
     """Derive dataclass field definitions with DDL defaults from column types."""
     fields: list[tuple[str, type, Any]] = []
     for name in mapping.sweep_fields:
-        if mapping.is_bool_field(name):
-            py_type = bool
-            default = bool(mapping.field_default(name) or 0)
-        else:
-            sql_type = mapping.field_type(name)
-            if sql_type not in _SQLITE_TYPE_MAP:
-                raise ValueError(f"Unmapped SQLite type '{sql_type}' for field '{name}'")
-            py_type = _SQLITE_TYPE_MAP[sql_type]
-            default = mapping.field_default(name)
+        py_type = mapping.field_py_type(name)
+        default = mapping.field_default(name)
+        if py_type is bool:
+            default = bool(default or 0)
         if default is not None:
             fields.append((name, py_type, dataclasses.field(default=default)))
         else:

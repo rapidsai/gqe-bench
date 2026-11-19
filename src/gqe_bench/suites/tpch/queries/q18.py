@@ -42,10 +42,15 @@ limit
 from gqe_bench.physical_plan.expression import ColumnReference as CR
 from gqe_bench.physical_plan.expression import DecimalLiteral
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import LEGACY_TASKGRAPH_EXECUTION_BACKEND
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q18 (large volume customer)."""
     # After this operation, `lineitem` contains [l_orderkey, sum(l_quantity)]
     lineitem = (
@@ -58,6 +63,9 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
 
     # After this operation, `orders` contains
     # [o_orderkey, o_custkey, o_orderdate, o_totalprice, sum(l_quantity)]
+    #
+    # `RIGHT` builds the perfect hash on `lineitem`: the group-by makes `l_orderkey` unique,
+    # and the HAVING filter leaves it far smaller than `orders`.
     orders = schema.read(
         "orders",
         ["o_orderkey", "o_custkey", "o_orderdate", "o_totalprice"],
@@ -66,7 +74,7 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
         lineitem,
         CR(0) == CR(4),
         [0, 1, 2, 3, 5],
-        unique_keys_policy=UniqueKeysPolicy.LEFT,
+        unique_keys_policy=UniqueKeysPolicy.RIGHT,
         perfect_hashing=True,
     )
 

@@ -10,10 +10,18 @@ from gqe_bench.physical_plan.expression import (
     Literal,
 )
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q12 (shipping modes and order priority)."""
     lineitem = schema.read(
         "lineitem",
@@ -44,25 +52,26 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
         perfect_hashing=True,
     )
 
+    high_priority = IfThenElseExpr(
+        (CR(0) == Literal("1-URGENT")) | (CR(0) == Literal("2-HIGH")),
+        Literal(1),
+        Literal(0),
+    )
+    low_priority = IfThenElseExpr(
+        (CR(0) != Literal("1-URGENT")) & (CR(0) != Literal("2-HIGH")),
+        Literal(1),
+        Literal(0),
+    )
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        join_out = join_out.project([CR(0), CR(1), high_priority, low_priority])
+        high_priority = CR(2)
+        low_priority = CR(3)
+
     agg_out = join_out.aggregate(
         [CR(1)],
         [
-            (
-                "sum",
-                IfThenElseExpr(
-                    (CR(0) == Literal("1-URGENT")) | (CR(0) == Literal("2-HIGH")),
-                    Literal(1),
-                    Literal(0),
-                ),
-            ),
-            (
-                "sum",
-                IfThenElseExpr(
-                    (CR(0) != Literal("1-URGENT")) & (CR(0) != Literal("2-HIGH")),
-                    Literal(1),
-                    Literal(0),
-                ),
-            ),
+            ("sum", high_priority),
+            ("sum", low_priority),
         ],
         perfect_hashing=False,
     )

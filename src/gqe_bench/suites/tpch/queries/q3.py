@@ -10,10 +10,18 @@ from gqe_bench.physical_plan.expression import (
     Literal,
 )
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q3 (shipping priority)."""
     customer = schema.read(
         "customer",
@@ -69,9 +77,14 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
     # Group by: l_orderkey, o_orderdate, o_shippriority
     # Aggregate function: sum(l_extendedprice * (1 - l_discount)) as revenue
     # After aggregation: l_orderkey, o_orderdate, o_shippriority, revenue
+    revenue = CR(3) * (DecimalLiteral("1", schema.decimal_column_type) - CR(4))
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        joined = joined.project([CR(0), CR(1), CR(2), CR(3), CR(4), revenue])
+        revenue = CR(5)
+
     aggregated = joined.aggregate(
         [CR(0), CR(1), CR(2)],
-        [("sum", CR(3) * (DecimalLiteral("1", schema.decimal_column_type) - CR(4)))],
+        [("sum", revenue)],
         perfect_hashing=True,
     )
 

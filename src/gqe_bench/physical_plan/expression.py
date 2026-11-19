@@ -346,18 +346,18 @@ def _encode_literal_value(
     Raises TypeError for unsupported literal types.
     """
     if isinstance(value, str):
-        return proto.result.STRING, value.encode("utf-8")
+        return DataTypeId.STRING, value.encode("utf-8")
     if isinstance(value, np.float32):
-        return proto.result.FLOAT32, struct.pack("<f", value)
+        return DataTypeId.FLOAT32, struct.pack("<f", value)
     if isinstance(value, float | np.float64):
-        return proto.result.FLOAT64, struct.pack("<d", value)
+        return DataTypeId.FLOAT64, struct.pack("<d", value)
     if isinstance(value, np.int64):
-        return proto.result.INT64, struct.pack("<q", value)
+        return DataTypeId.INT64, struct.pack("<q", value)
     if isinstance(value, int | np.int32):
         # np.int32 is always 32-bit; plain int auto-promotes if out of range
         if isinstance(value, np.int32) or -2_147_483_648 <= value <= 2_147_483_647:
-            return proto.result.INT32, struct.pack("<i", value)
-        return proto.result.INT64, struct.pack("<q", value)
+            return DataTypeId.INT32, struct.pack("<i", value)
+        return DataTypeId.INT64, struct.pack("<q", value)
     raise TypeError(f"Unsupported literal type: {type(value)}")
 
 
@@ -373,7 +373,7 @@ class DateLiteral(Expression):
     def to_proto(self) -> proto.expression.Expression:
         days = (datetime.date.fromisoformat(self.date_string) - _EPOCH).days
         msg = proto.expression.Expression()
-        msg.literal.data_type.type_id = proto.result.TIMESTAMP_DAYS
+        msg.literal.data_type.type_id = DataTypeId.TIMESTAMP_DAYS
         msg.literal.value = struct.pack("<i", days)
         return msg
 
@@ -504,6 +504,18 @@ class DecimalLiteral(Expression):
         raise ValueError(
             f"DecimalLiteral does not support {self.type_id.name}; expected a float or decimal type"
         )
+
+
+class IsNullExpr(Expression):
+    """SQL ``IS NULL``: true for the rows where ``input`` is NULL."""
+
+    def __init__(self, input: Expression) -> None:
+        self.input = input
+
+    def to_proto(self) -> proto.expression.Expression:
+        msg = proto.expression.Expression()
+        msg.is_null.input.CopyFrom(self.input.to_proto())
+        return msg
 
 
 class Cast(Expression):

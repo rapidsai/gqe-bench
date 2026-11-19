@@ -9,23 +9,42 @@ from gqe_bench.physical_plan.expression import (
     DecimalLiteral,
 )
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q15 (top supplier)."""
     lineitem = schema.read(
         "lineitem",
         ["l_suppkey", "l_shipdate", "l_extendedprice", "l_discount"],
         (CR(10) >= DateLiteral("1996-01-01")) & (CR(10) <= DateLiteral("1996-03-31")),
-    ).filter(
-        (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31")),
-        [0, 2, 3],
     )
+    shipdate_condition = (CR(1) >= DateLiteral("1996-01-01")) & (CR(1) <= DateLiteral("1996-03-31"))
+    one = DecimalLiteral("1", schema.decimal_column_type)
+
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        # Compute the revenue before the l_shipdate filter, and filter right before the aggregate.
+        # A projection over filtered input marks the rejected rows null, which the perfect-hash
+        # aggregate does not accept. The filter keeps only l_suppkey and the revenue.
+        lineitem = lineitem.project([CR(0), CR(1), CR(2) * (one - CR(3))]).filter(
+            shipdate_condition, [0, 2]
+        )
+        revenue_measure = CR(1)
+    else:
+        lineitem = lineitem.filter(shipdate_condition, [0, 2, 3])
+        revenue_measure = CR(1) * (one - CR(2))
 
     revenue = lineitem.aggregate(
         [CR(0)],
-        [("sum", CR(1) * (DecimalLiteral("1", schema.decimal_column_type) - CR(2)))],
+        [("sum", revenue_measure)],
         perfect_hashing=True,
     )
 

@@ -162,6 +162,22 @@ class TestPrune:
     def test_valid_combo_not_pruned(self) -> None:
         assert not _prune(make_query(), make_query_params(), make_data_info())
 
+    def test_qep_pruned_for_multiple_gpus(self) -> None:
+        assert _prune(
+            make_query(),
+            make_query_params(execution_backend="qep_task_graph"),
+            make_data_info(),
+            num_gpus=2,
+        )
+
+    def test_legacy_not_pruned_for_multiple_gpus(self) -> None:
+        assert not _prune(
+            make_query(),
+            make_query_params(execution_backend="legacy_task_graph"),
+            make_data_info(),
+            num_gpus=2,
+        )
+
     def test_zero_copy_partitions_mismatch(self) -> None:
         assert _prune(
             make_query(),

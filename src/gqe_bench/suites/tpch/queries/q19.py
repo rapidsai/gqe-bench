@@ -45,6 +45,10 @@ import numpy as np
 from gqe_bench.physical_plan.expression import ColumnReference as CR
 from gqe_bench.physical_plan.expression import DecimalLiteral, Literal
 from gqe_bench.physical_plan.relation import Relation
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
@@ -212,7 +216,11 @@ def _join_condition(schema: TpchTableSchema) -> "Expression":  # noqa: F821
     )
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q19 (discounted revenue)."""
     lineitem = _read_lineitem(schema)
     part = _read_part(schema)
@@ -226,8 +234,13 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
     )
 
     # sum(l_extendedprice * (1 - l_discount)) as revenue
+    revenue = CR(0) * (DecimalLiteral("1", schema.decimal_column_type) - CR(1))
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        joined = joined.project([CR(0), CR(1), revenue])
+        revenue = CR(2)
+
     return joined.aggregate(
         [],
-        [("sum", CR(0) * (DecimalLiteral("1", schema.decimal_column_type) - CR(1)))],
+        [("sum", revenue)],
         perfect_hashing=True,
     )

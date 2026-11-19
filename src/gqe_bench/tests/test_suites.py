@@ -50,7 +50,7 @@ class TestTpchSuite:
         assert len(get_suite(TpchSuite.NAME).available_queries(QuerySource.SQL, None)) == 22
 
     def test_handcoded_queries_count(self) -> None:
-        assert len(get_suite(TpchSuite.NAME).available_queries(QuerySource.HANDCODED, None)) == 25
+        assert len(get_suite(TpchSuite.NAME).available_queries(QuerySource.HANDCODED, None)) == 27
 
     def test_query_filter(self) -> None:
         qs = get_suite(TpchSuite.NAME).available_queries(QuerySource.SQL, ["1", "5", "10"])
@@ -67,11 +67,10 @@ class TestTpchSuite:
         assert "TINYINT" in ddl  # char-column workaround
         assert "BIGINT" in ddl  # default identifier_type
 
-    def test_schema_override_returns_file_content(self, tmp_path: Path) -> None:
+    def test_schema_override_returns_normalized_file_content(self, tmp_path: Path) -> None:
         custom = tmp_path / "custom.sql"
-        body = "CREATE TABLE t (id INT);"
-        custom.write_text(body)
-        assert get_suite(TpchSuite.NAME).schema(custom) == body
+        custom.write_text("CREATE TABLE t (id INT);")
+        assert get_suite(TpchSuite.NAME).schema(custom) == "CREATE TABLE t (\n  id INT\n);\n"
 
     def test_to_ddl_round_trip(self) -> None:
         suite = get_suite(TpchSuite.NAME)
@@ -236,12 +235,12 @@ class TestNarrowDdl:
         # Column order follows the DDL (a before c).
         assert out.index("a BIGINT") < out.index("c INTEGER")
 
-    def test_drops_pk_when_key_column_removed(self) -> None:
+    def test_keeps_pk_column_even_when_not_required(self) -> None:
         from gqe_bench.suites.base import narrow_ddl
 
         out = narrow_ddl(self._DDL, {"t": {"b", "c"}})
-        assert "PRIMARY KEY" not in out
-        assert "a BIGINT" not in out
+        assert "PRIMARY KEY (a)" in out
+        assert "a BIGINT NOT NULL" in out
         assert "b VARCHAR NOT NULL" in out
 
     def test_table_absent_from_map_keeps_all_columns(self) -> None:

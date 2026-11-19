@@ -55,10 +55,12 @@ _HANDCODED_QUERIES: tuple[str, ...] = (
     "11",
     "12",
     "13",
+    "13_bha",
     "15",
     "16",
     "17",
     "18",
+    "18_bha",
     "19",
     "20",
     "20_fused_filter",
@@ -240,7 +242,7 @@ class TpchSuite(Suite):
     def _detect_char_type(cls, ddl: str) -> str:
         observed = [
             _classify_char_type(declared)
-            for table, name, declared, _notnull in iter_ddl_columns(ddl)
+            for table, name, declared, _notnull, _pk in iter_ddl_columns(ddl)
             if name in _CHAR_COLUMNS.get(table, set())
         ]
         if not observed:
@@ -264,6 +266,7 @@ class TpchSuite(Suite):
         identifier_type: str,
         load_all_data: bool,
         decimal_type: str,
+        execution_backend: str,
     ) -> bytes:
         """Serialize a handcoded TPC-H query's physical plan to bytes.
 
@@ -275,12 +278,15 @@ class TpchSuite(Suite):
         the reads declare for the decimal columns and the type the builders give
         their decimal literals, so the same query serializes differently per
         representation.
+
+        ``execution_backend`` selects whether expressions unsupported by QEP
+        aggregate lowering are materialized in a project first.
         """
         from gqe_bench.physical_plan.projection import narrow_read_partial_filters
         from gqe_bench.suites.tpch.queries import lookup
 
         schema = TpchTableSchema(identifier_type=identifier_type, decimal_type=decimal_type)
-        root = lookup(query_name)(schema, scale_factor)
+        root = lookup(query_name)(schema, scale_factor, execution_backend)
         if not load_all_data:
             narrow_read_partial_filters(root, schema.column_orders())
         return root.serialize()

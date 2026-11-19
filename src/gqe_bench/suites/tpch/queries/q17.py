@@ -25,10 +25,18 @@ where
 from gqe_bench.physical_plan.expression import Cast, DecimalLiteral, Literal
 from gqe_bench.physical_plan.expression import ColumnReference as CR
 from gqe_bench.physical_plan.relation import Relation, UniqueKeysPolicy
+from gqe_bench.schema import (
+    LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
+)
 from gqe_bench.suites.tpch.table_schema import TpchTableSchema
 
 
-def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
+def build_plan(
+    schema: TpchTableSchema,
+    scale_factor: float = 1.0,
+    execution_backend: str = LEGACY_TASKGRAPH_EXECUTION_BACKEND,
+) -> Relation:
     """Build the physical plan for TPC-H Q17 (small-quantity-order revenue)."""
     part = schema.read(
         "part",
@@ -58,7 +66,15 @@ def build_plan(schema: TpchTableSchema, scale_factor: float = 1.0) -> Relation:
 
     dec_type = schema.decimal_column_type
 
-    avg_l_quantity = lineitem.aggregate([CR(0)], [("avg", CR(1))], perfect_hashing=True)
+    if execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        # Hand-coded physical plans bypass the SQL optimizer's AVG decomposition.
+        avg_l_quantity = lineitem.aggregate(
+            [CR(0)],
+            [("sum", CR(1)), ("count_all", CR(1))],
+            perfect_hashing=True,
+        ).project([CR(0), CR(1) / CR(2)])
+    else:
+        avg_l_quantity = lineitem.aggregate([CR(0)], [("avg", CR(1))], perfect_hashing=True)
 
     # Calculate l_quantity < 0.2 * avg(l_quantity)
     # After this operation, `lineitem` has column ["l_extendedprice"]

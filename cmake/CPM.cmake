@@ -21,6 +21,8 @@ endif()
 # (~)
 get_filename_component(CPM_DOWNLOAD_LOCATION ${CPM_DOWNLOAD_LOCATION} ABSOLUTE)
 
+# Allow parallel sweep jobs to share the CPM bootstrap without racing.
+file(LOCK "${CPM_DOWNLOAD_LOCATION}.lock" GUARD PROCESS)
 file(
   DOWNLOAD
   https://github.com/cpm-cmake/CPM.cmake/releases/download/v${CPM_DOWNLOAD_VERSION}/CPM.cmake
@@ -28,3 +30,4 @@ file(
   EXPECTED_HASH SHA256=${CPM_HASH_SUM})
 
 include(${CPM_DOWNLOAD_LOCATION})
+file(LOCK "${CPM_DOWNLOAD_LOCATION}.lock" RELEASE)

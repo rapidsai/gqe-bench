@@ -31,10 +31,10 @@ dependencies = [
     "numpy",
     "database-benchmarking-tools",
     "sqlglot>=23.0.0",
-    # Runtime for the CMake-generated physical_plan/*_pb2.py. Their
-    # ValidateProtobufRuntimeVersion call requires the same major version as,
-    # and no older than, the protoc that produced them (conda's libprotobuf).
-    "protobuf>=5.28.3,<6",
+    # protobuf is omitted intentionally: the generated physical_plan/*_pb2.py
+    # reject a runtime that disagrees with the protoc that compiled them, so it
+    # must come from conda, which pins it together with libprotobuf.
+    # "protobuf",
     # pyarrow is omitted intentionally: a pip-installed pyarrow lays down a
     # second libprotobuf alongside conda's and crashes the dynamic loader.
     # The GQE container's conda env supplies it; pandas pulls it transitively.

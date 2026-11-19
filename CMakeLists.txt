@@ -13,7 +13,7 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-cmake_minimum_required(VERSION 3.26 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0 FATAL_ERROR)
 
 option(GQE_BUILD_NVTX_PLUGIN
        "Build the gqe_bench NVTX plugin shared library (libgqe_bench.so)" ON)
@@ -91,7 +91,7 @@ if(GQE_FETCH_ENGINE)
         "https://gitlab-master.nvidia.com/Devtech-Compute/gqe.git"
         CACHE STRING "Git repository URL for gqe")
     set(GQE_GIT_TAG
-        "ff00b01f7db7065f1243b434b496495c1d52eeff"
+        "0c64b05420a4b451d82c05b52d4aca0c1a9f8c11"
         CACHE STRING "Git tag/commit for gqe")
 
     message(STATUS "Using GQE from repository: ${GQE_GIT_REPOSITORY}")

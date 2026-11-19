@@ -52,9 +52,12 @@ void counter_capturer::start()
 void counter_capturer::stop(run_context& ctx)
 {
   if (_state != capturer_state::running) return;
-  auto profile       = _profiler->stop();
-  ctx.counter_values = std::move(profile.metric_values);
-  _state             = capturer_state::armed;
+  auto profile = _profiler->stop();
+  // Merge rather than replace: metric marks recorded earlier in the run share this map.
+  for (auto& [name, value] : profile.metric_values) {
+    ctx.counter_values.insert_or_assign(name, value);
+  }
+  _state = capturer_state::armed;
 }
 
 }  // namespace gqe_bench

@@ -239,8 +239,7 @@ run_writer::run_writer(std::string db_path, std::uint32_t total_ranks)
 run_writer::~run_writer()
 {
   // sqlite3_finalize is a no-op on nullptr.
-  for (sqlite3_stmt* s : {_next_run_number_stmt,
-                          _insert_run_stmt,
+  for (sqlite3_stmt* s : {_insert_pending_run_stmt,
                           _insert_run_ext_stmt,
                           _insert_breakdown_stmt,
                           _select_gpu_info_id_stmt,
@@ -259,15 +258,11 @@ void run_writer::prepare_statements()
     sqlite_check(db, sqlite3_prepare_v2(db, sql, -1, out, nullptr), op);
   };
 
-  constexpr char const* sql_next_run_number =
-    "SELECT COALESCE(MAX(n), -1) + 1 FROM ("
-    "  SELECT r_number AS n FROM run WHERE r_experiment_id = ?1"
-    "  UNION ALL"
-    "  SELECT fr_number AS n FROM failed_run WHERE fr_experiment_id = ?1"
-    ")";
-  constexpr char const* sql_insert_run =
-    "INSERT INTO run (r_experiment_id, r_number, r_nvtx_marker, r_duration_s) "
-    "VALUES (?1, ?2, ?3, ?4)";
+  // Pending row of the assumed-fail run lifecycle; see the "Run lifecycle"
+  // comment in sql/system_under_test.sql.
+  constexpr char const* sql_insert_pending_run =
+    "INSERT INTO failed_run (fr_experiment_id, fr_number, fr_error_msg) "
+    "VALUES (?1, ?2, ?3)";
   constexpr char const* sql_insert_run_ext =
     "INSERT INTO gqe_run_ext "
     "(re_experiment_id, re_run_number, re_metric_info_id, re_metric_value, re_gpu_info_id) "
@@ -299,8 +294,7 @@ void run_writer::prepare_statements()
     " mda_start_time, mda_end_time) "
     "VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
 
-  prep(sql_next_run_number, &_next_run_number_stmt, "prepare next_run_number");
-  prep(sql_insert_run, &_insert_run_stmt, "prepare insert_run");
+  prep(sql_insert_pending_run, &_insert_pending_run_stmt, "prepare insert_pending_run");
   prep(sql_insert_run_ext, &_insert_run_ext_stmt, "prepare insert_run_ext");
   prep(sql_insert_breakdown, &_insert_breakdown_stmt, "prepare insert_breakdown");
   prep(sql_insert_ka, &_insert_kernel_activity_stmt, "prepare insert_kernel_activity");
@@ -357,29 +351,13 @@ void run_writer::resolve_gpu_info_ids()
   }
 }
 
-std::int64_t run_writer::next_run_number(std::int64_t exp_id)
+void run_writer::write_pending_run_row(std::int64_t exp_id, std::int64_t run_num)
 {
-  sqlite3_reset(_next_run_number_stmt);
-  sqlite3_bind_int64(_next_run_number_stmt, 1, exp_id);
-  int const rc = sqlite3_step(_next_run_number_stmt);
-  if (rc != SQLITE_ROW) {
-    sqlite3_reset(_next_run_number_stmt);
-    sqlite_check(_db.get(), rc, "next_run_number step");
-    throw std::runtime_error("next_run_number: unexpected non-ROW result");
-  }
-  std::int64_t const n = sqlite3_column_int64(_next_run_number_stmt, 0);
-  sqlite3_reset(_next_run_number_stmt);
-  return n;
-}
-
-void run_writer::write_run_row(std::int64_t exp_id, std::int64_t run_num, double duration_s)
-{
-  sqlite3_reset(_insert_run_stmt);
-  sqlite3_bind_int64(_insert_run_stmt, 1, exp_id);
-  sqlite3_bind_int64(_insert_run_stmt, 2, run_num);
-  sqlite3_bind_null(_insert_run_stmt, 3);
-  sqlite3_bind_double(_insert_run_stmt, 4, duration_s);
-  sqlite_check(_db.get(), sqlite3_step(_insert_run_stmt), "insert_run step");
+  sqlite3_reset(_insert_pending_run_stmt);
+  sqlite3_bind_int64(_insert_pending_run_stmt, 1, exp_id);
+  sqlite3_bind_int64(_insert_pending_run_stmt, 2, run_num);
+  sqlite3_bind_text(_insert_pending_run_stmt, 3, k_unvalidated_run_msg, -1, SQLITE_STATIC);
+  sqlite_check(_db.get(), sqlite3_step(_insert_pending_run_stmt), "insert_pending_run step");
 }
 
 void run_writer::write_aggregated_stage_rows(std::int64_t exp_id,
@@ -478,14 +456,14 @@ void run_writer::insert_metric_row(std::int64_t exp_id,
   sqlite_check(_db.get(), sqlite3_step(_insert_run_ext_stmt), "insert_run_ext step");
 }
 
-void run_writer::write_run(agg_protocol::gathered_run const& g, std::int64_t experiment_id)
+void run_writer::write_run(agg_protocol::gathered_run const& g,
+                           std::int64_t experiment_id,
+                           std::int64_t run_num)
 {
   write_transaction txn{_db.get()};
   if (!txn.ok()) throw std::runtime_error("write_run: BEGIN IMMEDIATE failed");
 
-  std::int64_t const run_num = next_run_number(experiment_id);
-
-  write_run_row(experiment_id, run_num, g.stages.total_s);
+  write_pending_run_row(experiment_id, run_num);
   write_aggregated_stage_rows(experiment_id, run_num, g.stages);
 
   // Per-rank rows: counters + (optional) breakdown + (optional) events.
@@ -501,11 +479,8 @@ void run_writer::write_run(agg_protocol::gathered_run const& g, std::int64_t exp
   }
 
   if (!txn.commit()) throw std::runtime_error("write_run: COMMIT failed");
-  GQE_BENCH_LOG_INFO("Run recorded: e_id={} r_number={} r_duration_s={:.4f}s ranks={}",
-                     experiment_id,
-                     run_num,
-                     g.stages.total_s,
-                     _total_ranks);
+  GQE_BENCH_LOG_INFO(
+    "Run recorded: e_id={} r_number={} ranks={}", experiment_id, run_num, _total_ranks);
 }
 
 }  // namespace gqe_bench

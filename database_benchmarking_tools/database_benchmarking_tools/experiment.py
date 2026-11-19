@@ -26,6 +26,7 @@ type DataInfoId = int
 type ExperimentId = int
 type GpuInfoId = int
 type HwInfoId = int
+type NumaInfoId = int
 type ParametersId = int
 type SutInfoId = int
 type QueryInfoId = int
@@ -67,6 +68,7 @@ class HwInfo:
     cpu_clock_mhz: str | None = None
     cpu_physical_cores: str | None = None
     cpu_logical_cores: str | None = None
+    cpu_sockets: int | None = None
     nvidia_driver_version: str | None = None
     cuda_version: str | None = None
     system: str | None = None
@@ -94,6 +96,26 @@ class ExperimentGpu:
     experiment_id: ExperimentId | None = None
     gpu_info_id: GpuInfoId | None = None
     cuda_index: int | None = None
+
+
+@dataclass(frozen=True)
+class NumaInfo:
+    _table_name = "numa_info"
+    _table_prefix = "n_"
+    hw_info_id: HwInfoId | None = None
+    node_index: int | None = None
+    memory_total_mb: int | None = None
+    cpu_count: int | None = None
+
+
+@dataclass(frozen=True)
+class ExperimentNuma:
+    _table_name = "experiment_numa"
+    _table_prefix = "en_"
+    experiment_id: ExperimentId | None = None
+    numa_info_id: NumaInfoId | None = None
+    # 'cpu' (--cpunodebind) or 'memory' (--membind).
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -193,6 +215,7 @@ class ExperimentConnection:
             cpu_model_name=cpu_info.model_name(),
             cpu_clock_mhz=int(cpu_info.cpu_mhz()),
             cpu_physical_cores=cpu_info.cpu_physical_cores(),
+            cpu_sockets=cpu_info.cpu_sockets(),
             nvidia_driver_version=gpu_query.system_driver_version(),
             cuda_version=gpu_query.cuda_driver_version(),
             system=platform.uname().system.lower(),
@@ -227,6 +250,35 @@ class ExperimentConnection:
         return sql_generator.select_id(self._cursor, entry)
 
     def insert_experiment_gpu(self, entry: ExperimentGpu) -> None:
+        sql_generator.insert_natural_key(self._cursor, entry)
+
+    def insert_numa_info(self, entry: NumaInfo) -> NumaInfoId:
+        sql_generator.insert_or_ignore(self._cursor, entry)
+        return sql_generator.select_id(self._cursor, entry)
+
+    def insert_numa_topology(
+        self,
+        hw_info_id: HwInfoId,
+        nodes: list[hardware_info.NumaNode],
+    ) -> dict[int, NumaInfoId]:
+        """Insert a `numa_info` row for every node in `nodes`, the result of `NumaTopology.nodes`.
+
+        Returns the `n_id` of each inserted or pre-existing row, keyed by kernel node index. The
+        result is empty if `nodes` is empty, as on a host that is not NUMA-aware.
+        """
+        return {
+            node.index: self.insert_numa_info(
+                NumaInfo(
+                    hw_info_id=hw_info_id,
+                    node_index=node.index,
+                    memory_total_mb=node.memory_total_mb,
+                    cpu_count=len(node.cpus),
+                )
+            )
+            for node in nodes
+        }
+
+    def insert_experiment_numa(self, entry: ExperimentNuma) -> None:
         sql_generator.insert_natural_key(self._cursor, entry)
 
     def get_sut_info_id(self, entry: SutInfo) -> SutInfoId:

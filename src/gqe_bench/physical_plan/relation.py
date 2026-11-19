@@ -52,7 +52,7 @@ class AggregationKind(IntEnum):
     """
 
     SUM = 0
-    SUM_WITH_OVERFLOW = 1
+    SUM_OVERFLOW = 1
     PRODUCT = 2
     MIN = 3
     MAX = 4
@@ -218,6 +218,18 @@ class Relation(ABC):
     ) -> Relation:
         """Group-by + aggregate."""
         return AggregateRelation(self, keys, measures, condition, perfect_hashing)
+
+    def bounded_hash_aggregate(
+        self,
+        key_indices: list[int],
+        values: list[tuple[str, int | None]],
+        group_count_bound: int,
+        desired_load_factor: float | None = None,
+    ) -> Relation:
+        """Group-by + aggregate into a hash map pre-sized from ``group_count_bound``."""
+        return BoundedHashAggregateRelation(
+            self, key_indices, values, group_count_bound, desired_load_factor
+        )
 
     def project(self, out_exprs: list[Expression]) -> Relation:
         """Compute output expressions."""
@@ -434,6 +446,61 @@ class AggregateRelation(Relation):
         if self.condition is not None:
             a.condition.CopyFrom(self.condition.to_proto())
         a.perfect_hashing = self.perfect_hashing
+        return msg
+
+
+class BoundedHashAggregateRelation(Relation):
+    """Group-by + aggregate into one hash map pre-allocated from a plan-time bound.
+
+    Keys and values are input *column indices*, not expressions: the engine's
+    relation carries no expressions, so anything computed is projected into a
+    column upstream. ``values`` are ``(kind, value_index)`` pairs whose
+    ``value_index`` is ``None`` exactly for ``count_all``, which reads no column.
+
+    ``group_count_bound`` is an upper bound on the number of distinct non-null
+    group keys, asserted by the plan author (typically from an FK/PK
+    relationship). The engine reports a violated bound as an execution error.
+    ``desired_load_factor`` of ``None`` selects the operator's default.
+
+    The relation only lowers through the QEP execution backend, and that
+    lowering currently supports a single key and a single value.
+
+    ``__init__`` raises ValueError if any ``value[0]`` isn't a known
+    aggregation kind. The engine validates the rest (bound, load factor,
+    column indices, and the ``count_all`` rule) against the input schema,
+    which this tree does not carry.
+    """
+
+    def __init__(
+        self,
+        input: Relation,
+        key_indices: list[int],
+        values: list[tuple[str, int | None]],
+        group_count_bound: int,
+        desired_load_factor: float | None = None,
+    ) -> None:
+        for kind, _ in values:
+            if kind not in _AGG_KIND_MAP:
+                raise ValueError(f"Unknown aggregation kind: {kind}")
+        self.input = input
+        self.key_indices = key_indices
+        self.values = values
+        self.group_count_bound = group_count_bound
+        self.desired_load_factor = desired_load_factor
+
+    def to_proto(self, ctx: SerializationContext) -> proto.physical_plan.PhysicalRelation:
+        msg = proto.physical_plan.PhysicalRelation()
+        a = msg.bounded_hash_aggregate
+        a.child.CopyFrom(ctx.emit(self.input))
+        a.key_indices.extend(self.key_indices)
+        for kind_str, value_index in self.values:
+            val = a.values.add()
+            val.aggregation_kind = _AGG_KIND_MAP[kind_str]
+            if value_index is not None:
+                val.value_index = value_index
+        a.group_count_bound = self.group_count_bound
+        if self.desired_load_factor is not None:
+            a.desired_load_factor = self.desired_load_factor
         return msg
 
 

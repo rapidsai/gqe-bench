@@ -50,6 +50,7 @@ set(STAGE_BUILD_METRIC "task_graph_generation")
 set(STAGE_EXECUTE_METRIC "task_graph_execution")
 set(STAGE_COLLECT_METRIC "output_generation")
 set(TASK_MANAGER_PROGNAME "gqe_task_manager")
+set(UNVALIDATED_RUN_MSG "unvalidated: harness did not confirm this run")
 
 # env.hpp / stages.hpp: the constants above substituted into the plugin's
 # templates, written to the build tree and put on the include path of every
@@ -142,6 +143,7 @@ STAGE_BUILD_METRIC           = \"${STAGE_BUILD_METRIC}\"
 STAGE_EXECUTE_METRIC         = \"${STAGE_EXECUTE_METRIC}\"
 STAGE_COLLECT_METRIC         = \"${STAGE_COLLECT_METRIC}\"
 TASK_MANAGER_PROGNAME        = \"${TASK_MANAGER_PROGNAME}\"
+UNVALIDATED_RUN_MSG          = \"${UNVALIDATED_RUN_MSG}\"
 ")
 
 # _build_info.py: git state of the gqe checkout the engine binaries were built
@@ -209,7 +211,8 @@ else()
 
 K_HEADER_BYTES = 0
 K_SLOT_BYTES = 0
-K_HEADER_REQUEST_OFFSET = 0
+K_HEADER_EXPERIMENT_ID_OFFSET = 0
+K_HEADER_RUN_NUMBER_OFFSET = 0
 ")
 endif()
 
@@ -232,6 +235,11 @@ if(GQE_FETCH_ENGINE)
   endif()
 
   set(_proto_names data_type expression physical_plan result)
+  # Newer engine branches split the type-id enum into its own imported schema.
+  # Older checkouts keep it in data_type.proto and have no type_id.proto.
+  if(EXISTS "${_GQE_CHECKOUT_DIR}/proto/type_id.proto")
+    list(APPEND _proto_names type_id)
+  endif()
   set(_proto_pkg_path gqe_bench/physical_plan)
   set(_proto_stage_root ${CMAKE_BINARY_DIR}/generated/proto_stage)
   set(_proto_stage_dir ${_proto_stage_root}/${_proto_pkg_path})

@@ -20,14 +20,17 @@ import logging
 import re
 from argparse import Namespace
 from collections import defaultdict
+from functools import cache
 from pathlib import Path
 
 from gqe_bench.arguments import get_query_execution_params
 from gqe_bench.query_source import QuerySource
 from gqe_bench.schema import (
     DATA_INFO_MAPPING,
+    NUM_GPUS,
     Q_NAME,
     Q_SOURCE,
+    QEP_TASKGRAPH_EXECUTION_BACKEND,
     QUERY_PARAMS_MAPPING,
     SCALE_FACTOR,
     DataInfo,
@@ -70,17 +73,12 @@ def _warn_field_dependencies(args: Namespace) -> None:
             "use_partition_pruning=True requires zone_map_partition_size to be set",
         )
 
-    storage = args.storage_device_kind
-    if storage is not None and any(k != "boost_shared_memory" for k in storage):
-        logger.warning(
-            "storage_device_kind=%s: gqe does not currently support setting "
-            "the device kind over the CLI; only boost_shared_memory is honored.",
-            storage,
-        )
 
-
-def _prune(query: Query, qp: QueryParams, di: DataInfo) -> bool:
+def _prune(query: Query, qp: QueryParams, di: DataInfo, *, num_gpus: int = 1) -> bool:
     """Return True if this (Query, QueryParams) combination should be skipped."""
+    if num_gpus > 1 and qp.execution_backend == QEP_TASKGRAPH_EXECUTION_BACKEND:
+        logger.warning("Skipping qep_task_graph because it does not support multiple GPUs")
+        return True
     if qp.read_use_zero_copy and qp.num_partitions != di.num_row_groups:
         return True
     if qp.read_use_zero_copy and di.storage_device_kind == "parquet_file":
@@ -117,6 +115,8 @@ def generate_sweep_groups(args: Namespace, schema_ddl: str) -> list[DataLoadGrou
     """Generate DataLoadGroups from sweep config via Cartesian product."""
     _warn_field_dependencies(args)
     suite = get_suite(args.suite_name)
+    # Reuse immutable payload bytes for identical resolver inputs within this sweep.
+    resolve_content = cache(suite.resolve_content)
 
     # Validate query sources before parsing the DDL — keeps the failure mode
     # of an unsupported suite/source combination as ValueError, not whatever
@@ -160,36 +160,36 @@ def generate_sweep_groups(args: Namespace, schema_ddl: str) -> list[DataLoadGrou
         data_info = DataInfo(**data_kwargs)
 
         for query_source, name in query_ids:
-            # Resolved here rather than up front because the payload depends on
-            # data_info.decimal_type: the plan's read types and literals differ
-            # between the float and fixed-point representations.
-            try:
-                content = suite.resolve_content(
-                    name,
-                    query_source,
-                    suite.query_file(name, args.sql),
-                    dataset_props.get("scale_factor"),
-                    dataset_props["identifier_type"],
-                    args.load_all_data,
-                    data_info.decimal_type,
-                )
-            except ValueError as e:
-                problems[(query_source, name)] = f"{query_source.value} query '{name}': {e}"
-                continue
-            query = Query(
-                name=name,
-                source=query_source,
-                reference_file=suite.solution_file(name, args.solution),
-                content=content,
-            )
-
-            qp_overrides = get_query_execution_params(args, query.name)
+            qp_overrides = get_query_execution_params(args, name)
             query_sweep_lists = [qp_overrides[f] for f in QUERY_PARAMS_MAPPING.sweep_fields]
 
             # Per-query overrides replace the global sweep lists for matched queries.
             for query_combo in itertools.product(*query_sweep_lists):
                 qp = QueryParams(**dict(zip(QUERY_PARAMS_MAPPING.sweep_fields, query_combo)))
-                if not _prune(query, qp, data_info):
+                # Resolved here rather than up front because a handcoded plan's
+                # payload depends on both data_info.decimal_type and the execution
+                # backend. SQL content is unchanged across parameter combinations.
+                try:
+                    content = resolve_content(
+                        name,
+                        query_source,
+                        suite.query_file(name, args.sql),
+                        dataset_props.get("scale_factor"),
+                        dataset_props["identifier_type"],
+                        args.load_all_data,
+                        data_info.decimal_type,
+                        qp.execution_backend,
+                    )
+                except ValueError as e:
+                    problems[(query_source, name)] = f"{query_source.value} query '{name}': {e}"
+                    break
+                query = Query(
+                    name=name,
+                    source=query_source,
+                    reference_file=suite.solution_file(name, args.solution),
+                    content=content,
+                )
+                if not _prune(query, qp, data_info, num_gpus=args.num_gpus):
                     key = (
                         data_info,
                         None if args.load_all_data else suite.base_query_name(query.name),
@@ -202,7 +202,7 @@ def generate_sweep_groups(args: Namespace, schema_ddl: str) -> list[DataLoadGrou
     return [DataLoadGroup(data_info=di, queries=list(pairs)) for (di, _), pairs in groups.items()]
 
 
-def generate_pretuned_groups(args: Namespace) -> list[DataLoadGroup]:
+def generate_pretuned_groups(args: Namespace, schema_ddl: str) -> list[DataLoadGroup]:
     """Generate DataLoadGroups from prior sweep results."""
     swept = Path(args.swept_sqlite)
     db_paths = sorted(swept.glob("*.db3")) if swept.is_dir() else [swept]
@@ -211,8 +211,29 @@ def generate_pretuned_groups(args: Namespace) -> list[DataLoadGroup]:
     if not best_params:
         raise ValueError(f"No best parameters found in {args.swept_sqlite}")
 
+    args.num_gpus = best_params[0][NUM_GPUS]
+
     suite = get_suite(args.suite_name)
     solution_dir = args.solution
+
+    # Dataset-intrinsic DataInfo fields -- identifier_type, char_type, not_null --
+    # describe the dataset being read now rather than anything the sweep varied, so they
+    # come from the DDL, exactly as in generate_sweep_groups.
+    #
+    # The prior sweep's DB cannot supply them: DATA_INFO_MAPPING covers
+    # gqe_data_info_ext (de_*) plus two overrides, while these live on data_info (d_*).
+    # Extracting the row alone therefore leaves all three at None, and the failure that
+    # follows is silent rather than an error:
+    #
+    #   - The table DDL pins identifier_type=int64, so the data loads as int64.
+    #   - The handcoded plan is built from TpchTableSchema(identifier_type=None), so its
+    #     key columns take a different width.
+    #   - Reading those columns faults in CUDA with a misaligned or illegal address,
+    #     which looks like the known RMM race (gqe#314) but is fully deterministic.
+    #
+    # Only handcoded plans are affected. SQL queries resolve their types from the schema
+    # registered with the engine, so they pass and mask the problem.
+    dataset_props = suite.read_dataset_properties(schema_ddl)
 
     # See generate_sweep_groups for the keying scheme.
     groups: dict[tuple[DataInfo, str | None], list[tuple[Query, QueryParams]]] = defaultdict(list)
@@ -233,8 +254,13 @@ def generate_pretuned_groups(args: Namespace) -> list[DataLoadGroup]:
         data_kwargs["scale_factor"] = row.get(SCALE_FACTOR) or suite.infer_scale_factor(
             args.dataset
         )
+        # Applied last, mirroring generate_sweep_groups. read_dataset_properties returns
+        # only the dataset-intrinsic fields, so this cannot clobber location or
+        # scale_factor resolved above.
+        data_kwargs.update(dataset_props)
         data_info = DataInfo(**data_kwargs)
 
+        qp = QueryParams(**QUERY_PARAMS_MAPPING.extract(row))
         content = suite.resolve_content(
             q_name,
             query_source,
@@ -243,6 +269,7 @@ def generate_pretuned_groups(args: Namespace) -> list[DataLoadGroup]:
             data_info.identifier_type,
             args.load_all_data,
             data_info.decimal_type,
+            qp.execution_backend,
         )
         query = Query(
             name=q_name,
@@ -251,7 +278,6 @@ def generate_pretuned_groups(args: Namespace) -> list[DataLoadGroup]:
             content=content,
         )
 
-        qp = QueryParams(**QUERY_PARAMS_MAPPING.extract(row))
         key = (data_info, None if args.load_all_data else query.name)
         groups[key].append((query, qp))
 
@@ -261,10 +287,10 @@ def generate_pretuned_groups(args: Namespace) -> list[DataLoadGroup]:
 def generate_groups(args: Namespace, schema_ddl: str) -> list[DataLoadGroup]:
     """Generate DataLoadGroups — dispatches to sweep or pretuned.
 
-    ``schema_ddl`` is consumed by the sweep path (``generate_sweep_groups``);
-    the pretuned path reads dataset properties from the prior sweep DB and
-    ignores it.
+    ``schema_ddl`` is consumed by ``generate_sweep_groups`` and
+    ``generate_pretuned_groups`` alike: it is the source of truth for the
+    dataset-intrinsic DataInfo fields, which the prior sweep DB does not carry.
     """
     if args.swept_sqlite:
-        return generate_pretuned_groups(args)
+        return generate_pretuned_groups(args, schema_ddl)
     return generate_sweep_groups(args, schema_ddl)

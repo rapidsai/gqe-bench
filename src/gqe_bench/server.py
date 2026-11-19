@@ -23,6 +23,9 @@ import time
 from pathlib import Path
 from typing import Any, ClassVar
 
+from gqe_bench.profiling import NoopProfiler, Profiler
+from gqe_bench.schema import DATA_INFO_MAPPING
+
 logger = logging.getLogger(__name__)
 
 _SHM_PATH = Path("/dev/shm/gqe_shared_memory")
@@ -34,7 +37,11 @@ DEFAULT_SERVER_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
 # Wall-clock timeout for gqe_node_manager to begin accepting connections.
 # Sized to exceed every gqe-side bootstrap deadline so the C++ side's own
 # error reporting fires first on a genuine bootstrap failure.
-_START_TIMEOUT_S = 300
+_START_TIMEOUT_S = 1200
+
+# Wall-clock timeout for gqe_node_manager to exit after SIGTERM or SIGKILL
+# during a startup-timeout shutdown.
+_SHUTDOWN_WAIT_S = 120
 
 # gRPC deadline the node manager applies to each task manager's ExecutePlan
 # RPC. Sized for long-running sweep queries, which exceed the engine's own
@@ -72,6 +79,8 @@ class GqeServer:
         addr: str = DEFAULT_ADDR,
         num_gpus: int = 1,
         env: dict[str, str] | None = None,
+        profiler: Profiler | None = None,
+        shmem_policy: str = DATA_INFO_MAPPING.field_default("shmem_policy"),
     ) -> None:
         """Validate binary paths and claim the singleton slot.
 
@@ -86,6 +95,8 @@ class GqeServer:
         self._addr = addr
         self._num_gpus = num_gpus
         self._env = env
+        self._profiler = profiler or NoopProfiler()
+        self._shmem_policy = shmem_policy
         self._process: subprocess.Popen | None = None
         # Claim the singleton slot only after all validation has succeeded.
         # If __init__ raises before this line, the slot stays free for the
@@ -109,7 +120,7 @@ class GqeServer:
         """
         self._cleanup_shared_memory()
         host, port_str = self._addr.rsplit(":", 1)
-        server_argv = [
+        server_argv = self._profiler.launch_prefix() + [
             str(self._bin),
             "--address",
             host,
@@ -121,6 +132,8 @@ class GqeServer:
             str(self._task_manager_bin),
             "--query-timeout",
             str(_QUERY_TIMEOUT_S),
+            "--shmem-policy",
+            self._shmem_policy,
         ]
         logger.info("Starting server on %s", self._addr)
         logger.debug("server argv: %s", " ".join(server_argv))
@@ -128,33 +141,49 @@ class GqeServer:
             server_argv,
             env=self._env,
         )
-        port = int(port_str)
         deadline = time.monotonic() + _START_TIMEOUT_S
 
         while True:
             if self._process.poll() is not None:
+                # The code belongs to whatever was spawned, which is the
+                # profiler wrapper rather than gqe_node_manager when one is
+                # in front of it.
                 raise ServerStartFailed(
-                    f"gqe_node_manager exited with code {self._process.returncode} "
-                    f"before becoming ready"
+                    f"{Path(server_argv[0]).name} exited with code "
+                    f"{self._process.returncode} before the server became ready"
                 )
             if time.monotonic() > deadline:
                 # SIGTERM not SIGKILL: lets node_manager's pre-Arrow signal
                 # handler reap its task_manager subtree. SIGKILL bypasses it.
                 self._process.send_signal(signal.SIGTERM)
                 try:
-                    self._process.wait(timeout=10)
+                    self._process.wait(timeout=_SHUTDOWN_WAIT_S)
                 except subprocess.TimeoutExpired:
                     self._process.kill()
-                    self._process.wait(timeout=10)
+                    try:
+                        self._process.wait(timeout=_SHUTDOWN_WAIT_S)
+                    except subprocess.TimeoutExpired:
+                        logger.warning(
+                            "gqe_node_manager did not exit within %ds of SIGKILL; "
+                            "process may still be alive holding shared memory",
+                            _SHUTDOWN_WAIT_S,
+                        )
                 raise ServerStartFailed(
                     f"gqe_node_manager did not become ready within {_START_TIMEOUT_S}s"
                 )
-            try:
-                with socket.create_connection((host, port), timeout=1.0):
-                    logger.info("Server ready on %s", self._addr)
-                    return
-            except OSError:
-                time.sleep(0.1)
+            if self._accepting():
+                logger.info("Server ready on %s", self._addr)
+                return
+            time.sleep(0.1)
+
+    def _accepting(self) -> bool:
+        """True if something accepts a connection on the server address."""
+        host, port_str = self._addr.rsplit(":", 1)
+        try:
+            with socket.create_connection((host, int(port_str)), timeout=1.0):
+                return True
+        except OSError:
+            return False
 
     def _stop(self) -> None:
         """Terminate the server process and clean up shared memory."""
@@ -172,8 +201,15 @@ class GqeServer:
             self._cleanup_shared_memory()
 
     def is_alive(self) -> bool:
-        """True if the server process is still running."""
-        return self._process is not None and self._process.poll() is None
+        """True if the server is accepting connections on its address.
+
+        The process handle alone isn't enough: under --nsys it's the nsys
+        wrapper, not gqe_node_manager, so it can still be running after the
+        engine crashes. A dead handle is still conclusive either way.
+        """
+        if self._process is None or self._process.poll() is not None:
+            return False
+        return self._accepting()
 
     @property
     def addr(self) -> str:

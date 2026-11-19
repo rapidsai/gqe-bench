@@ -115,13 +115,13 @@ class Suite:
         """
         if override is not None:
             logger.info("Using DDL from %s", override)
-            return override.read_text(encoding="utf-8")
+            return normalize_ddl(override.read_text(encoding="utf-8"))
         try:
             ddl = cls.to_ddl()
         except NotImplementedError as e:
             raise NoBuiltInDDL(f"Suite '{cls.__name__}' has no built-in DDL; pass --schema") from e
         logger.info("Using %s built-in DDL (override with --schema)", cls.__name__)
-        return ddl
+        return normalize_ddl(ddl)
 
     @classmethod
     def infer_scale_factor(cls, dataset: Path) -> float:
@@ -140,7 +140,7 @@ class Suite:
         delegate to ``super`` for the shared keys, and add their own.
         """
         any_bigint = False
-        for _table, _name, declared, _notnull in iter_ddl_columns(ddl):
+        for _table, _name, declared, _notnull, _pk in iter_ddl_columns(ddl):
             if "BIGINT" in declared.upper():
                 any_bigint = True
                 break
@@ -193,6 +193,7 @@ class Suite:
         identifier_type: str,
         load_all_data: bool,
         decimal_type: str,
+        execution_backend: str,
     ) -> bytes:
         """Produce a query's payload bytes at discovery.
 
@@ -206,6 +207,9 @@ class Suite:
         it — the catalog DDL declares DECIMAL either way and the engine resolves
         it — so the same text comes back for every value.
 
+        ``execution_backend`` selects the physical-plan shape for handcoded
+        queries. SQL payloads do not depend on it.
+
         Raises ValueError if the query cannot be produced (unknown query name /
         no handcoded builder).
         """
@@ -216,7 +220,12 @@ class Suite:
                 return cls.query_sql(name, scale_factor).encode("utf-8")
             case QuerySource.HANDCODED:
                 return cls._serialize_handcoded_plan(
-                    name, scale_factor, identifier_type, load_all_data, decimal_type
+                    name,
+                    scale_factor,
+                    identifier_type,
+                    load_all_data,
+                    decimal_type,
+                    execution_backend,
                 )
             case _:
                 raise ValueError(f"Unknown query source: {source}")
@@ -229,6 +238,7 @@ class Suite:
         identifier_type: str,
         load_all_data: bool,
         decimal_type: str,
+        execution_backend: str,
     ) -> bytes:
         raise NotImplementedError(f"{cls.__name__} does not support handcoded queries")
 
@@ -261,7 +271,7 @@ def _collect_column_refs_from_sql(ddl: str, sql: str, out: dict[str, set[str]]) 
     # Build the {table: {column: type}} dict sqlglot.qualify consumes to
     # disambiguate unqualified column refs. Types unused.
     schema: dict[str, dict[str, str]] = {}
-    for table, col, declared, _notnull in iter_ddl_columns(ddl):
+    for table, col, declared, _notnull, _pk in iter_ddl_columns(ddl):
         schema.setdefault(table, {})[col] = declared or "UNKNOWN"
 
     # qualify sets each Column node's .table to the FROM-clause name it
@@ -320,7 +330,7 @@ def _collect_column_refs_from_plan(plan_bytes: bytes, out: dict[str, set[str]]) 
 
 
 def iter_ddl_columns(ddl: str):
-    """Yield ``(table, column, declared_type, notnull_flag)`` for every column in the DDL.
+    """Yield ``(table, column, declared_type, notnull_flag, pk_flag)`` for every column in the DDL.
 
     Single SQLite-backed parser shared by every Suite subclass that
     introspects a DDL string. Callers ignore the fields they don't need.
@@ -329,41 +339,117 @@ def iter_ddl_columns(ddl: str):
         conn.executescript(ddl)
         for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"):
             for row in conn.execute(f"PRAGMA table_info({table})"):
-                yield table, row[1], row[2], bool(row[3])
+                yield table, row[1], row[2], bool(row[3]), bool(row[5])
+
+
+def _format_column_line(name: str, decl: str, notnull: bool) -> str:
+    """Render one column declaration as it appears inside a CREATE TABLE body."""
+    return f"  {name} {decl}{' NOT NULL' if notnull else ''}"
+
+
+def _primary_key_line(pk_columns: list[str]) -> str:
+    """Render a PRIMARY KEY clause line for the given columns."""
+    return f"  PRIMARY KEY ({', '.join(pk_columns)})"
+
+
+def _render_ddl_tables(tables: dict[str, tuple[list[str], list[str], list[str]]]) -> str:
+    """Render ``{table: (column_lines, pk_all, pk_kept)}`` into CREATE TABLE statements.
+
+    A ``PRIMARY KEY`` is emitted only when every one of its columns survives
+    (``pk_all`` and ``pk_kept`` have equal length).
+    """
+    parts: list[str] = []
+    for table, (lines, pk_all, pk_kept) in tables.items():
+        if pk_all and len(pk_kept) == len(pk_all):
+            lines.append(_primary_key_line(pk_kept))
+        parts.append(f"CREATE TABLE {table} (\n{',\n'.join(lines)}\n);")
+    return "\n\n".join(parts) + "\n"
+
+
+def normalize_ddl(ddl: str) -> str:
+    """Re-emit ``ddl`` in canonical shape: one ``CREATE TABLE`` statement per
+    table, one column per line, each statement terminated by a lone ``');'``.
+
+    ``narrow_ddl`` and ``append_storage_kind_clause`` both rely on this exact
+    shape; call this on any DDL — built-in or from a ``--schema`` override
+    file — before it reaches either.
+
+    Only column declarations (name, declared type, ``NOT NULL``) and
+    ``PRIMARY KEY`` survive. Other constraints (``CHECK``, foreign keys) are
+    dropped — SQLite's ``PRAGMA`` introspection this relies on doesn't expose
+    them in a reconstructable form.
+    """
+    return narrow_ddl(ddl, {})
 
 
 def narrow_ddl(ddl: str, required: dict[str, set[str]]) -> str:
-    """Re-emit ``ddl`` keeping only the columns in ``required`` per table.
+    """Re-emit ``ddl`` keeping only the columns in ``required`` per table,
+    plus every ``PRIMARY KEY`` column regardless of ``required`` — narrowing
+    never drops a table's key, so unique-key join optimization stays
+    available downstream even when the query doesn't select the key itself.
 
     Columns are kept in their original DDL order with their declared types
-    verbatim; a table absent from ``required`` keeps all of its columns. A
-    ``PRIMARY KEY`` is preserved only when every one of its columns survives.
-    This makes the registered table narrow so a column-list COPY loads only the
-    referenced columns from parquet.
+    verbatim; a table absent from ``required`` keeps all of its columns.
+    This makes the registered table narrow so downstream loading reads only
+    the referenced columns (plus the key) — a column-list COPY for
+    in-memory storage, or the external table's own column list for
+    ``parquet_file`` storage.
 
-    Assumes simple ``CREATE TABLE`` DDL — a column definition per line, an
-    optional ``NOT NULL``, and an optional ``PRIMARY KEY`` — which is what the
-    built-in TPC-H schema and dataset ``schema.sql`` files emit. Other
-    constraints (``CHECK``, foreign keys) would be dropped.
+    ``ddl`` is always ``normalize_ddl``'s output (see ``Suite.schema``), so
+    every statement is a lone ``CREATE TABLE`` — a column definition per line,
+    an optional ``NOT NULL``, and an optional ``PRIMARY KEY``.
     """
+    tables: dict[str, tuple[list[str], list[str], list[str]]] = {}
+    for table, name, decl, notnull, pk in iter_ddl_columns(ddl):
+        lines, pk_all, pk_kept = tables.setdefault(table, ([], [], []))
+        keep = required.get(table)
+        if pk:
+            pk_all.append(name)
+        if keep is not None and name not in keep and not pk:
+            continue
+        lines.append(_format_column_line(name, decl, notnull))
+        if pk:
+            pk_kept.append(name)
+    return _render_ddl_tables(tables)
+
+
+def append_storage_kind_clause(ddl: str, storage_kind: str) -> str:
+    """Append ``WITH (storage_kind = '...')`` to every ``CREATE TABLE`` statement in ``ddl``.
+
+    Only safe to call on ``normalize_ddl`` or ``narrow_ddl`` output, whose
+    canonical shape (one statement per table, each terminated by a lone
+    ``');'``) is guaranteed by construction — not on arbitrary DDL text.
+    """
+    escaped = storage_kind.replace("'", "''")
+    return ddl.replace(");", f") WITH (storage_kind = '{escaped}');")
+
+
+def build_external_table_ddl(ddl: str, table_locations: dict[str, Path]) -> str:
+    """Re-emit ``ddl`` as ``CREATE EXTERNAL TABLE ... STORED AS PARQUET LOCATION`` statements.
+
+    One statement per table in ``table_locations``, using each table's own
+    directory as its ``LOCATION``. Tables absent from ``table_locations`` are
+    dropped from the output entirely — parquet-backed tables read directly
+    from their location, so a table with nothing to read is skipped. Every
+    column of an included table is kept, so its ``PRIMARY KEY`` (if any) is
+    always fully present.
+    """
+    tables: dict[str, tuple[list[str], list[str]]] = {}
+    for table, name, decl, notnull, pk in iter_ddl_columns(ddl):
+        if table not in table_locations:
+            continue
+        lines, pk_cols = tables.setdefault(table, ([], []))
+        lines.append(_format_column_line(name, decl, notnull))
+        if pk:
+            pk_cols.append(name)
+
     parts: list[str] = []
-    with contextlib.closing(sqlite3.connect(":memory:")) as conn:
-        conn.executescript(ddl)
-        tables = [t for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        for table in tables:
-            keep = required.get(table)
-            lines: list[str] = []
-            pk_all: list[str] = []
-            pk_kept: list[str] = []
-            for _cid, name, decl, notnull, _dflt, pk in conn.execute(f"PRAGMA table_info({table})"):
-                if pk:
-                    pk_all.append(name)
-                if keep is not None and name not in keep:
-                    continue
-                lines.append(f"  {name} {decl}{' NOT NULL' if notnull else ''}")
-                if pk:
-                    pk_kept.append(name)
-            if pk_all and len(pk_kept) == len(pk_all):
-                lines.append(f"  PRIMARY KEY ({', '.join(pk_kept)})")
-            parts.append(f"CREATE TABLE {table} (\n{',\n'.join(lines)}\n);")
+    for table, (lines, pk_cols) in tables.items():
+        if pk_cols:
+            lines.append(_primary_key_line(pk_cols))
+        location = str(table_locations[table]).replace("'", "''")
+        parts.append(
+            f"CREATE EXTERNAL TABLE {table} (\n{',\n'.join(lines)}\n) "
+            f"STORED AS PARQUET LOCATION '{location}';"
+        )
     return "\n\n".join(parts) + "\n"
